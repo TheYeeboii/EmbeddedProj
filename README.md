@@ -1,2 +1,0 @@
-# EmbeddedProj
-Embedded System
