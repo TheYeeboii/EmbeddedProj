@@ -26,15 +26,18 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 if (NOT DEFINED WIFI_SSID)
-    set(WIFI_SSID "WEISONG 4706")
+    # set(WIFI_SSID "WEISONG 4706") weisong
+    set(WIFI_SSID "CYShared")
 endif()
 
 if (NOT DEFINED WIFI_PASSWORD)
-    set(WIFI_PASSWORD "2W73)39f")
+    # set(WIFI_PASSWORD "2W73)39f") weisong
+    set(WIFI_PASSWORD "Doggies123!!!")
 endif()
 
 if (NOT DEFINED MQTT_BROKER_IP)
-    set(MQTT_BROKER_IP "192.168.137.1")
+    # set(MQTT_BROKER_IP "192.168.137.1") weisong
+    set(MQTT_BROKER_IP "10.134.134.164")
 endif()
 
 add_executable(rover_project
