@@ -51,3 +51,18 @@ The firmware stops active motors after one second without a fresh command.
 ## Buddy 2 motion APIs
 
 The reusable motion library is in `buddy2_motion.h` and `buddy2_motion.c`. It provides signed motor control, encoder odometry, speed estimation, PID correction, distance moves, and encoder-based turns. The default geometry and encoder values are placeholders; complete the measurements in `BUDDY2_CALIBRATION.md` before relying on physical distance or angle accuracy.
+
+
+### FAI THINGS
+EmbeddedProj/
+│
+├── rtos_port/            ← NEW firmware (micro T-Kernel). This is the future development.
+│
+├── main.c, buddy*.c ...  ← OLD firmware (plain Pico SDK, no RTOS). Need to phase out.
+├── CMakeLists.txt ...    ← how the OLD firmware is built 
+├── build/                ← OLD firmware's build output (generated)
+│
+├── dashboard/            ← runs on a LAPTOP, not on the robot
+├── mosquitto-local.conf  ← also for the laptop (the MQTT server)
+│
+└── .vscode/              ← VS Code editor settings

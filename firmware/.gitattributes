@@ -1,0 +1,5 @@
+# Keep Unix line endings so make and the shell scripts work from WSL
+* text=auto eol=lf
+*.uf2 binary
+*.pdf binary
+*.png binary
