@@ -5,7 +5,8 @@
 From the repository root:
 
 ```powershell
-cmake -S . -B build "-DMQTT_BROKER_IP=192.168.137.1"
+# cmake -S . -B build "-DMQTT_BROKER_IP=192.168.137.1" ws
+cmake -S . -B build "-DMQTT_BROKER_IP=172.20.10.7"
 cmake --build build --target EmbeddedProj
 ```
 
@@ -17,7 +18,7 @@ Start Mosquitto with:
 
 ```powershell
 & "C:\Program Files\Mosquitto\mosquitto.exe" `
-  -c "$PWD\rover_project\mosquitto-local.conf" -v
+  -c "$PWD\mosquitto-local.conf" -v
 ```
 
 The local configuration listens on:
@@ -32,7 +33,7 @@ For a private development hotspot it allows anonymous access. Use authentication
 In another terminal:
 
 ```powershell
-python -m http.server 8000 --directory rover_project/dashboard
+python -m http.server 8000 --directory dashboard
 ```
 
 Open <http://localhost:8000>. The dashboard defaults to the local hotspot broker. To use a different broker, open `http://localhost:8000/?broker=HOST_OR_IP`.
