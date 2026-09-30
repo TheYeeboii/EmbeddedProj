@@ -6,7 +6,7 @@ From the repository root:
 
 ```powershell
 cmake -S . -B build "-DMQTT_BROKER_IP=192.168.137.1"
-cmake --build build --target rover_project
+cmake --build build --target EmbeddedProj
 ```
 
 Flash `build/rover_project/rover_project.uf2` to the Pico W. Wi-Fi credentials are supplied as CMake variables; do not commit real credentials to a shared repository.

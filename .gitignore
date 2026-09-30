@@ -1,0 +1,7 @@
+# Generated CMake build directories
+/build/
+/build-*/
+/cmake-build-*/
+
+# Local VS Code settings contain machine-specific SDK and toolchain paths
+/.vscode/settings.json
