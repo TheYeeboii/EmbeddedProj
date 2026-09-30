@@ -1,7 +1,9 @@
-# Generated CMake build directories
+# Old CMake build output (no longer used)
 /build/
 /build-*/
 /cmake-build-*/
 
-# Local VS Code settings contain machine-specific SDK and toolchain paths
+# Local VS Code settings contain machine-specific paths
 /.vscode/settings.json
+
+# (firmware/ has its own .gitignore for build output and Wi-Fi passwords)
