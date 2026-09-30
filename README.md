@@ -5,8 +5,7 @@
 From the repository root:
 
 ```powershell
-# cmake -S . -B build "-DMQTT_BROKER_IP=192.168.137.1" ws
-cmake -S . -B build "-DMQTT_BROKER_IP=172.20.10.7"
+cmake -S . -B build "-DMQTT_BROKER_IP=192.168.137.1"
 cmake --build build --target EmbeddedProj
 ```
 
