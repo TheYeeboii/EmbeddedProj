@@ -27,17 +27,19 @@ pico_sdk_init()
 
 if (NOT DEFINED WIFI_SSID)
     # set(WIFI_SSID "WEISONG 4706") weisong
-    set(WIFI_SSID "CYShared")
+    # set(WIFI_SSID "CYShared") cy
+    set(WIFI_SSID "Charmain_Laptop")
 endif()
 
 if (NOT DEFINED WIFI_PASSWORD)
     # set(WIFI_PASSWORD "2W73)39f") weisong
-    set(WIFI_PASSWORD "Doggies123!!!")
+    # set(WIFI_PASSWORD "Doggies123!!!") cy
+    set(WIFI_PASSWORD "C_Raspberry")
 endif()
 
 if (NOT DEFINED MQTT_BROKER_IP)
-    # set(MQTT_BROKER_IP "192.168.137.1") weisong
-    set(MQTT_BROKER_IP "10.134.134.164")
+    set(MQTT_BROKER_IP "192.168.137.1")
+    # set(MQTT_BROKER_IP "10.134.134.164") cy
 endif()
 
 add_executable(rover_project
