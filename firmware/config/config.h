@@ -170,7 +170,7 @@
  */
 /* Robot car: OFF.  The kernel's sample ADC/I2C/UART drivers are not used -
  * the application drives ADC and I2C through the Pico SDK (robot_hal.c).
- * With this ON the kernel also claims GP8/GP9 (left motor) as I2C0. */
+ * With this ON the kernel also claims GP8/GP9 (right motor, M1) as I2C0. */
 #define USE_SDEV_DRV		(0)	/* Use Sample device driver */
 
 /*---------------------------------------------------------------------- */

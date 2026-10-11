@@ -76,6 +76,13 @@ static buddy2_calibration_t g_calibration =
 };
 
 static buddy2_motion_state_t g_state;
+/* Open-loop trim in percent (BUDDY2_TRIM_MIN..100).  Only scales
+ * buddy2_set_motor_pwm(); distance/turn moves use the speed PID instead. */
+static uint8_t  g_left_trim_pct   = BUDDY2_TRIM_DEFAULT_LEFT;
+static uint8_t  g_right_trim_pct  = BUDDY2_TRIM_DEFAULT_RIGHT;
+/* Global speed limit in percent: scales open-loop PWM and the max_pwm of
+ * distance/turn moves. */
+static uint8_t  g_speed_pct       = BUDDY2_SPEED_DEFAULT;
 static uint32_t g_last_update_ms = 0u;
 static int8_t   g_left_direction  = 1;
 static int8_t   g_right_direction = 1;
@@ -286,8 +293,57 @@ void buddy2_set_motor_pwm(int16_t left_pwm, int16_t right_pwm)
         return;
     }
     buddy2_lock();
-    buddy2_set_motor_pwm_locked(left_pwm, right_pwm);
+    buddy2_set_motor_pwm_locked(
+        (int16_t)(((int32_t)left_pwm  * (int32_t)g_left_trim_pct  * (int32_t)g_speed_pct) / 10000),
+        (int16_t)(((int32_t)right_pwm * (int32_t)g_right_trim_pct * (int32_t)g_speed_pct) / 10000));
     buddy2_unlock();
+}
+
+bool buddy2_set_speed_limit(uint8_t percent)
+{
+    if ((percent < BUDDY2_SPEED_MIN) || (percent > 100u))
+    {
+        return false;
+    }
+    buddy2_lock();
+    g_speed_pct = percent;
+    buddy2_unlock();
+    return true;
+}
+
+uint8_t buddy2_get_speed_limit(void)
+{
+    uint8_t percent;
+
+    buddy2_lock();
+    percent = g_speed_pct;
+    buddy2_unlock();
+    return percent;
+}
+
+bool buddy2_set_trim(uint8_t left_pct, uint8_t right_pct)
+{
+    if ((left_pct < BUDDY2_TRIM_MIN) || (left_pct > 100u) ||
+        (right_pct < BUDDY2_TRIM_MIN) || (right_pct > 100u))
+    {
+        return false;
+    }
+    buddy2_lock();
+    g_left_trim_pct  = left_pct;
+    g_right_trim_pct = right_pct;
+    buddy2_unlock();
+    return true;
+}
+
+void buddy2_get_trim(uint8_t *p_left_pct, uint8_t *p_right_pct)
+{
+    if ((NULL != p_left_pct) && (NULL != p_right_pct))
+    {
+        buddy2_lock();
+        *p_left_pct  = g_left_trim_pct;
+        *p_right_pct = g_right_trim_pct;
+        buddy2_unlock();
+    }
 }
 
 void buddy2_stop(void)
@@ -352,7 +408,7 @@ static bool buddy2_start_motion(float left_distance_mm,
     g_motion.target_distance_mm      = (left_abs > right_abs) ? left_abs : right_abs;
     g_motion.start_left_distance_mm  = g_state.left_distance_mm;
     g_motion.start_right_distance_mm = g_state.right_distance_mm;
-    g_motion.max_pwm                 = buddy2_clamp_pwm((float)max_pwm);
+    g_motion.max_pwm                 = buddy2_clamp_pwm(((float)max_pwm * (float)g_speed_pct) / 100.0f);
     g_motion.left_direction          = (left_distance_mm  < 0.0f) ? -1 : 1;
     g_motion.right_direction         = (right_distance_mm < 0.0f) ? -1 : 1;
     g_motion.left_integral           = 0.0f;

@@ -27,6 +27,11 @@
 #define ROBOT_LEGACY_TO_PWM(v)        ((int16_t)((uint32_t)(v) / 2u))
 #define ROBOT_LEGACY_MAX              (65535)
 
+/* Limits for the dashboard "line_speed" command, percent of full power. */
+#define ROBOT_LINE_BASE_MIN_PCT       (15)
+#define ROBOT_LINE_BASE_MAX_PCT       (80)
+#define ROBOT_LINE_TURN_MAX_PCT       (60)
+
 #define ROBOT_FORWARD_SPEED           (30000u)   /* dashboard units */
 #define ROBOT_REVERSE_SPEED           (20000u)
 #define ROBOT_DEFAULT_MOTION_PWM      (20000)    /* dashboard units */
@@ -300,6 +305,55 @@ static bool robot_motion(const char *p_name, int32_t amount, int32_t pwm)
     return started;
 }
 
+static void robot_set_trim(int32_t left, int32_t right)
+{
+    if ((left >= 0) && (left <= 100) && (right >= 0) && (right <= 100) &&
+        buddy2_set_trim((uint8_t)left, (uint8_t)right))
+    {
+        tm_printf((UB *)"[cmd] motor trim L %d R %d (percent)\n", (INT)left, (INT)right);
+    }
+    else
+    {
+        tm_printf((UB *)"[cmd] motor trim rejected (each %d..100): %d %d\n",
+                  (INT)BUDDY2_TRIM_MIN, (INT)left, (INT)right);
+    }
+}
+
+static void robot_set_speed_limit(int32_t percent)
+{
+    if ((percent >= (int32_t)BUDDY2_SPEED_MIN) && (percent <= 100) &&
+        buddy2_set_speed_limit((uint8_t)percent))
+    {
+        tm_printf((UB *)"[cmd] speed limit %d%%\n", (INT)percent);
+    }
+    else
+    {
+        tm_printf((UB *)"[cmd] speed limit rejected (%d..100): %d\n",
+                  (INT)BUDDY2_SPEED_MIN, (INT)percent);
+    }
+}
+
+/* Line-follow speed in percent of full power: base = straight speed,
+ * turn = extra/less power on the outer/inner wheel on curves. */
+static void robot_set_line_speed(int32_t base_pct, int32_t turn_pct)
+{
+    buddy3_calibration_t calibration;
+
+    if ((base_pct < ROBOT_LINE_BASE_MIN_PCT) || (base_pct > ROBOT_LINE_BASE_MAX_PCT) ||
+        (turn_pct < 0) || (turn_pct > ROBOT_LINE_TURN_MAX_PCT))
+    {
+        tm_printf((UB *)"[cmd] line speed rejected (base %d..%d, turn 0..%d): %d %d\n",
+                  (INT)ROBOT_LINE_BASE_MIN_PCT, (INT)ROBOT_LINE_BASE_MAX_PCT,
+                  (INT)ROBOT_LINE_TURN_MAX_PCT, (INT)base_pct, (INT)turn_pct);
+        return;
+    }
+    buddy3_get_calibration(&calibration);
+    calibration.base_pwm          = (int16_t)((base_pct * BUDDY2_PWM_MAX) / 100);
+    calibration.proportional_gain = ((float)turn_pct * (float)BUDDY2_PWM_MAX) / 100000.0f;
+    buddy3_set_calibration(&calibration);
+    tm_printf((UB *)"[cmd] line speed base %d turn %d (percent)\n", (INT)base_pct, (INT)turn_pct);
+}
+
 static void robot_start_line(void)
 {
     buddy2_stop();
@@ -400,6 +454,35 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
+        if (robot_str_equal(name, "motor_trim"))
+        {
+            /* {"cmd":"motor_trim","left":95,"right":100}  (percent) */
+            if (robot_json_int(p_command, "left", &left) &&
+                robot_json_int(p_command, "right", &right))
+            {
+                robot_set_trim(left, right);
+            }
+            return;
+        }
+        if (robot_str_equal(name, "speed_limit"))
+        {
+            /* {"cmd":"speed_limit","percent":60} */
+            if (robot_json_int(p_command, "percent", &amount))
+            {
+                robot_set_speed_limit(amount);
+            }
+            return;
+        }
+        if (robot_str_equal(name, "line_speed"))
+        {
+            /* {"cmd":"line_speed","base":37,"turn":27}  (percent) */
+            if (robot_json_int(p_command, "base", &left) &&
+                robot_json_int(p_command, "turn", &right))
+            {
+                robot_set_line_speed(left, right);
+            }
+            return;
+        }
         (void)robot_json_int(p_command, "max_pwm", &pwm);
         if (!robot_json_int(p_command, "distance_mm", &amount))
         {
@@ -426,6 +509,32 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
                 robot_parse_int(p_rest, &right, &p_rest))
             {
                 robot_drive(robot_clamp_legacy(left), robot_clamp_legacy(right), 1, now_ms);
+            }
+            return;
+        }
+        if (robot_str_equal(name, "motor_trim"))
+        {
+            if (robot_parse_int(p_rest, &left, &p_rest) &&
+                robot_parse_int(p_rest, &right, &p_rest))
+            {
+                robot_set_trim(left, right);
+            }
+            return;
+        }
+        if (robot_str_equal(name, "speed_limit"))
+        {
+            if (robot_parse_int(p_rest, &amount, &p_rest))
+            {
+                robot_set_speed_limit(amount);
+            }
+            return;
+        }
+        if (robot_str_equal(name, "line_speed"))
+        {
+            if (robot_parse_int(p_rest, &left, &p_rest) &&
+                robot_parse_int(p_rest, &right, &p_rest))
+            {
+                robot_set_line_speed(left, right);
             }
             return;
         }

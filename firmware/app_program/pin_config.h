@@ -11,11 +11,13 @@
 
 #include <stdint.h>
 
-/* Motor driver (Robo Pico, hard-wired) */
-#define MOTOR_LEFT_PWM_A      (8u)   /* M1A - forward  */
-#define MOTOR_LEFT_PWM_B      (9u)   /* M1B - backward */
-#define MOTOR_RIGHT_PWM_A     (10u)  /* M2A - forward  */
-#define MOTOR_RIGHT_PWM_B     (11u)  /* M2B - backward */
+/* Motor driver (Robo Pico, hard-wired).
+ * On our car the LEFT wheel (seen from behind) is wired to M2 and the RIGHT
+ * wheel to M1 - confirmed 10 Oct with a wheels-up line-follow test. */
+#define MOTOR_LEFT_PWM_A      (10u)  /* M2A - forward  */
+#define MOTOR_LEFT_PWM_B      (11u)  /* M2B - backward */
+#define MOTOR_RIGHT_PWM_A     (8u)   /* M1A - forward  */
+#define MOTOR_RIGHT_PWM_B     (9u)   /* M1B - backward */
 
 /* Wheel encoders (Grove 2) */
 #define ENCODER_LEFT_A        (2u)   /* GP2 */

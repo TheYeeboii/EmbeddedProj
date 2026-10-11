@@ -12,7 +12,7 @@
 #ifndef MQTT_CONFIG_H
 #define MQTT_CONFIG_H
 
-#define ROBOT_MQTT_BROKER_IP     "192.168.137.1"   /* laptop running Mosquitto */
+#define ROBOT_MQTT_BROKER_IP     "192.168.137.1"   /* laptop running Mosquitto (NOT the rover IP) */
 #define ROBOT_MQTT_BROKER_PORT   (1883u)
 #define ROBOT_MQTT_CLIENT_ID     "buddy1"          /* shown on the dashboard   */
 

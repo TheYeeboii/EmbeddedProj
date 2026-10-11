@@ -1,105 +1,347 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0b0c">
   <title>Buddy 1 Control</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="styles.css?v=7">
+  <script>
+    try {
+      const saved = localStorage.getItem('buddy1-theme');
+      if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+    } catch {}
+  </script>
 </head>
 <body>
+  <a class="skip-link" href="#drive">Skip to drive controls</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><i data-lucide="bot"></i></span>
+      <div class="brand-text">
+        <h1>Buddy 1</h1>
+        <p class="muted" translate="no">Pico W rover console</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <div id="connection" class="pill" data-state="offline" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="pill-label">Connecting…</span>
+        <code id="broker-host" class="pill-host" translate="no">--</code>
+      </div>
+      <button id="theme-toggle" class="btn btn-ghost btn-icon" type="button" aria-label="Toggle light or dark theme">
+        <i data-lucide="sun-moon" aria-hidden="true"></i>
+      </button>
+    </div>
+  </header>
+
   <main class="shell">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">ROVER CONTROL / BUDDY 1</p>
-        <h1>Telemetry console</h1>
+    <section class="summary" aria-label="Robot status">
+      <div class="summary-item">
+        <span class="summary-label">Robot link</span>
+        <span id="robot-link" class="badge" data-tone="muted">Unknown</span>
       </div>
-      <div id="connection" class="status offline"><span></span>Disconnected</div>
-    </header>
-
-    <section class="hero-strip">
-      <div>
-        <p class="label">Current state</p>
-        <strong id="state">Waiting for telemetry</strong>
+      <div class="summary-item">
+        <span class="summary-label">Mode</span>
+        <span id="mode" class="badge" data-tone="muted">--</span>
       </div>
-      <div>
-        <p class="label">Last heartbeat</p>
-        <strong id="heartbeat">Never</strong>
+      <div class="summary-item">
+        <span class="summary-label">Sensors</span>
+        <span id="state" class="summary-value">Waiting for telemetry…</span>
       </div>
-      <div>
-        <p class="label">Robot</p>
-        <strong id="robot">buddy1</strong>
+      <div class="summary-item">
+        <span class="summary-label">Last heartbeat</span>
+        <span id="heartbeat" class="summary-value num">Never</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Uptime</span>
+        <span id="uptime" class="summary-value num">--</span>
       </div>
     </section>
 
-    <section class="content-grid">
-      <section class="panel telemetry-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">LIVE FEED</p>
-            <h2>Telemetry</h2>
+    <div class="layout">
+      <div class="col-main">
+        <section class="card" aria-labelledby="telemetry-title">
+          <header class="card-header">
+            <h2 id="telemetry-title">Telemetry</h2>
+            <span id="updated" class="muted small num">No data yet</span>
+          </header>
+
+          <div class="metrics">
+            <article class="metric metric-wide">
+              <div class="metric-head"><span>Ultrasonic distance</span><i data-lucide="radar" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="distance" class="num">--</strong><span class="unit">cm</span></div>
+              <svg id="distance-spark" class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
+                <polyline points=""></polyline>
+              </svg>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Heading</span><i data-lucide="compass" aria-hidden="true"></i></div>
+              <div class="metric-row">
+                <div class="metric-value"><strong id="heading" class="num">--</strong><span class="unit">°</span></div>
+                <div class="compass" aria-hidden="true"><span id="compass-needle" class="needle"></span></div>
+              </div>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Pitch</span><i data-lucide="move-diagonal" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="pitch" class="num">--</strong><span class="unit">°</span></div>
+              <span class="metric-sub num">Peak <span id="max-pitch">--</span>°</span>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Encoder ticks</span><i data-lucide="gauge" aria-hidden="true"></i></div>
+              <dl class="pair num">
+                <div><dt>L</dt><dd id="left-ticks">--</dd></div>
+                <div><dt>R</dt><dd id="right-ticks">--</dd></div>
+              </dl>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Motor output</span><i data-lucide="zap" aria-hidden="true"></i></div>
+              <dl class="pair num">
+                <div><dt>L</dt><dd id="motor-left">--</dd></div>
+                <div><dt>R</dt><dd id="motor-right">--</dd></div>
+              </dl>
+            </article>
           </div>
-          <span id="updated">No data</span>
-        </div>
-        <div class="telemetry-grid">
-          <div class="metric"><span>Distance</span><strong id="distance">--</strong><small>cm</small></div>
-          <div class="metric"><span>Heading</span><strong id="heading">--</strong><small>deg</small></div>
-          <div class="metric"><span>Left IR</span><strong id="left-ir">--</strong><small>raw</small></div>
-          <div class="metric"><span>Center IR</span><strong id="center-ir">--</strong><small>raw</small></div>
-          <div class="metric"><span>Right IR</span><strong id="right-ir">--</strong><small>raw</small></div>
-          <div class="metric"><span>Encoder ticks</span><strong id="ticks">--</strong><small>L / R</small></div>
-          <div class="metric"><span>Motor output</span><strong id="motors">--</strong><small>L / R</small></div>
-          <div class="metric"><span>Uptime</span><strong id="uptime">--</strong><small>ms</small></div>
-        </div>
-        <div class="serial-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">SENSOR STREAM</p>
-              <h2>Serial monitor</h2>
+        </section>
+
+        <section class="card" aria-labelledby="line-title">
+          <header class="card-header">
+            <h2 id="line-title">Line sensor</h2>
+            <div class="chips">
+              <span id="chip-line" class="chip">Line</span>
+              <span id="chip-junction" class="chip">Junction</span>
+              <span id="chip-barcode" class="chip">Barcode<span id="barcode-cmd"></span></span>
             </div>
-            <div class="serial-actions"><button id="pause-serial" class="clear-button">Pause</button><button id="clear-serial" class="clear-button">Clear</button></div>
-          </div>
-          <pre id="serial-log">Waiting for Pico W sensing data...</pre>
-        </div>
-      </section>
+          </header>
 
-      <section class="panel controls-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">COMMAND LINK</p>
-            <h2>Drive</h2>
+          <div class="ir">
+            <div class="ir-bars">
+              <div class="ir-bar">
+                <span class="ir-name">Front left</span>
+                <div class="track"><div id="bar-0" class="fill"></div></div>
+                <span class="num ir-val"><span id="norm-0">--</span><small> raw <span id="raw-0">--</span></small></span>
+              </div>
+              <div class="ir-bar">
+                <span class="ir-name">Front right</span>
+                <div class="track"><div id="bar-1" class="fill"></div></div>
+                <span class="num ir-val"><span id="norm-1">--</span><small> raw <span id="raw-1">--</span></small></span>
+              </div>
+              <div class="ir-bar">
+                <span class="ir-name">Barcode</span>
+                <div class="track"><div id="bar-2" class="fill"></div></div>
+                <span class="num ir-val"><span id="norm-2">--</span><small> raw <span id="raw-2">--</span></small></span>
+              </div>
+            </div>
+            <div class="position">
+              <div class="position-head"><span>Line position</span><span id="position" class="num">--</span></div>
+              <div class="position-track" aria-hidden="true">
+                <span class="position-center"></span>
+                <span id="position-marker" class="position-marker"></span>
+              </div>
+              <div class="position-scale muted small num" aria-hidden="true"><span>-1000</span><span>0</span><span>+1000</span></div>
+            </div>
           </div>
-          <span id="command-result">Ready</span>
-        </div>
-        <div class="drive-pad">
-          <button data-command="forward" class="forward">Forward</button>
-          <button data-command="left">Left</button>
-          <button data-command="stop" class="stop">Stop</button>
-          <button data-command="right">Right</button>
-          <button data-command="reverse" class="reverse">Reverse</button>
-        </div>
-        <div class="manual-drive">
-          <label>Left PWM <input id="left-speed" type="number" min="0" max="65535" value="30000"></label>
-          <label>Right PWM <input id="right-speed" type="number" min="0" max="65535" value="30000"></label>
-          <button id="drive-command" class="wide">Send drive command</button>
-        </div>
-        <div class="motion-controls">
-          <label>Distance <input id="motion-distance" type="number" min="1" value="500"></label>
-          <button data-motion="move_forward">Move forward</button>
-          <button data-motion="move_backward">Move backward</button>
-          <label>Turn angle <input id="motion-angle" type="number" min="1" value="90"></label>
-          <button data-motion="turn_left">Turn left</button>
-          <button data-motion="turn_right">Turn right</button>
-        </div>
-        <div class="line-controls">
-          <button id="line-follow-command" class="wide">Start line following</button>
-          <button id="line-stop-command" class="wide">Stop line following</button>
-        </div>
-      </section>
-    </section>
+        </section>
 
-    <footer>MQTT WebSocket <code>current-host:9001</code> · telemetry <code>rover/telemetry</code> · commands <code>rover/commands</code></footer>
+        <section class="card" aria-labelledby="serial-title">
+          <header class="card-header">
+            <h2 id="serial-title">Serial monitor</h2>
+            <div class="btn-row">
+              <button id="pause-serial" class="btn btn-outline btn-sm" type="button" aria-pressed="false">
+                <i data-lucide="pause" aria-hidden="true"></i><span>Pause</span>
+              </button>
+              <button id="clear-serial" class="btn btn-ghost btn-sm" type="button">
+                <i data-lucide="eraser" aria-hidden="true"></i><span>Clear</span>
+              </button>
+            </div>
+          </header>
+          <pre id="serial-log" class="console" tabindex="0" aria-label="Line sensor debug stream"><span class="console-empty">Waiting for rover/debug data…</span></pre>
+        </section>
+      </div>
+
+      <aside class="col-side">
+        <div class="side-stack">
+          <section id="drive" class="card" aria-labelledby="drive-title">
+            <header class="card-header">
+              <h2 id="drive-title">Drive</h2>
+              <span id="command-result" class="muted small" role="status" aria-live="polite">Ready</span>
+            </header>
+
+            <div class="drive-pad" role="group" aria-label="Directional drive">
+              <button class="btn btn-secondary pad pad-up" type="button" data-command="forward" aria-keyshortcuts="W ArrowUp" aria-label="Forward">
+                <i data-lucide="arrow-up" aria-hidden="true"></i>
+              </button>
+              <button class="btn btn-secondary pad pad-left" type="button" data-command="left" aria-keyshortcuts="A ArrowLeft" aria-label="Left">
+                <i data-lucide="arrow-left" aria-hidden="true"></i>
+              </button>
+              <button class="btn btn-destructive pad pad-stop" type="button" data-command="stop" aria-keyshortcuts="Space Escape" aria-label="Stop">
+                <i data-lucide="square" aria-hidden="true"></i>
+              </button>
+              <button class="btn btn-secondary pad pad-right" type="button" data-command="right" aria-keyshortcuts="D ArrowRight" aria-label="Right">
+                <i data-lucide="arrow-right" aria-hidden="true"></i>
+              </button>
+              <button class="btn btn-secondary pad pad-down" type="button" data-command="reverse" aria-keyshortcuts="S ArrowDown" aria-label="Reverse">
+                <i data-lucide="arrow-down" aria-hidden="true"></i>
+              </button>
+            </div>
+            <p class="hint muted small">Hold a direction to keep driving. Release, <kbd>Space</kbd> or <kbd>Esc</kbd> stops. Keys: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows.</p>
+          </section>
+
+          <section class="card" aria-labelledby="speed-title">
+            <header class="card-header">
+              <h2 id="speed-title">Speed limit</h2>
+              <span class="muted small num">Robot: <span id="speed-current">--</span></span>
+            </header>
+            <form id="speed-form" class="stack" novalidate>
+              <div class="field">
+                <label for="speed-limit">Speed (%)</label>
+                <div class="stepper stepper-apply">
+                  <button class="btn btn-outline btn-icon" type="button" data-target="speed-limit" data-step="-5" aria-label="Decrease speed limit by 5%"><i data-lucide="minus" aria-hidden="true"></i></button>
+                  <input id="speed-limit" name="speed_limit" class="input num" type="number" inputmode="numeric" min="20" max="100" step="5" value="40" autocomplete="off">
+                  <button class="btn btn-outline btn-icon" type="button" data-target="speed-limit" data-step="5" aria-label="Increase speed limit by 5%"><i data-lucide="plus" aria-hidden="true"></i></button>
+                  <button class="btn btn-primary" type="submit"><i data-lucide="send" aria-hidden="true"></i>Apply</button>
+                </div>
+              </div>
+              <p id="speed-error" class="field-error small" role="alert" hidden></p>
+              <p class="muted small">Scales everything: arrows, Raw PWM, Motion, line following and barcode moves. Line following runs at its own Speed × this limit; if the car stalls on the line, raise that Speed. Resets to 40% on reboot.</p>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="line-follow-title">
+            <header class="card-header">
+              <h2 id="line-follow-title">Line following</h2>
+              <span class="muted small num">Robot: <span id="line-current">--</span></span>
+            </header>
+            <div class="trim-grid">
+              <div class="trim-side">
+                <label for="line-base">Speed (%)</label>
+                <div class="stepper">
+                  <button class="btn btn-outline btn-icon" type="button" data-target="line-base" data-step="-1" aria-label="Decrease line speed by 1%"><i data-lucide="minus" aria-hidden="true"></i></button>
+                  <input id="line-base" name="line_base" class="input num" type="number" inputmode="numeric" min="15" max="80" step="1" value="35" autocomplete="off">
+                  <button class="btn btn-outline btn-icon" type="button" data-target="line-base" data-step="1" aria-label="Increase line speed by 1%"><i data-lucide="plus" aria-hidden="true"></i></button>
+                </div>
+              </div>
+              <div class="trim-side">
+                <label for="line-turn">Curve power (%)</label>
+                <div class="stepper">
+                  <button class="btn btn-outline btn-icon" type="button" data-target="line-turn" data-step="-1" aria-label="Decrease curve power by 1%"><i data-lucide="minus" aria-hidden="true"></i></button>
+                  <input id="line-turn" name="line_turn" class="input num" type="number" inputmode="numeric" min="0" max="60" step="1" value="27" autocomplete="off">
+                  <button class="btn btn-outline btn-icon" type="button" data-target="line-turn" data-step="1" aria-label="Increase curve power by 1%"><i data-lucide="plus" aria-hidden="true"></i></button>
+                </div>
+              </div>
+            </div>
+            <p id="line-error" class="field-error small" role="alert" hidden></p>
+            <p class="muted small line-hint">Speed is straight-line power. Curve power is added to the outer wheel and taken from the inner one. −/+ applies instantly, even while following. Defaults 35 / 27, reset on reboot.</p>
+            <div class="btn-grid">
+              <button id="line-follow-command" class="btn btn-primary" type="button"><i data-lucide="play" aria-hidden="true"></i>Start</button>
+              <button id="line-stop-command" class="btn btn-outline" type="button"><i data-lucide="square" aria-hidden="true"></i>Stop</button>
+            </div>
+          </section>
+        </div>
+        <div class="side-stack">
+          <section class="card" aria-labelledby="motion-title">
+            <header class="card-header"><h2 id="motion-title">Motion</h2></header>
+
+            <form id="motion-form" class="stack" novalidate>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="motion-distance">Distance (mm)</label>
+                  <input id="motion-distance" name="distance_mm" class="input num" type="number" inputmode="numeric" min="1" step="1" value="500" autocomplete="off">
+                </div>
+                <div class="field">
+                  <label for="motion-angle">Angle (°)</label>
+                  <input id="motion-angle" name="angle_deg" class="input num" type="number" inputmode="numeric" min="1" max="360" step="1" value="90" autocomplete="off">
+                </div>
+                <div class="field field-full">
+                  <label for="motion-pwm">Max PWM</label>
+                  <input id="motion-pwm" name="max_pwm" class="input num" type="number" inputmode="numeric" min="1" max="65535" step="1" value="20000" autocomplete="off">
+                </div>
+              </div>
+              <div class="btn-grid">
+                <button class="btn btn-outline" type="button" data-motion="move_forward"><i data-lucide="chevrons-up" aria-hidden="true"></i>Forward</button>
+                <button class="btn btn-outline" type="button" data-motion="move_backward"><i data-lucide="chevrons-down" aria-hidden="true"></i>Backward</button>
+                <button class="btn btn-outline" type="button" data-motion="turn_left"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Turn Left</button>
+                <button class="btn btn-outline" type="button" data-motion="turn_right"><i data-lucide="rotate-cw" aria-hidden="true"></i>Turn Right</button>
+              </div>
+              <p id="motion-error" class="field-error small" role="alert" hidden></p>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="pwm-title">
+            <header class="card-header"><h2 id="pwm-title">Raw PWM</h2></header>
+            <form id="drive-form" class="stack" novalidate>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="left-speed">Left</label>
+                  <input id="left-speed" name="left" class="input num" type="number" inputmode="numeric" min="0" max="65535" step="1" value="30000" autocomplete="off">
+                </div>
+                <div class="field">
+                  <label for="right-speed">Right</label>
+                  <input id="right-speed" name="right" class="input num" type="number" inputmode="numeric" min="0" max="65535" step="1" value="30000" autocomplete="off">
+                </div>
+              </div>
+              <button class="btn btn-primary" type="submit"><i data-lucide="send" aria-hidden="true"></i>Send Drive</button>
+              <p id="drive-error" class="field-error small" role="alert" hidden></p>
+              <p class="muted small">Firmware stops raw drive after 1 s without a fresh command.</p>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="trim-title">
+            <header class="card-header">
+              <h2 id="trim-title">Motor trim</h2>
+              <span class="muted small num">Robot: <span id="trim-current">--</span></span>
+            </header>
+            <div class="stack">
+              <div class="trim-grid">
+                <div class="trim-side">
+                  <label for="trim-left">Left (%)</label>
+                  <div class="stepper">
+                    <button class="btn btn-outline btn-icon" type="button" data-target="trim-left" data-step="-1" aria-label="Decrease left trim by 1%"><i data-lucide="minus" aria-hidden="true"></i></button>
+                    <input id="trim-left" name="trim_left" class="input num" type="number" inputmode="numeric" min="50" max="100" step="1" value="100" autocomplete="off">
+                    <button class="btn btn-outline btn-icon" type="button" data-target="trim-left" data-step="1" aria-label="Increase left trim by 1%"><i data-lucide="plus" aria-hidden="true"></i></button>
+                  </div>
+                </div>
+                <div class="trim-side">
+                  <label for="trim-right">Right (%)</label>
+                  <div class="stepper">
+                    <button class="btn btn-outline btn-icon" type="button" data-target="trim-right" data-step="-1" aria-label="Decrease right trim by 1%"><i data-lucide="minus" aria-hidden="true"></i></button>
+                    <input id="trim-right" name="trim_right" class="input num" type="number" inputmode="numeric" min="50" max="100" step="1" value="100" autocomplete="off">
+                    <button class="btn btn-outline btn-icon" type="button" data-target="trim-right" data-step="1" aria-label="Increase right trim by 1%"><i data-lucide="plus" aria-hidden="true"></i></button>
+                  </div>
+                </div>
+              </div>
+              <div class="btn-grid">
+                <button id="trim-send" class="btn btn-primary" type="button"><i data-lucide="send" aria-hidden="true"></i>Apply</button>
+                <button id="trim-reset" class="btn btn-outline" type="button"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Reset</button>
+              </div>
+              <p id="trim-error" class="field-error small" role="alert" hidden></p>
+              <p class="muted small">Lower the faster motor. −/+ applies instantly. Affects Raw PWM, arrows and line following. Resets on reboot.</p>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="footer muted small">
+      <span>WebSocket <code id="footer-broker" translate="no">--</code></span>
+      <span>Publish <code translate="no">rover/commands</code></span>
+      <span>Subscribe <code translate="no">rover/telemetry</code> <code translate="no">rover/debug</code> <code translate="no">rover/heartbeat</code> <code translate="no">rover/status</code></span>
+      <span>Use <code translate="no">?broker=HOST</code> to change broker</span>
+    </footer>
   </main>
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <script src="app.js"></script>
+
+  <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

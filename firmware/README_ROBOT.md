@@ -68,6 +68,7 @@ git submodule update --init lib/tinyusb lib/cyw43-driver lib/lwip
 
 ```sh
 cd "/mnt/c/Users/ahmed/Desktop/Git Desktop/EmbeddedProj/firmware/build_make"
+# cd /mnt/c/Users/MewXe/Desktop/Embedded_First/EmbeddedProj/firmware/build_make/
 
 # Without Wi-Fi
 make CONSOLE=usb_cdc PICO_SDK_PATH=~/pico/pico-sdk -j8
@@ -121,7 +122,7 @@ once the robot starts.
 
 | File | Change | Why |
 |---|---|---|
-| `config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (left motor). We use the SDK for ADC/I2C instead |
+| `config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (right motor, M1). We use the SDK for ADC/I2C instead |
 | `build_make/pico_rp2040.mk` | `include robot.mk`, `WIFI_MQTT` option | Pico SDK libraries; MQTT build profile |
 | `build_make/makefile` | links `$(LIBS_ROBOT)` (`-lm`) | `atan2f` / `sqrtf` for the compass |
 | `lib/libnet/lwip/include/lwipopts.h` | TCP on for MQTT, bigger MQTT buffer | MQTT needs TCP; telemetry is about 350 bytes |
