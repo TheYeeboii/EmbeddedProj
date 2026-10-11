@@ -27,7 +27,7 @@
 #define COMMS_TOPIC_STATUS      (3u)   /* rover/status (retained) */
 #define COMMS_TOPIC_COUNT       (4u)
 
-#define COMMS_PAYLOAD_MAX       (384u) /* longest outgoing JSON, incl. NUL */
+#define COMMS_PAYLOAD_MAX       (512u) /* longest outgoing JSON, incl. NUL; keep >= ROBOT_TELEMETRY_BUFFER_SIZE */
 #define COMMS_COMMAND_MAX       (128u) /* longest incoming command, incl. NUL */
 
 /* Network state, for printing and telemetry. */

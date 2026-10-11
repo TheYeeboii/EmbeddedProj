@@ -16,8 +16,7 @@ Flash `build/rover_project/rover_project.uf2` to the Pico W. Wi-Fi credentials a
 Start Mosquitto with:
 
 ```powershell
-& "C:\Program Files\Mosquitto\mosquitto.exe" `
-  -c "$PWD\mosquitto-local.conf" -v
+& "C:\Program Files\Mosquitto\mosquitto.exe" -c "$PWD\tools\mosquitto-local.conf" -v
 ```
 
 The local configuration listens on:

@@ -46,23 +46,51 @@
 #define BUDDY3_ALL_BLACK_STOP_MS    (3000u)   /* > time to drive off the black start box */
 /* Our line is 18 mm, narrower than the gap between the front sensors, so
  * "both on floor" is NORMAL (line between them) - it only means "lost" if
- * it lasts long.  If neither front sensor touches the line for this long,
- * stop. */
-#define BUDDY3_NO_TOUCH_STOP_MS     (6000u)
+ * it lasts long (see the line search below). */
 #define BUDDY3_EDGE_THRESHOLD       (500u) /* normalized: sensor is over black */
 /* Steering tested on the car (30 Sep): black under the CENTER sensor ("R")
  * -> left wheel faster (turn right); under the LEFT sensor -> right wheel
  * faster.  Both correct, so no swap is needed.
  * If one sensor stays on black this long, the turn is too weak (curve):
- * run the inner wheel slightly backwards for a tighter turn. */
+ * run the inner wheel slightly backwards for a tighter turn.
+ * Disabled (7 Oct): the reversing inner wheel made the car spin in circles. */
+#define BUDDY3_HARD_TURN_ENABLE     (0)
 #define BUDDY3_HARD_TURN_MS         (600u)
 #define BUDDY3_HARD_TURN_INNER_PWM  (-5000)
-/* Both front sensors white for this long after a touch = the line has
- * probably slipped outside: spin on the spot towards the side that saw
- * it last until a sensor finds it again (the 6 s stop still applies). */
-#define BUDDY3_SEARCH_AFTER_MS      (700u)
+/* Line search (11 Oct).  Both front sensors white for SEARCH_AFTER_MS after
+ * the last touch = the line has slipped outside or ended.  The car then
+ * SWEEPS on the spot, with a limited angle:
+ *   1. turn up to SWEEP_DEG towards the side that saw the line last
+ *      (left if no side has been seen yet),
+ *   2. turn back the other way, up to SWEEP_DEG past the start heading,
+ *   3. turn back to the start heading,
+ *   4. still nothing: keep spinning on the spot (up to SPIN_MAX_DEG, about
+ *      one full turn) until a sensor finds a black line,
+ *   5. nothing found in a full turn: stop.
+ * As soon as either front sensor sees black, normal following takes over.
+ * Forward only: the heading when the search started is remembered.  Black
+ * seen while the car points more than BEHIND_DEG away from it is the line
+ * the car came along, so it is ignored - at a dead end the car stops
+ * instead of turning round and driving back.
+ * Angles come from the wheel encoders (calibrate the track width so a
+ * Motion "Turn Left 90" really turns 90 deg); each step also has a time
+ * limit (SWEEP_STEP_MS per SWEEP_DEG) in case the encoders miss ticks. */
+#define BUDDY3_SEARCH_ENABLE        (1)
+#define BUDDY3_SEARCH_BEHIND_DEG    (120.0f)
+#define BUDDY3_SEARCH_AFTER_MS      (1000u)
+#define BUDDY3_SEARCH_SWEEP_DEG     (60.0f)
+#define BUDDY3_SEARCH_SWEEP_STEP_MS (1500u)
+#define BUDDY3_SEARCH_SPIN_MAX_DEG  (400.0f)
+#define BUDDY3_SEARCH_SPIN_MAX_MS   (10000u)
+/* With the search off: both front sensors white for this long after the
+ * last touch = no line, so STOP (do not drive away).  Line following stays
+ * on; the car moves again as soon as a front sensor sees black. */
+#define BUDDY3_LOST_STOP_MS         (1000u)
+/* Lowest power for the inner wheel on a correction.  0 = it may stop but
+ * never runs backwards, so a correction curves instead of pivoting. */
+#define BUDDY3_INNER_MIN_PWM        (0)
 
-/* Units: 32767 = 100 % motor duty.  Base 12000 is about 37 % duty - on the
+/* Units: 32767 = 100 % motor duty.  Base 11469 is 35 % duty - on the
  * car, much less than ~35 % does not overcome friction (the old CMake value
  * was only ~18 %).  Steering gains: a full-scale line offset (1000) gives a
  * 9000 difference between the wheels. */
@@ -73,7 +101,7 @@ static buddy3_calibration_t g_calibration =
     false,
     9.0f,
     2.5f,
-    12000
+    11469
 };
 
 static buddy3_ir_state_t g_state;
@@ -95,7 +123,20 @@ static uint32_t          g_all_black_since_ms = 0u;
 static bool              g_reported_black     = false;
 static uint32_t          g_side_since_ms      = 0u;   /* when the current L/R pattern began */
 static uint8_t           g_last_single_side   = 0u;   /* 1 L, 2 R: last side seen alone */
-static bool              g_reported_search    = false;
+
+/* Line search sweep (see BUDDY3_SEARCH_*). */
+#define BUDDY3_SEARCH_IDLE          (0u)
+#define BUDDY3_SEARCH_FIRST         (1u)   /* towards the last-seen side      */
+#define BUDDY3_SEARCH_SECOND        (2u)   /* back and past, the other way    */
+#define BUDDY3_SEARCH_RETURN        (3u)   /* back to the start heading       */
+#define BUDDY3_SEARCH_SPIN          (4u)   /* full spin on the spot           */
+#define BUDDY3_SEARCH_GAVE_UP       (5u)   /* nothing in a full turn: stopped */
+static uint8_t           g_search_step        = BUDDY3_SEARCH_IDLE;
+static int8_t            g_search_dir         = 1;    /* +1 left, -1 right (current step) */
+static uint32_t          g_search_step_ms     = 0u;   /* when the current step began      */
+static float             g_search_step_deg    = 0.0f; /* encoder angle when it began      */
+static float             g_search_origin_deg  = 0.0f; /* travel heading when search began */
+static bool              g_reported_behind    = false;
 
 static int16_t buddy3_clamp_pwm(float value)
 {
@@ -134,6 +175,32 @@ static uint16_t buddy3_normalize(uint16_t raw, uint16_t minimum,
         value = BUDDY3_NORMALIZED_MAX - value;
     }
     return (uint16_t)value;
+}
+
+/* Car heading from the wheel encoders, in degrees (only differences are
+ * used, so the sign convention and any left/right encoder mix-up do not
+ * matter: the sweep compares the SIZE of the turn). */
+static float buddy3_encoder_angle_deg(void)
+{
+    buddy2_motion_state_t motion;
+    buddy2_calibration_t  calibration;
+
+    buddy2_get_motion_state(&motion);
+    buddy2_get_calibration(&calibration);
+    if (calibration.track_width_mm <= 0.0f)
+    {
+        return 0.0f;
+    }
+    return ((motion.right_distance_mm - motion.left_distance_mm) /
+            calibration.track_width_mm) * (180.0f / 3.14159265f);
+}
+
+static void buddy3_search_begin_step(uint8_t step, int8_t direction, uint32_t now_ms)
+{
+    g_search_step     = step;
+    g_search_dir      = direction;
+    g_search_step_ms  = now_ms;
+    g_search_step_deg = buddy3_encoder_angle_deg();
 }
 
 /* Called every sample with the barcode sensor value.  Looks for the start
@@ -300,6 +367,34 @@ void buddy3_update(uint32_t now_ms)
             (((next.normalized[BUDDY3_FRONT_LEFT]  >= BUDDY3_EDGE_THRESHOLD) ? 1u : 0u) |
              ((next.normalized[BUDDY3_FRONT_RIGHT] >= BUDDY3_EDGE_THRESHOLD) ? 2u : 0u));
 
+#if BUDDY3_SEARCH_ENABLE
+        /* Forward only: during a search, black seen while the car points
+         * back the way it came is the old line - ignore it and keep turning. */
+        if ((0u != side) && g_line_following &&
+            (BUDDY3_SEARCH_IDLE != g_search_step) && (BUDDY3_SEARCH_GAVE_UP != g_search_step))
+        {
+            float offset = buddy3_encoder_angle_deg() - g_search_origin_deg;
+
+            while (offset > 180.0f)
+            {
+                offset -= 360.0f;
+            }
+            while (offset < -180.0f)
+            {
+                offset += 360.0f;
+            }
+            if ((offset > BUDDY3_SEARCH_BEHIND_DEG) || (offset < -BUDDY3_SEARCH_BEHIND_DEG))
+            {
+                if (!g_reported_behind)
+                {
+                    tm_printf((UB *)"[line] line at %d deg is behind us - ignored\n", (INT)offset);
+                    g_reported_behind = true;
+                }
+                side = 0u;
+            }
+        }
+#endif
+
         /* Sensor check while idle: say which side sees the line, so the
          * wiring can be verified by hand (see docs). */
         if (side != g_last_touch_side)
@@ -340,11 +435,12 @@ void buddy3_update(uint32_t now_ms)
         if (0u != side)
         {
             g_last_touch_ms = now_ms;
-            if (g_reported_lost && g_line_following)
+            if ((g_reported_lost || (BUDDY3_SEARCH_IDLE != g_search_step)) && g_line_following)
             {
                 tm_printf((UB *)"[line] line found - driving\n");
             }
             g_reported_lost = false;
+            g_search_step   = BUDDY3_SEARCH_IDLE;
         }
     }
 #endif
@@ -381,17 +477,32 @@ void buddy3_update(uint32_t now_ms)
         g_reported_black     = false;
     }
 
-    if ((now_ms - g_last_touch_ms) > BUDDY3_NO_TOUCH_STOP_MS)
+#if BUDDY3_SEARCH_ENABLE
+    /* Sweep and full spin found nothing.  Stay stopped (line
+     * following stays on) until a front sensor sees black again. */
+    if (BUDDY3_SEARCH_GAVE_UP == g_search_step)
     {
         buddy2_stop();
         if (!g_reported_lost)
         {
-            tm_printf((UB *)"[line] no line seen for %u s - stopped\n",
-                      (UINT)(BUDDY3_NO_TOUCH_STOP_MS / 1000u));
+            tm_printf((UB *)"[line] full spin found no line ahead (dead end?) - stopped\n");
             g_reported_lost = true;
         }
         return;
     }
+#else
+    if ((now_ms - g_last_touch_ms) > BUDDY3_LOST_STOP_MS)
+    {
+        buddy2_stop();
+        if (!g_reported_lost)
+        {
+            tm_printf((UB *)"[line] no line seen for %u ms - stopped\n",
+                      (UINT)BUDDY3_LOST_STOP_MS);
+            g_reported_lost = true;
+        }
+        return;
+    }
+#endif
 #else
     /* Line must be seen at least once before driving, then may be lost for
      * up to BUDDY3_LINE_LOST_STOP_MS. */
@@ -420,7 +531,7 @@ void buddy3_update(uint32_t now_ms)
      * not used here: the position only jumps between -1000, 0 and +1000).
      *   one sensor black  : turn towards it (harder if it stays black)
      *   both white, recent: straight (line is between the sensors)
-     *   both white, long  : spin towards the side that saw it last
+     *   both white, long  : search sweep, then full spin (see above)
      *   both black        : straight (crossing / start box) */
     (void)previous_position;
     {
@@ -434,8 +545,20 @@ void buddy3_update(uint32_t now_ms)
         if ((1u == side) || (2u == side))
         {
             int32_t outer = base + turn;
-            int32_t inner = (held_ms > BUDDY3_HARD_TURN_MS) ? BUDDY3_HARD_TURN_INNER_PWM
-                                                            : (base - turn);
+            int32_t inner = base - turn;
+
+            if (inner < BUDDY3_INNER_MIN_PWM)
+            {
+                inner = BUDDY3_INNER_MIN_PWM;
+            }
+#if BUDDY3_HARD_TURN_ENABLE
+            if (held_ms > BUDDY3_HARD_TURN_MS)
+            {
+                inner = BUDDY3_HARD_TURN_INNER_PWM;
+            }
+#else
+            (void)held_ms;
+#endif
 
             if (2u == side)            /* line under the center sensor: turn right */
             {
@@ -447,26 +570,75 @@ void buddy3_update(uint32_t now_ms)
                 left_pwm  = inner;
                 right_pwm = outer;
             }
-            g_reported_search = false;
         }
-        else if ((0u == side) && (0u != g_last_single_side) &&
+        else if (BUDDY3_SEARCH_ENABLE && (0u == side) &&
                  ((now_ms - g_last_touch_ms) > BUDDY3_SEARCH_AFTER_MS))
         {
-            if (2u == g_last_single_side)
+            float    turned;
+            float    target_deg = BUDDY3_SEARCH_SWEEP_DEG;
+            uint32_t limit_ms   = BUDDY3_SEARCH_SWEEP_STEP_MS;
+
+            if (BUDDY3_SEARCH_IDLE == g_search_step)
             {
-                left_pwm  = base;
-                right_pwm = -base;
+                /* Right first only if the right sensor saw the line last. */
+                buddy3_search_begin_step(BUDDY3_SEARCH_FIRST,
+                                         (2u == g_last_single_side) ? -1 : 1, now_ms);
+                g_search_origin_deg = g_search_step_deg;
+                g_reported_behind   = false;
+                tm_printf((UB *)"[line] line lost - sweeping %s first (max %u deg)\n",
+                          (g_search_dir > 0) ? "LEFT" : "RIGHT",
+                          (UINT)BUDDY3_SEARCH_SWEEP_DEG);
+            }
+            if (BUDDY3_SEARCH_SECOND == g_search_step)
+            {
+                /* From one side all the way across to the other. */
+                target_deg = 2.0f * BUDDY3_SEARCH_SWEEP_DEG;
+                limit_ms   = 2u * BUDDY3_SEARCH_SWEEP_STEP_MS;
+            }
+            else if (BUDDY3_SEARCH_SPIN == g_search_step)
+            {
+                target_deg = BUDDY3_SEARCH_SPIN_MAX_DEG;
+                limit_ms   = BUDDY3_SEARCH_SPIN_MAX_MS;
+            }
+
+            turned = buddy3_encoder_angle_deg() - g_search_step_deg;
+            if (turned < 0.0f)
+            {
+                turned = -turned;
+            }
+            if ((turned >= target_deg) || ((now_ms - g_search_step_ms) >= limit_ms))
+            {
+                if (BUDDY3_SEARCH_FIRST == g_search_step)
+                {
+                    buddy3_search_begin_step(BUDDY3_SEARCH_SECOND, (int8_t)(-g_search_dir), now_ms);
+                }
+                else if (BUDDY3_SEARCH_SECOND == g_search_step)
+                {
+                    buddy3_search_begin_step(BUDDY3_SEARCH_RETURN, (int8_t)(-g_search_dir), now_ms);
+                }
+                else if (BUDDY3_SEARCH_RETURN == g_search_step)
+                {
+                    /* Keep turning the same way: one smooth full spin. */
+                    buddy3_search_begin_step(BUDDY3_SEARCH_SPIN, g_search_dir, now_ms);
+                    tm_printf((UB *)"[line] nothing within %u deg - spinning to find the line\n",
+                              (UINT)BUDDY3_SEARCH_SWEEP_DEG);
+                }
+                else
+                {
+                    g_search_step = BUDDY3_SEARCH_GAVE_UP;
+                }
+            }
+
+            if (BUDDY3_SEARCH_GAVE_UP == g_search_step)
+            {
+                left_pwm  = 0;
+                right_pwm = 0;
             }
             else
             {
-                left_pwm  = -base;
-                right_pwm = base;
-            }
-            if (!g_reported_search)
-            {
-                tm_printf((UB *)"[line] line lost - searching %s\n",
-                          (2u == g_last_single_side) ? "RIGHT" : "LEFT");
-                g_reported_search = true;
+                /* Spin on the spot: +1 = left (right wheel forward). */
+                left_pwm  = -(int32_t)g_search_dir * base;
+                right_pwm =  (int32_t)g_search_dir * base;
             }
         }
         else
@@ -495,7 +667,7 @@ void buddy3_start_line_follow(void)
     g_start_pending      = true;
     g_line_lost_since_ms = 0u;
     g_last_single_side   = 0u;
-    g_reported_search    = false;
+    g_search_step        = BUDDY3_SEARCH_IDLE;
     g_side_since_ms      = g_last_update_ms;
     g_line_following     = true;
 }

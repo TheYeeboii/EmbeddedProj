@@ -46,8 +46,20 @@ void robot_telemetry_build(char *p_buffer, uint32_t now_ms)
     UB                    heading[12];
     UB                    pitch[12];
     UB                    max_pitch[12];
+    uint8_t               trim_left;
+    uint8_t               trim_right;
+    buddy3_calibration_t  line;
+    INT                   line_base_pct;
+    INT                   line_turn_pct;
+    uint8_t               speed_pct;
 
     buddy2_get_motion_state(&motion);
+    buddy2_get_trim(&trim_left, &trim_right);
+    speed_pct = buddy2_get_speed_limit();
+    buddy3_get_calibration(&line);
+    /* Same percent-of-full-power units as the "line_speed" command. */
+    line_base_pct = (INT)((((int32_t)line.base_pwm * 100) + (BUDDY2_PWM_MAX / 2)) / BUDDY2_PWM_MAX);
+    line_turn_pct = (INT)(((line.proportional_gain * 100000.0f) / (float)BUDDY2_PWM_MAX) + 0.5f);
     buddy3_get_state(&ir);
     buddy4_get_state(&imu);
     buddy5_get_last(&sonar);
@@ -64,13 +76,17 @@ void robot_telemetry_build(char *p_buffer, uint32_t now_ms)
               "\"distance_cm\":%u,\"heading_deg\":%s,"
               "\"left_ticks\":%d,\"right_ticks\":%d,"
               "\"motor_left\":%u,\"motor_right\":%u,\"status\":\"%s\","
-              "\"mode\":\"%s\",\"pitch_deg\":%s,\"max_pitch_deg\":%s}",
+              "\"mode\":\"%s\",\"pitch_deg\":%s,\"max_pitch_deg\":%s,"
+              "\"trim_left\":%u,\"trim_right\":%u,"
+              "\"line_base\":%d,\"line_turn\":%d,\"speed\":%u}",
         ROBOT_MQTT_CLIENT_ID, (UINT)now_ms, p_state,
         (UINT)ir.raw[0], (UINT)ir.raw[1], (UINT)ir.raw[2],
         (UINT)sonar.distance_cm, heading,
         (INT)motion.left_ticks, (INT)motion.right_ticks,
         (UINT)drive_left, (UINT)drive_right, p_state,
-        robot_controller_mode_name(), pitch, max_pitch);
+        robot_controller_mode_name(), pitch, max_pitch,
+        (UINT)trim_left, (UINT)trim_right, line_base_pct, line_turn_pct,
+        (UINT)speed_pct);
 }
 
 void robot_telemetry_build_debug(char *p_buffer)

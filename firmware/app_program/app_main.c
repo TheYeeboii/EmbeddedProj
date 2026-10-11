@@ -57,10 +57,11 @@
 #define APP_SENSOR_PERIOD_MS        (100)
 #define APP_SONAR_EVERY_N_CYCLES    (5u)     /* ultrasonic every 500 ms  */
 #define APP_SERVO_SETTLE_MS         (60)     /* let the servo move first */
-/* Coarse scan from the brief: 30, 60, 90, 120, 150 deg, then back. */
-#define APP_SERVO_STEP_DEG          (30u)
-#define APP_SERVO_MIN_DEG           (30u)
-#define APP_SERVO_MAX_DEG           (150u)
+/* Coarse scan: 40, 65, 90, 115, 140 deg, then back (10 deg narrower each
+ * side than the brief's 30..150).  Keep (MAX - MIN) a multiple of STEP. */
+#define APP_SERVO_STEP_DEG          (25u)
+#define APP_SERVO_MIN_DEG           (40u)
+#define APP_SERVO_MAX_DEG           (140u)
 
 #define APP_TELEMETRY_TICK_MS       (1000)
 #define APP_TELEMETRY_EVERY_N       (3u)     /* rover/telemetry every 3 s */
@@ -187,6 +188,14 @@ static void sensor_task(INT stacd, void *p_exinf)
                 step = -step;       /* sweep back and forth */
             }
             angle = (uint8_t)((int32_t)angle + step);
+            if (angle > APP_SERVO_MAX_DEG)
+            {
+                angle = APP_SERVO_MAX_DEG;
+            }
+            if (angle < APP_SERVO_MIN_DEG)
+            {
+                angle = APP_SERVO_MIN_DEG;
+            }
         }
         cycle++;
         (void)tk_dly_tsk(APP_SENSOR_PERIOD_MS);
