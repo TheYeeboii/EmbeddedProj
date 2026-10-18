@@ -45,7 +45,8 @@ ROBOT_INCLUDES := -I"../lib/libtm/sysdepend/pico_rp2040/usb" \
                   -I"$(SDK_RP2)/hardware_irq/include" \
                   -I"$(SDK_RP2)/hardware_sync/include" \
                   -I"$(SDK_RP2)/hardware_sync_spin_lock/include" \
-                  -I"$(SDK_RP2)/hardware_timer/include"
+                  -I"$(SDK_RP2)/hardware_timer/include"\
+                  -I"$(SDK_COMMON)/pico_util/include" 
 
 # NDEBUG: compile the SDK's assert() checks out (they would need newlib's
 # abort/exit, which micro T-Kernel does not provide).

@@ -23,9 +23,13 @@ The current hardware exposes one encoder channel per wheel. Direction is inferre
 2. Mark each wheel and rotate it exactly 10 revolutions by hand or at low PWM.
 3. Record left and right rising-edge tick counts and divide by 10.
 4. Measure a straight commanded move over at least 500 mm. Update effective wheel diameter or ticks/revolution until measured distance is within the target tolerance.
-5. Command a 360-degree in-place turn. Measure the actual angle and update `track_width_mm` using:
+5. Command a known in-place turn. Measure the actual angle and update the
+   effective `track_width_mm` using:
 
-   `new_track_width = old_track_width * actual_angle / commanded_angle`
+   `new_track_width = old_track_width * commanded_angle / actual_angle`
+
+   For example, if a 90 degree command turns 360 degrees with a current
+   value of 150 mm, use `150 * 90 / 360 = 37.5 mm`.
 
 6. Measure the minimum PWM that starts each wheel moving and set the larger value as `pwm_deadband`.
 7. Repeat straight and turn tests at low, medium, and high PWM.

@@ -50,6 +50,10 @@ void buddy3_start_line_follow(void);
 void buddy3_stop_line_follow(void);
 bool buddy3_line_following(void);
 void buddy3_get_state(buddy3_ir_state_t *p_state);
+/** Clear the latched front-line observation used by Buddy 5's final return. */
+void buddy3_clear_line_seen_event(void);
+/** Return and clear whether either front sensor has seen black since the last clear. */
+bool buddy3_take_line_seen_event(void);
 bool buddy3_take_barcode(uint8_t *p_command);
 /** true = that sensor sees black: front-left, front-right, side (barcode). */
 void buddy3_get_colors(bool *p_left_black, bool *p_right_black, bool *p_side_black);

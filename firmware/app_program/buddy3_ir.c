@@ -106,6 +106,9 @@ static buddy3_calibration_t g_calibration =
 
 static buddy3_ir_state_t g_state;
 static volatile bool     g_line_following     = false;
+/* Records brief front-line observations while normal following is paused for
+ * Buddy 5 avoidance.  The final return phase consumes this event. */
+static volatile bool     g_line_seen_event    = false;
 static uint32_t          g_last_update_ms     = 0u;
 static int16_t           g_previous_position  = 0;
 static uint32_t          g_line_lost_since_ms = 0u;
@@ -249,6 +252,7 @@ void buddy3_init(void)
     g_state            = empty;
     g_last_update_ms   = 0u;
     g_line_following   = false;
+    g_line_seen_event  = false;
 }
 
 void buddy3_set_calibration(const buddy3_calibration_t *p_calibration)
@@ -358,6 +362,10 @@ void buddy3_update(uint32_t now_ms)
 
     DI(interrupt_state);
     g_state = next;
+    if (next.line_seen)
+    {
+        g_line_seen_event = true;
+    }
     EI(interrupt_state);
 
 #if BUDDY3_LINE_BETWEEN_SENSORS
@@ -572,11 +580,10 @@ void buddy3_update(uint32_t now_ms)
             }
         }
         else if (BUDDY3_SEARCH_ENABLE && (0u == side) &&
-                 ((now_ms - g_last_touch_ms) > BUDDY3_SEARCH_AFTER_MS))
+                 ((BUDDY3_SEARCH_IDLE != g_search_step) ||
+                  ((now_ms - g_last_touch_ms) > BUDDY3_SEARCH_AFTER_MS)))
         {
-            float    turned;
-            float    target_deg = BUDDY3_SEARCH_SWEEP_DEG;
-            uint32_t limit_ms   = BUDDY3_SEARCH_SWEEP_STEP_MS;
+            uint32_t limit_ms = BUDDY3_SEARCH_SWEEP_STEP_MS;
 
             if (BUDDY3_SEARCH_IDLE == g_search_step)
             {
@@ -592,21 +599,41 @@ void buddy3_update(uint32_t now_ms)
             if (BUDDY3_SEARCH_SECOND == g_search_step)
             {
                 /* From one side all the way across to the other. */
-                target_deg = 2.0f * BUDDY3_SEARCH_SWEEP_DEG;
-                limit_ms   = 2u * BUDDY3_SEARCH_SWEEP_STEP_MS;
+                limit_ms = 2u * BUDDY3_SEARCH_SWEEP_STEP_MS;
             }
             else if (BUDDY3_SEARCH_SPIN == g_search_step)
             {
-                target_deg = BUDDY3_SEARCH_SPIN_MAX_DEG;
-                limit_ms   = BUDDY3_SEARCH_SPIN_MAX_MS;
+                limit_ms = BUDDY3_SEARCH_SPIN_MAX_MS;
             }
 
-            turned = buddy3_encoder_angle_deg() - g_search_step_deg;
-            if (turned < 0.0f)
-            {
-                turned = -turned;
-            }
-            if ((turned >= target_deg) || ((now_ms - g_search_step_ms) >= limit_ms))
+            /* TEMPORARY TIME-ONLY SEARCH (easy to revert)
+             *
+             * The original encoder-angle completion below is disabled because
+             * the current encoder tick calibration is not reliable.  Restore
+             * this block and remove the time-only condition below after both
+             * wheel encoders and track width have been calibrated.
+             *
+             * float    turned;
+             * float    target_deg = BUDDY3_SEARCH_SWEEP_DEG;
+             *
+             * if (BUDDY3_SEARCH_SECOND == g_search_step)
+             * {
+             *     target_deg = 2.0f * BUDDY3_SEARCH_SWEEP_DEG;
+             * }
+             * else if (BUDDY3_SEARCH_SPIN == g_search_step)
+             * {
+             *     target_deg = BUDDY3_SEARCH_SPIN_MAX_DEG;
+             * }
+             *
+             * turned = buddy3_encoder_angle_deg() - g_search_step_deg;
+             * if (turned < 0.0f)
+             * {
+             *     turned = -turned;
+             * }
+             * if ((turned >= target_deg) ||
+             *     ((now_ms - g_search_step_ms) >= limit_ms))
+             */
+            if ((now_ms - g_search_step_ms) >= limit_ms)
             {
                 if (BUDDY3_SEARCH_FIRST == g_search_step)
                 {
@@ -693,6 +720,27 @@ void buddy3_get_state(buddy3_ir_state_t *p_state)
         *p_state = g_state;
         EI(interrupt_state);
     }
+}
+
+void buddy3_clear_line_seen_event(void)
+{
+    UINT interrupt_state;
+
+    DI(interrupt_state);
+    g_line_seen_event = false;
+    EI(interrupt_state);
+}
+
+bool buddy3_take_line_seen_event(void)
+{
+    UINT interrupt_state;
+    bool result;
+
+    DI(interrupt_state);
+    result = g_line_seen_event;
+    g_line_seen_event = false;
+    EI(interrupt_state);
+    return result;
 }
 
 void buddy3_get_colors(bool *p_left_black, bool *p_right_black, bool *p_side_black)
