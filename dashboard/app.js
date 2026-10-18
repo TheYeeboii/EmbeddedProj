@@ -9,7 +9,7 @@ const topics = {
 const brokerHost = new URLSearchParams(window.location.search).get('broker') || '192.168.137.1';
 const brokerUrl = `ws://${brokerHost}:9001`;
 
-/* Firmware: raw drive stops after 1 s, heartbeat every 10 s, telemetry every 3 s. */
+/* Firmware: raw drive stops after 1 s, heartbeat every 10 s, telemetry every 1 s. */
 const DRIVE_REPEAT_MS = 300;
 const STALE_AFTER_MS = 25000;
 const SERIAL_MAX_LINES = 200;
@@ -213,6 +213,41 @@ function appendSerial(data) {
     ['k', 'barcode '], [data.barcode ? 'y' : '', `${data.barcode ? 'yes' : 'no'}  `],
     ['k', 'cmd '], ['', String(data.command)]
   ];
+  if ((data.decision && data.decision !== 'none') ||
+      (data.avoid_status && data.avoid_status === 'blocked')) {
+    const distance = value => value === 0 ? 'invalid' : `${value} cm`;
+    parts.push(
+      ['k', '  ultra_left: '], ['', `${distance(data.ultra_left)}  `],
+      ['k', 'ultra_right: '], ['', `${distance(data.ultra_right)}  `]
+    );
+    if (data.decision && data.decision !== 'none') {
+      parts.push(['k', 'decision: '], [data.decision === 'left' ? 'y' : '', data.decision]);
+    }
+    if (data.avoid_status === 'blocked') {
+      parts.push(['k', 'reason: '], ['', 'no valid side has at least 20 cm clearance']);
+    }
+  }
+  if (data.avoid_status && data.avoid_status !== 'idle') {
+    parts.push(['k', '  avoid: '], [data.avoid_status === 'turning' ? 'y' : '', data.avoid_status]);
+    if ((data.avoid_status === 'forward' || data.avoid_status === 'recovering') &&
+        typeof data.avoid_heading_change_x10 === 'number') {
+      const error = (Number(data.avoid_heading_change_x10) / 10).toFixed(1);
+      parts.push(['k', '  heading error: '], ['', `${error} deg`]);
+      if (typeof data.avoid_forward_mm === 'number' &&
+          typeof data.avoid_forward_target_mm === 'number' &&
+          data.avoid_forward_target_mm > 0) {
+        parts.push(['k', '  forward: '], ['', `${data.avoid_forward_mm}/${data.avoid_forward_target_mm} mm`]);
+      }
+    } else if (typeof data.avoid_heading_target_x10 === 'number' && data.avoid_heading_target_x10 > 0) {
+      const changed = (Number(data.avoid_heading_change_x10 || 0) / 10).toFixed(1);
+      const target = (data.avoid_heading_target_x10 / 10).toFixed(1);
+      parts.push(['k', '  heading: '], ['', `${changed}/${target} deg`]);
+    }
+    if (typeof data.avoid_motor_left_pwm === 'number' &&
+        typeof data.avoid_motor_right_pwm === 'number') {
+      parts.push(['k', '  motor PWM: '], ['', `L=${data.avoid_motor_left_pwm} R=${data.avoid_motor_right_pwm}`]);
+    }
+  }
   for (const [cls, text] of parts) {
     const span = document.createElement('span');
     if (cls) span.className = cls;

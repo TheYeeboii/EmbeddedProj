@@ -19,20 +19,21 @@
 #define MOTOR_RIGHT_PWM_A     (8u)   /* M1A - forward  */
 #define MOTOR_RIGHT_PWM_B     (9u)   /* M1B - backward */
 
-/* Wheel encoders (Grove 2) */
-#define ENCODER_LEFT_A        (2u)   /* GP2 */
-#define ENCODER_RIGHT_A       (3u)   /* GP3 */
+/* Wheel encoders: the left green channel on GP3 produced no pulses, so use
+ * the other left encoder channel already wired to GP2 (red).  Right uses
+ * its red encoder channel on GP14. */
+#define ENCODER_LEFT_A        (2u)   /* GP2: left encoder red */
+#define ENCODER_RIGHT_A       (14u)  /* GP14: right encoder red */
 
 /* Servo for the ultrasonic scanner (Robo Pico servo header) */
 #define SERVO_PWM_PIN         (15u)  /* GP15 */
 
-/* Ultrasonic sensor (Grove 1).
- * NOTE: micro T-Kernel also uses GP0/GP1 for its UART console.  The
- * ultrasonic driver takes the pins back at start-up, so build with
- * CONSOLE=usb_cdc (the UART console would stop working). */
+/* HC-SR04+ ultrasonic sensor (middle Grove socket).
+ * Socket order: GND, 3V3, GP16, GP17.  The connected sensor uses
+ * Echo = GP16 (white wire) and Trig = GP17 (yellow wire). */
 #ifndef ULTRASONIC_TRIG_PIN        /* can be overridden with ROBOT_CFLAGS */
-#define ULTRASONIC_TRIG_PIN   (0u)   /* GP0 */
-#define ULTRASONIC_ECHO_PIN   (1u)   /* GP1 */
+#define ULTRASONIC_TRIG_PIN   (17u)  /* GP17, yellow Trig wire */
+#define ULTRASONIC_ECHO_PIN   (16u)  /* GP16, white Echo wire  */
 #endif
 
 /* LSM303DLHC accelerometer + compass on I2C0 (Grove 3) */

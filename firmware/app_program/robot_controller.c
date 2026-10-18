@@ -49,7 +49,8 @@ typedef enum
     ROBOT_MODE_IDLE = 0,
     ROBOT_MODE_DRIVE,
     ROBOT_MODE_MOTION,
-    ROBOT_MODE_LINE
+    ROBOT_MODE_LINE,
+    ROBOT_MODE_AVOID
 } robot_mode_t;
 
 static robot_mode_t g_mode              = ROBOT_MODE_IDLE;
@@ -57,6 +58,10 @@ static uint32_t     g_drive_left        = 0u;
 static uint32_t     g_drive_right       = 0u;
 static uint32_t     g_last_drive_ms     = 0u;
 static bool         g_resume_line       = false;
+/* Remember whether a Buddy 5 avoidance run interrupted line following. */
+static bool         g_avoid_resume_line = false;
+static bool         g_drive_is_forward  = false;
+static bool         g_motion_is_forward = false;
 static bool         g_line_button_was   = false;
 static uint32_t     g_line_button_count = 0u;
 
@@ -241,6 +246,9 @@ static void robot_stop_all(void)
     g_drive_left  = 0u;
     g_drive_right = 0u;
     g_resume_line = false;
+    g_avoid_resume_line = false;
+    g_drive_is_forward  = false;
+    g_motion_is_forward = false;
     g_mode        = ROBOT_MODE_IDLE;
 }
 
@@ -253,6 +261,9 @@ static void robot_drive(uint32_t left, uint32_t right, int32_t sign, uint32_t no
     g_drive_right   = right;
     g_last_drive_ms = now_ms;
     g_resume_line   = false;
+    g_avoid_resume_line = false;
+    g_drive_is_forward = (sign > 0) && (left > 0u) && (right > 0u);
+    g_motion_is_forward = false;
     buddy2_set_motor_pwm((int16_t)(sign * ROBOT_LEGACY_TO_PWM(left)),
                          (int16_t)(sign * ROBOT_LEGACY_TO_PWM(right)));
     g_mode = ((0u == left) && (0u == right)) ? ROBOT_MODE_IDLE : ROBOT_MODE_DRIVE;
@@ -275,6 +286,8 @@ static bool robot_motion(const char *p_name, int32_t amount, int32_t pwm)
     }
     buddy3_stop_line_follow();
     g_resume_line = false;
+    g_avoid_resume_line = false;
+    g_motion_is_forward = false;
 
     if (robot_str_equal(p_name, "move_forward"))
     {
@@ -299,6 +312,7 @@ static bool robot_motion(const char *p_name, int32_t amount, int32_t pwm)
 
     if (started)
     {
+        g_motion_is_forward = robot_str_equal(p_name, "move_forward");
         g_mode = ROBOT_MODE_MOTION;
         tm_printf((UB *)"[cmd] %s %d (pwm %d)\n", p_name, (INT)amount, (INT)pwm);
     }
@@ -359,6 +373,9 @@ static void robot_start_line(void)
     buddy2_stop();
     g_drive_left  = 0u;
     g_drive_right = 0u;
+    g_drive_is_forward  = false;
+    g_motion_is_forward = false;
+    g_avoid_resume_line = false;
     buddy3_start_line_follow();
     g_mode = ROBOT_MODE_LINE;
     tm_printf((UB *)"[cmd] line following ON\n");
@@ -416,6 +433,8 @@ static bool robot_simple_command(const char *p_name, uint32_t now_ms)
 void robot_controller_init(void)
 {
     g_mode            = ROBOT_MODE_IDLE;
+    g_drive_is_forward  = false;
+    g_motion_is_forward = false;
     g_line_button_was = false;
     hal_gpio_input_pullup(BUTTON_LINE_PIN);
 }
@@ -559,6 +578,7 @@ void robot_controller_step(uint32_t now_ms)
     if (buddy3_take_barcode(&barcode) && buddy3_line_following())
     {
         buddy3_stop_line_follow();
+        g_motion_is_forward = false;
         if (BUDDY3_BARCODE_LEFT == barcode)
         {
             tm_printf((UB *)"[barcode] turn left\n");
@@ -573,6 +593,7 @@ void robot_controller_step(uint32_t now_ms)
         {
             tm_printf((UB *)"[barcode] go straight\n");
             (void)buddy2_move_forward(ROBOT_BARCODE_STRAIGHT_MM, ROBOT_LEGACY_TO_PWM(ROBOT_BARCODE_PWM));
+            g_motion_is_forward = true;
         }
         g_resume_line = true;
         g_mode        = ROBOT_MODE_MOTION;
@@ -587,6 +608,7 @@ void robot_controller_step(uint32_t now_ms)
     }
     else if ((ROBOT_MODE_MOTION == g_mode) && !moving && !g_resume_line)
     {
+        g_motion_is_forward = false;
         g_mode = ROBOT_MODE_IDLE;
     }
     else
@@ -642,7 +664,68 @@ void robot_controller_get_drive(uint32_t *p_left, uint32_t *p_right)
 
 const char *robot_controller_mode_name(void)
 {
-    static const char *const names[] = { "idle", "drive", "motion", "line" };
+    static const char *const names[] = { "idle", "drive", "motion", "line", "avoid" };
 
     return names[g_mode];
+}
+
+bool robot_controller_obstacle_watch_enabled(void)
+{
+    /* Motion is included for dashboard move_forward commands.  The monitor
+     * only takes over when the forward-facing ultrasonic sensor reports an
+     * actual close echo, so an idle rover never starts an avoidance move. */
+    return ((ROBOT_MODE_DRIVE == g_mode) && g_drive_is_forward) ||
+           (ROBOT_MODE_LINE == g_mode) ||
+           ((ROBOT_MODE_MOTION == g_mode) && g_motion_is_forward);
+}
+
+bool robot_controller_begin_obstacle_avoidance(void)
+{
+    if (!robot_controller_obstacle_watch_enabled())
+    {
+        return false;
+    }
+
+    /* Remember the source before stopping line following so completion can
+     * hand a line-follow run back to Buddy 3. */
+    g_avoid_resume_line = (ROBOT_MODE_LINE == g_mode);
+
+    /* This also stops line following so it cannot overwrite a turn command. */
+    buddy3_stop_line_follow();
+    buddy2_stop();
+    g_drive_left  = 0u;
+    g_drive_right = 0u;
+    g_resume_line = false;
+    g_drive_is_forward  = false;
+    g_motion_is_forward = false;
+    g_mode        = ROBOT_MODE_AVOID;
+    return true;
+}
+
+bool robot_controller_obstacle_avoidance_active(void)
+{
+    return (ROBOT_MODE_AVOID == g_mode);
+}
+
+void robot_controller_finish_obstacle_avoidance(void)
+{
+    if (ROBOT_MODE_AVOID == g_mode)
+    {
+        buddy2_stop();
+        g_drive_left  = 0u;
+        g_drive_right = 0u;
+        g_drive_is_forward  = false;
+        g_motion_is_forward = false;
+        if (g_avoid_resume_line)
+        {
+            g_avoid_resume_line = false;
+            tm_printf((UB *)"[avoid] handing control back to line following\n");
+            robot_start_line();
+        }
+        else
+        {
+            g_avoid_resume_line = false;
+            g_mode = ROBOT_MODE_IDLE;
+        }
+    }
 }

@@ -12,10 +12,9 @@
  *   motion         5  20 ms (cyclic)    buddy2_update(): PID, moves  2
  *   line           6  10 ms (cyclic)    buddy3_update(): IR, barcode 3
  *   controller     7  20 ms             commands, barcodes, buttons  all
- *   sensors       10  100 ms            IMU; ultrasonic + servo scan 4, 5
+ *   sensors       10  100 ms            IMU; forward ultrasonic measurement 4, 5
  *   telemetry     15  1 s               console + MQTT reports       1
  *   motion_test   20  on GP20 button    calibration test             2
- *   blink         30  250 ms            GP16 "alive" LED             -
  *
  * Lower number = higher priority.  (usb) and (cyw43) are created by the
  * kernel itself; (cyw43) only exists in Wi-Fi builds.
@@ -29,9 +28,9 @@
 #include "buddy2_motion_test.h"
 #include "buddy3_ir.h"
 #include "buddy4_imu.h"
+#include "buddy5_avoidance.h"
 #include "buddy5_ultrasonic.h"
 #include "comms.h"
-#include "demo_tasks.h"
 #include "gpio_irq.h"
 #include "pin_config.h"
 #include "robot_controller.h"
@@ -51,20 +50,11 @@
 #define APP_PRI_SENSORS             (10)
 #define APP_PRI_TELEMETRY           (15)
 #define APP_PRI_MOTION_TEST         (20)
-#define APP_PRI_BLINK               (30)
 
 #define APP_CONTROLLER_PERIOD_MS    (20)
-#define APP_SENSOR_PERIOD_MS        (100)
-#define APP_SONAR_EVERY_N_CYCLES    (5u)     /* ultrasonic every 500 ms  */
-#define APP_SERVO_SETTLE_MS         (60)     /* let the servo move first */
-/* Coarse scan: 40, 65, 90, 115, 140 deg, then back (10 deg narrower each
- * side than the brief's 30..150).  Keep (MAX - MIN) a multiple of STEP. */
-#define APP_SERVO_STEP_DEG          (25u)
-#define APP_SERVO_MIN_DEG           (40u)
-#define APP_SERVO_MAX_DEG           (140u)
 
 #define APP_TELEMETRY_TICK_MS       (1000)
-#define APP_TELEMETRY_EVERY_N       (3u)     /* rover/telemetry every 3 s */
+#define APP_TELEMETRY_EVERY_N       (1u)     /* rover/telemetry every 1 s */
 #define APP_HEARTBEAT_EVERY_N       (10u)    /* rover/heartbeat every 10 s */
 #define APP_USB_WAIT_MS             (3000)
 #define APP_STATUS_EVERY_N          (2u)     /* [status] line every 2 s   */
@@ -78,6 +68,7 @@
 static ID g_motion_task_id = 0;
 static ID g_line_task_id   = 0;
 
+/** @brief Return the micro T-Kernel uptime in milliseconds. */
 uint32_t app_now_ms(void)
 {
     SYSTIM now;
@@ -86,6 +77,7 @@ uint32_t app_now_ms(void)
     return (uint32_t)now.lo;
 }
 
+/** @brief Print an initialisation error and report whether a kernel call succeeded. */
 static bool app_check(const char *p_what, ER result)
 {
     if (result < E_OK)
@@ -96,8 +88,12 @@ static bool app_check(const char *p_what, ER result)
     return true;
 }
 
-/* Start-up failed: keep repeating the error instead of returning from
- * usermain() (which would shut the kernel down silently). */
+/**
+ * @brief Keep the rover stopped after a fatal start-up failure.
+ *
+ * The loop keeps the reason visible on the USB console instead of returning
+ * from usermain(), which would otherwise stop the kernel silently.
+ */
 static void app_fail_forever(const char *p_what)
 {
     while (1)
@@ -111,12 +107,19 @@ static void app_fail_forever(const char *p_what)
  *  Periodic tasks woken by cyclic handlers (exact period)
  * ------------------------------------------------------------------ */
 
+/** @brief Wake the task whose ID is stored in a cyclic handler's exinf field. */
 static void app_wake_handler(void *p_exinf)
 {
     /* exinf holds a pointer to the task id to wake. */
     (void)tk_wup_tsk(*(ID *)p_exinf);
 }
 
+/**
+ * @brief Run Buddy 2's periodic motor/encoder update.
+ *
+ * A cyclic handler wakes this task at BUDDY2_CONTROL_PERIOD_MS; the task
+ * then updates motor control, encoder distance, and active motion commands.
+ */
 static void motion_task(INT stacd, void *p_exinf)
 {
     (void)stacd;
@@ -128,6 +131,12 @@ static void motion_task(INT stacd, void *p_exinf)
     }
 }
 
+/**
+ * @brief Run Buddy 3's periodic line-sensor update.
+ *
+ * A cyclic handler wakes this task at BUDDY3_SAMPLE_PERIOD_MS so line,
+ * junction, and barcode readings remain current for the controller.
+ */
 static void line_task(INT stacd, void *p_exinf)
 {
     (void)stacd;
@@ -143,6 +152,12 @@ static void line_task(INT stacd, void *p_exinf)
  *  Controller: commands in, decisions out
  * ------------------------------------------------------------------ */
 
+/**
+ * @brief Process dashboard commands and advance the main robot controller.
+ *
+ * The task waits for an MQTT command for up to APP_CONTROLLER_PERIOD_MS, then
+ * calls robot_controller_step() even when no command was received.
+ */
 static void controller_task(INT stacd, void *p_exinf)
 {
     char command[COMMS_COMMAND_MAX];
@@ -161,51 +176,13 @@ static void controller_task(INT stacd, void *p_exinf)
     }
 }
 
-/* ------------------------------------------------------------------ *
- *  Sensors: IMU every cycle, ultrasonic scan every few cycles
- * ------------------------------------------------------------------ */
-
-static void sensor_task(INT stacd, void *p_exinf)
-{
-    uint32_t cycle = 0u;
-    uint8_t  angle = APP_SERVO_MIN_DEG;
-    int32_t  step  = (int32_t)APP_SERVO_STEP_DEG;
-
-    (void)stacd;
-    (void)p_exinf;
-    while (1)
-    {
-        buddy4_update(app_now_ms());
-
-        if (0u == (cycle % APP_SONAR_EVERY_N_CYCLES))
-        {
-            buddy5_set_servo_angle(angle);
-            (void)tk_dly_tsk(APP_SERVO_SETTLE_MS);
-            (void)buddy5_measure_cm(app_now_ms());
-            if (((step > 0) && (angle >= APP_SERVO_MAX_DEG)) ||
-                ((step < 0) && (angle <= APP_SERVO_MIN_DEG)))
-            {
-                step = -step;       /* sweep back and forth */
-            }
-            angle = (uint8_t)((int32_t)angle + step);
-            if (angle > APP_SERVO_MAX_DEG)
-            {
-                angle = APP_SERVO_MAX_DEG;
-            }
-            if (angle < APP_SERVO_MIN_DEG)
-            {
-                angle = APP_SERVO_MIN_DEG;
-            }
-        }
-        cycle++;
-        (void)tk_dly_tsk(APP_SENSOR_PERIOD_MS);
-    }
-}
-
+/* Buddy 5 ultrasonic monitoring and obstacle avoidance live in
+ * buddy5_avoidance.c.  This file only creates that task. */
 /* ------------------------------------------------------------------ *
  *  Telemetry: console + MQTT
  * ------------------------------------------------------------------ */
 
+/** @brief Convert a communications-link state to console text. */
 static const char *app_link_name(uint32_t state)
 {
     if (COMMS_LINK_MQTT_UP == state)
@@ -219,13 +196,18 @@ static const char *app_link_name(uint32_t state)
     return "offline";
 }
 
+/** @brief Convert a line-sensor Boolean reading to the status-line colour label. */
 static const char *app_color(bool black)
 {
     return black ? "BLACK" : "white";
 }
 
-/* One easy-to-read line, e.g.
- * [status] idle | front L=white R=white | side=white | sonar 23 cm | heading 163.4 | pitch 1.2 */
+/**
+ * @brief Print one human-readable line of current robot status to USB.
+ *
+ * Example: [status] idle | front L=white R=white | side=white |
+ * sonar 23 cm | heading 163.4 | pitch 1.2
+ */
 static void app_print_status(void)
 {
     buddy4_imu_state_t imu;
@@ -269,6 +251,12 @@ static void app_print_status(void)
     }
 }
 
+/**
+ * @brief Publish dashboard telemetry and print periodic USB status.
+ *
+ * Debug JSON, full telemetry, and the MQTT heartbeat have independent rates
+ * controlled by the APP_TELEMETRY_* configuration constants.
+ */
 static void telemetry_task(INT stacd, void *p_exinf)
 {
     static char buffer[ROBOT_TELEMETRY_BUFFER_SIZE];
@@ -354,10 +342,9 @@ static void telemetry_task(INT stacd, void *p_exinf)
 static T_CTSK g_ctsk_motion      = APP_TASK(motion_task,              APP_PRI_MOTION);
 static T_CTSK g_ctsk_line        = APP_TASK(line_task,                APP_PRI_LINE);
 static T_CTSK g_ctsk_controller  = APP_TASK(controller_task,          APP_PRI_CONTROLLER);
-static T_CTSK g_ctsk_sensors     = APP_TASK(sensor_task,              APP_PRI_SENSORS);
+static T_CTSK g_ctsk_sensors     = APP_TASK(buddy5_avoidance_task,    APP_PRI_SENSORS);
 static T_CTSK g_ctsk_telemetry   = APP_TASK(telemetry_task,           APP_PRI_TELEMETRY);
 static T_CTSK g_ctsk_motion_test = APP_TASK(buddy2_motion_test_task,  APP_PRI_MOTION_TEST);
-static T_CTSK g_ctsk_blink       = APP_TASK(blink_task,               APP_PRI_BLINK);
 
 static T_CCYC g_ccyc_motion =
 {
@@ -377,7 +364,12 @@ static T_CCYC g_ccyc_line =
     .cycphs = BUDDY3_SAMPLE_PERIOD_MS,
 };
 
-/* Create and start a task; stop everything if it fails. */
+/**
+ * @brief Create and start one micro T-Kernel task.
+ *
+ * A task-creation failure is fatal because the remaining application cannot
+ * operate predictably without the requested subsystem task.
+ */
 static ID app_start_task(const char *p_name, T_CTSK *p_ctsk)
 {
     ID id = tk_cre_tsk(p_ctsk);
@@ -394,6 +386,12 @@ static ID app_start_task(const char *p_name, T_CTSK *p_ctsk)
  *  Entry point
  * ------------------------------------------------------------------ */
 
+/**
+ * @brief Initialise hardware and all Buddies, create application tasks, then sleep.
+ *
+ * This is the micro T-Kernel application entry point.  It must not return
+ * while the rover is running.
+ */
 EXPORT INT usermain(void)
 {
     /* 1. Hardware and subsystems. */
@@ -421,7 +419,8 @@ EXPORT INT usermain(void)
     }
 
     /* 2. Tasks.  The cyclic handlers are created after their tasks exist. */
-    (void)app_start_task("blink task", &g_ctsk_blink);
+    /* The kernel demo blink task owns GP16.  Leave it stopped while GP16 is
+     * the ultrasonic Echo input for this fixed-forward distance test. */
     g_motion_task_id = app_start_task("motion task", &g_ctsk_motion);
     g_line_task_id   = app_start_task("line task", &g_ctsk_line);
     if (!app_check("motion cyclic", tk_cre_cyc(&g_ccyc_motion)))
