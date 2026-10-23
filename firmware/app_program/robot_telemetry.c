@@ -168,7 +168,7 @@ void robot_telemetry_build(char *p_buffer, uint32_t now_ms)
     buddy5_get_last(&sonar);
     robot_controller_get_drive(&drive_left, &drive_right);
 
-    p_state = imu.mag_ok ? "online" : "compass_error";
+    p_state = !imu.mag_ok ? "compass_error" : (!imu.accel_ok ? "imu_error" : "online");
     robot_format_x10(heading, imu.heading_deg_x10);
     robot_format_x10(pitch, imu.pitch_deg_x10);
     robot_format_x10(max_pitch, imu.max_pitch_deg_x10);

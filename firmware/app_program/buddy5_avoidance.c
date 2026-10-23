@@ -426,7 +426,7 @@ void buddy5_avoidance_task(INT stacd, void *p_exinf)
     {
         uint32_t now_ms = app_now_ms();
 
-        buddy4_update(app_now_ms());
+        /* IMU is sampled by its independent owner task. */
 
         if (avoidance_result_pending_clear &&
             ((now_ms - avoidance_finished_ms) >= APP_AVOID_RESULT_VISIBLE_MS))
