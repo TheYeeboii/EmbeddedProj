@@ -12,7 +12,8 @@
  *   motion         5  20 ms (cyclic)    buddy2_update(): PID, moves  2
  *   line           6  10 ms (cyclic)    buddy3_update(): IR, barcode 3
  *   controller     7  20 ms             commands, barcodes, buttons  all
- *   sensors       10  100 ms            IMU; forward ultrasonic measurement 4, 5
+ *   imu            9  50 ms target      IMU + hump processing         4
+ *   sensors       10  100 ms            ultrasonic + avoidance        5
  *   telemetry     15  1 s               console + MQTT reports       1
  *   motion_test   20  on GP20 button    calibration test             2
  *
@@ -47,6 +48,7 @@
 #define APP_PRI_MOTION              (5)
 #define APP_PRI_LINE                (6)
 #define APP_PRI_CONTROLLER          (7)
+#define APP_PRI_IMU                 (9)
 #define APP_PRI_SENSORS             (10)
 #define APP_PRI_TELEMETRY           (15)
 #define APP_PRI_MOTION_TEST         (20)
@@ -342,6 +344,7 @@ static void telemetry_task(INT stacd, void *p_exinf)
 static T_CTSK g_ctsk_motion      = APP_TASK(motion_task,              APP_PRI_MOTION);
 static T_CTSK g_ctsk_line        = APP_TASK(line_task,                APP_PRI_LINE);
 static T_CTSK g_ctsk_controller  = APP_TASK(controller_task,          APP_PRI_CONTROLLER);
+static T_CTSK g_ctsk_imu         = APP_TASK(buddy4_task, APP_PRI_IMU);
 static T_CTSK g_ctsk_sensors     = APP_TASK(buddy5_avoidance_task,    APP_PRI_SENSORS);
 static T_CTSK g_ctsk_telemetry   = APP_TASK(telemetry_task,           APP_PRI_TELEMETRY);
 static T_CTSK g_ctsk_motion_test = APP_TASK(buddy2_motion_test_task,  APP_PRI_MOTION_TEST);
@@ -432,6 +435,7 @@ EXPORT INT usermain(void)
         app_fail_forever("line cyclic");
     }
     (void)app_start_task("controller task", &g_ctsk_controller);
+    (void)app_start_task("IMU task", &g_ctsk_imu);
     (void)app_start_task("sensor task", &g_ctsk_sensors);
     (void)app_start_task("telemetry task", &g_ctsk_telemetry);
     (void)app_start_task("motion test task", &g_ctsk_motion_test);
