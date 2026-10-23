@@ -15,7 +15,6 @@
  *   imu            9  50 ms target      IMU + hump processing         4
  *   sensors       10  100 ms            ultrasonic + avoidance        5
  *   telemetry     15  1 s               console + MQTT reports       1
- *   motion_test   20  on GP20 button    calibration test             2
  *
  * Lower number = higher priority.  (usb) and (cyw43) are created by the
  * kernel itself; (cyw43) only exists in Wi-Fi builds.
@@ -26,7 +25,6 @@
 
 #include "app_main.h"
 #include "buddy2_motion.h"
-#include "buddy2_motion_test.h"
 #include "buddy3_ir.h"
 #include "buddy4_imu.h"
 #include "buddy5_avoidance.h"
@@ -51,7 +49,6 @@
 #define APP_PRI_IMU                 (9)
 #define APP_PRI_SENSORS             (10)
 #define APP_PRI_TELEMETRY           (15)
-#define APP_PRI_MOTION_TEST         (20)
 
 #define APP_CONTROLLER_PERIOD_MS    (20)
 
@@ -276,7 +273,7 @@ static void telemetry_task(INT stacd, void *p_exinf)
     }
     tm_printf((UB *)"\n==========================================================\n");
     tm_printf((UB *)" Robot car (micro T-Kernel)\n");
-    tm_printf((UB *)" Buttons:  GP20 = motion test   GP21 = line following on/off\n");
+    tm_printf((UB *)" Buttons:  GP21 = line following on/off\n");
 #if defined(TM_WIFI_MQTT) && (TM_WIFI_MQTT == 1)
     tm_printf((UB *)" Wi-Fi:    on (dashboard)\n");
 #else
@@ -347,7 +344,6 @@ static T_CTSK g_ctsk_controller  = APP_TASK(controller_task,          APP_PRI_CO
 static T_CTSK g_ctsk_imu         = APP_TASK(buddy4_task, APP_PRI_IMU);
 static T_CTSK g_ctsk_sensors     = APP_TASK(buddy5_avoidance_task,    APP_PRI_SENSORS);
 static T_CTSK g_ctsk_telemetry   = APP_TASK(telemetry_task,           APP_PRI_TELEMETRY);
-static T_CTSK g_ctsk_motion_test = APP_TASK(buddy2_motion_test_task,  APP_PRI_MOTION_TEST);
 
 static T_CCYC g_ccyc_motion =
 {
@@ -411,7 +407,6 @@ EXPORT INT usermain(void)
     {
         app_fail_forever("buddy2_motion_init");
     }
-    hal_gpio_input_pullup(BUTTON_TEST_PIN);
     buddy3_init();
     buddy5_init();
     robot_controller_init();
@@ -422,8 +417,6 @@ EXPORT INT usermain(void)
     }
 
     /* 2. Tasks.  The cyclic handlers are created after their tasks exist. */
-    /* The kernel demo blink task owns GP16.  Leave it stopped while GP16 is
-     * the ultrasonic Echo input for this fixed-forward distance test. */
     g_motion_task_id = app_start_task("motion task", &g_ctsk_motion);
     g_line_task_id   = app_start_task("line task", &g_ctsk_line);
     if (!app_check("motion cyclic", tk_cre_cyc(&g_ccyc_motion)))
@@ -438,7 +431,6 @@ EXPORT INT usermain(void)
     (void)app_start_task("IMU task", &g_ctsk_imu);
     (void)app_start_task("sensor task", &g_ctsk_sensors);
     (void)app_start_task("telemetry task", &g_ctsk_telemetry);
-    (void)app_start_task("motion test task", &g_ctsk_motion_test);
 
     /* usermain must never return while the system is running. */
     (void)tk_slp_tsk(TMO_FEVR);

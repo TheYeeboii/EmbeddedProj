@@ -54,7 +54,6 @@
 #define IR_ADC_CHANNEL_RIGHT  (2u)
 
 /* Robo Pico on-board push buttons (active low) */
-#define BUTTON_TEST_PIN       (20u)  /* GP20: run the Buddy 2 motion test   */
 #define BUTTON_LINE_PIN       (21u)  /* GP21: start/stop line following     */
 
 #endif /* PIN_CONFIG_H */
