@@ -94,6 +94,19 @@ function refreshRobotLink() {
 /* ---------- telemetry ---------- */
 
 function showTelemetry(data) {
+  // Buddy 4 reports independently; preserve the other sensor tiles.
+  if (Object.prototype.hasOwnProperty.call(data, 'hump_state')) {
+    setText('imu-health', data.imu_fault ? 'Reading unavailable' : (data.imu_calibrated ? 'Calibrated' : 'Needs calibration'));
+    setText('imu-roll', fmt(data.roll_x10 / 10));
+    setText('hump-state', ['Flat', 'Climbing', 'Top', 'Descending'][data.hump_state] ?? 'Unknown');
+    setText('hump-count', data.hump_seq);
+    setText('hump-peak', fmt(data.hump_peak_x10 / 10));
+    setText('hump-height', data.height_valid ? `${data.hump_height_mm} mm (estimate)` : 'Not validated');
+    setText('hump-highest', data.highest_hump_mm > 0 ? `${data.highest_hump_mm} mm (estimate)` : '--');
+    setText('imu-interval', `${data.imu_interval_ms} ms`);
+    return;
+  }
+
   markSeen();
   const sensorsOk = (data.state || data.status) === 'online';
   setText('state', sensorsOk ? 'All sensors OK' : (data.state === 'compass_error' ? 'Compass error' : (data.state || 'Unknown')));
