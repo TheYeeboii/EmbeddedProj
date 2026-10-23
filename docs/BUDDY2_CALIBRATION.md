@@ -51,6 +51,6 @@ The motion controller currently uses a conservative proportional-plus-integral c
 
 ## micro T-Kernel notes
 
-- Code: `firmware/app_program/buddy2_motion.c`. The test run is `buddy2_motion_test.c`, started with the **GP20** button.
+- Code: `firmware/app_program/buddy2_motion.c`. Test moves and turns from the dashboard's Motion panel (Forward/Backward distance, Turn Left/Right angle).
 - PWM units: `32767` now means **100 % duty**. The PWM counter wrap is set explicitly (10 kHz), so the old "PWM limit = 50 %" note no longer applies.
 - `buddy2_update()` runs every 20 ms in its own task, woken by a kernel cyclic handler.

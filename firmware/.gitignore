@@ -1,4 +1,4 @@
-﻿Debug
+Debug
 Release
 
 # Build artifacts
@@ -22,5 +22,3 @@ config/tcp_test_config.h
 __pycache__/
 *.pyc
 
-# Robot car: keep the ready-to-flash images
-!prebuilt/*.uf2
