@@ -38,7 +38,8 @@ unless a section below tells you to change something.
 | motion | 5 | every 20 ms (cyclic handler) | `buddy2_update()` |
 | line | 6 | every 10 ms (cyclic handler) | `buddy3_update()` |
 | controller | 7 | every 20 ms, or on command | commands, barcodes, GP21 button, safety |
-| sensors | 10 | every 100 ms | IMU; ultrasonic + servo step every 500 ms |
+| imu | 9 | target 50 ms | Buddy 4 readings, filtering and hump processing |
+| sensors | 10 | every 100 ms | Buddy 5 ultrasonic and avoidance |
 | telemetry | 15 | every 1 s | console print + MQTT publish |
 | motion_test | 20 | GP20 button | Buddy 2 calibration run |
 | blink | 30 | 250 ms | GP16 LED |
@@ -136,7 +137,7 @@ once the robot starts.
 |---|---|---|
 | Buddy 2 motion | Yes | On the car |
 | Buddy 3 line + barcode | Yes, same algorithm | Emulator (line tracking, steering, barcode "turn left" then resume) |
-| Buddy 4 IMU | Compass, plus new accelerometer and tilt | Emulator (fake sensor: heading 45.0°, pitch 26.5°) |
+| Buddy 4 IMU | Calibration API, filtering, hump events, estimated height and compact payload | Host processing/driver tests and USB build; physical validation pending |
 | Buddy 5 ultrasonic + servo | Yes, echo now interrupt-timed | Emulator (20 cm echo reads 18–19 cm) |
 | Buddy 1 Wi-Fi + MQTT | Yes, same topics and JSON fields | **Compiles only. Needs a test on the car with the dashboard** |
 | Controller commands | Same commands as the old `main.c` | Parser unit-tested on PC |
@@ -146,7 +147,9 @@ A raw drive command stops line following. After a barcode action the robot
 resumes line following. Dashboard PWM values are halved internally, so the motor
 duty is the same as before the PWM fix.
 
-**Not done yet (project requirements):** hump detection and height (Buddy 4),
+**Buddy 4:** implemented software and validation procedure: [BUDDY4_IMU.md](../docs/BUDDY4_IMU.md). Physical calibration and known-height validation remain required.
+
+**Not done yet (project requirements):**
 obstacle profiling, avoidance and line recovery (Buddy 5), the U-turn barcode,
 straight-line correction and PID tuning (Buddy 2), and Wi-Fi reconnection after
 the link drops.
