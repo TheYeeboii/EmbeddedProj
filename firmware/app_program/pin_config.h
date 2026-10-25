@@ -12,28 +12,33 @@
 #include <stdint.h>
 
 /* Motor driver (Robo Pico, hard-wired).
- * On our car the LEFT wheel (seen from behind) is wired to M2 and the RIGHT
- * wheel to M1 - confirmed 10 Oct with a wheels-up line-follow test. */
-#define MOTOR_LEFT_PWM_A      (10u)  /* M2A - forward  */
-#define MOTOR_LEFT_PWM_B      (11u)  /* M2B - backward */
-#define MOTOR_RIGHT_PWM_A     (8u)   /* M1A - forward  */
-#define MOTOR_RIGHT_PWM_B     (9u)   /* M1B - backward */
+ * Rewired 23 Oct to match the Week 6 design review: LEFT wheel (seen from
+ * behind) on M1, RIGHT wheel on M2.  The motors are mounted mirror-image, so
+ * the left motor's wires are crossed: left 05 -> M1B, 06 -> M1A; right
+ * 05 -> M2A, 06 -> M2B.  Checked with the test buttons: M1A and M2A both
+ * turn their wheel forwards. */
+#define MOTOR_LEFT_PWM_A      (8u)   /* M1A - forward  */
+#define MOTOR_LEFT_PWM_B      (9u)   /* M1B - backward */
+#define MOTOR_RIGHT_PWM_A     (10u)  /* M2A - forward  */
+#define MOTOR_RIGHT_PWM_B     (11u)  /* M2B - backward */
 
-/* Wheel encoders: the left green channel on GP3 produced no pulses, so use
- * the other left encoder channel already wired to GP2 (red).  Right uses
- * its red encoder channel on GP14. */
-#define ENCODER_LEFT_A        (2u)   /* GP2: left encoder red */
-#define ENCODER_RIGHT_A       (14u)  /* GP14: right encoder red */
+/* Wheel encoders, one Grove cable each (rewired 24 Oct).  Motor cable pins:
+ * 01 GND -> Grove GND, 04 power -> Grove 3V3, 02 phase A -> GPIO below,
+ * 03 phase B -> not used by the code yet.
+ * Right encoder is on Grove 4 using GP17 only: the kernel drives GP16 as its
+ * board-LED output at boot (BOARD_LED_PIN), so no encoder output may be
+ * connected to GP16.  Leave the right motor's pin 03 unconnected. */
+#define ENCODER_LEFT_A        (2u)   /* Grove 2: GP2 (phase B may go on GP3) */
+#define ENCODER_RIGHT_A       (17u)  /* Grove 4: GP17 (GP16 left empty)     */
 
 /* Servo for the ultrasonic scanner (Robo Pico servo header) */
 #define SERVO_PWM_PIN         (15u)  /* GP15 */
 
-/* HC-SR04+ ultrasonic sensor (middle Grove socket).
- * Socket order: GND, 3V3, GP16, GP17.  The connected sensor uses
- * Echo = GP16 (white wire) and Trig = GP17 (yellow wire). */
+/* HC-SR04+ ultrasonic sensor on Grove 1 (GND, 3V3, GP0, GP1), as in the
+ * Week 6 design review.  GP0/GP1 are free because the console is USB. */
 #ifndef ULTRASONIC_TRIG_PIN        /* can be overridden with ROBOT_CFLAGS */
-#define ULTRASONIC_TRIG_PIN   (17u)  /* GP17, yellow Trig wire */
-#define ULTRASONIC_ECHO_PIN   (16u)  /* GP16, white Echo wire  */
+#define ULTRASONIC_TRIG_PIN   (0u)   /* Grove 1: GP0 = Trig */
+#define ULTRASONIC_ECHO_PIN   (1u)   /* Grove 1: GP1 = Echo */
 #endif
 
 /* LSM303DLHC accelerometer + compass on I2C0 (Grove 3) */
