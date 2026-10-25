@@ -38,9 +38,9 @@ static uint8_t           g_servo_angle   = 90u;
 /**
  * @brief Confirm that Echo is low before issuing a new trigger pulse.
  *
- * A normal HC-SR04+ leaves Echo low between measurements.  If GP16 is still
+ * A normal HC-SR04+ leaves Echo low between measurements.  If the Echo pin is still
  * high, the previous pulse is incomplete or the line/sensor is faulty.  Do
- * not send another trigger into that condition: reset GP16 to input mode,
+ * not send another trigger into that condition: reset the Echo pin to input mode,
  * report no echo, and allow the next scheduled measurement to retry.
  */
 static bool buddy5_wait_for_echo_idle(void)
