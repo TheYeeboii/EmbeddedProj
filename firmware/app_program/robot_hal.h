@@ -44,6 +44,7 @@ void     hal_delay_us(uint32_t us);
 
 /* ---- GPIO ---- */
 void     hal_gpio_input_pullup(uint32_t pin);
+void     hal_gpio_input_pulldown(uint32_t pin);
 void     hal_gpio_input(uint32_t pin);
 void     hal_gpio_output(uint32_t pin, bool initial_value);
 void     hal_gpio_write(uint32_t pin, bool value);

@@ -53,7 +53,7 @@ telemetry over Wi-Fi (MQTT) to a browser dashboard.
 ### Buttons and testing
 
 - **GP21**: start/stop line following.
-- Motion is tested from the dashboard (Motion panel: forward/backward a distance, turn left/right an angle).
+- Distance/turn moves have no dashboard control (the Motion panel was removed on 26 Oct). They run only for barcode actions and Buddy 5's obstacle avoidance.
 
 ## Build and flash (Windows, using WSL)
 
@@ -112,7 +112,7 @@ To use a different broker, open `http://localhost:8000/?broker=HOST_OR_IP`.
 
 | Topic | Direction | Content |
 |---|---|---|
-| `rover/commands` | dashboard → robot | Commands, e.g. `{"cmd":"stop"}`, `{"cmd":"drive","left":30000,"right":30000}`, `{"cmd":"move_forward","distance_mm":500,"max_pwm":20000}`, `turn_left`, `turn_right`, `line_follow`, `line_stop`, `motor_trim`, `speed_limit`, `line_speed` |
+| `rover/commands` | dashboard → robot | Commands, e.g. `{"cmd":"stop"}`, `{"cmd":"drive","left":30000,"right":30000}`, `line_follow`, `line_stop`, `motor_trim`, `speed_limit`, `line_speed` |
 | `rover/telemetry` | robot → dashboard | Mode, IR, ultrasonic, heading, tilt, encoders, motor settings; IMU/hump report |
 | `rover/debug` | robot → dashboard | Line-sensor detail, barcode state, avoidance scan and status |
 | `rover/heartbeat` | robot → dashboard | Periodic "online" message |
@@ -141,7 +141,7 @@ A raw drive command stops the motors if it is not refreshed within one second.
 
 | File | Change | Why |
 |---|---|---|
-| `firmware/config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (right motor). We use the SDK for ADC/I2C instead |
+| `firmware/config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (left motor, M1). We use the SDK for ADC/I2C instead |
 | `firmware/build_make/pico_rp2040.mk` | `include robot.mk`, `WIFI_MQTT` option | Pico SDK libraries; MQTT build profile |
 | `firmware/build_make/makefile` | links `$(LIBS_ROBOT)` (`-lm`) | maths functions for the IMU |
 | `firmware/lib/libnet/lwip/include/lwipopts.h` | TCP on for MQTT, bigger MQTT buffer | MQTT needs TCP |

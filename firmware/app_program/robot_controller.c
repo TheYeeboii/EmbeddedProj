@@ -34,7 +34,6 @@
 
 #define ROBOT_FORWARD_SPEED           (30000u)   /* dashboard units */
 #define ROBOT_REVERSE_SPEED           (20000u)
-#define ROBOT_DEFAULT_MOTION_PWM      (20000)    /* dashboard units */
 #define ROBOT_DRIVE_TIMEOUT_MS        (1000u)    /* raw drive safety stop */
 
 #define ROBOT_BARCODE_TURN_DEG        (90.0f)
@@ -269,56 +268,6 @@ static void robot_drive(uint32_t left, uint32_t right, int32_t sign, uint32_t no
     g_mode = ((0u == left) && (0u == right)) ? ROBOT_MODE_IDLE : ROBOT_MODE_DRIVE;
 }
 
-static bool robot_valid_pwm(int32_t pwm)
-{
-    return (pwm > 0) && (pwm <= ROBOT_LEGACY_MAX);
-}
-
-/* move_forward / move_backward / turn_left / turn_right */
-static bool robot_motion(const char *p_name, int32_t amount, int32_t pwm)
-{
-    int16_t api_pwm = ROBOT_LEGACY_TO_PWM(pwm);
-    bool    started = false;
-
-    if ((amount <= 0) || !robot_valid_pwm(pwm))
-    {
-        return false;
-    }
-    buddy3_stop_line_follow();
-    g_resume_line = false;
-    g_avoid_resume_line = false;
-    g_motion_is_forward = false;
-
-    if (robot_str_equal(p_name, "move_forward"))
-    {
-        started = buddy2_move_forward((float)amount, api_pwm);
-    }
-    else if (robot_str_equal(p_name, "move_backward"))
-    {
-        started = buddy2_move_backward((float)amount, api_pwm);
-    }
-    else if (robot_str_equal(p_name, "turn_left"))
-    {
-        started = buddy2_turn_left((float)amount, api_pwm);
-    }
-    else if (robot_str_equal(p_name, "turn_right"))
-    {
-        started = buddy2_turn_right((float)amount, api_pwm);
-    }
-    else
-    {
-        /* not a motion command */
-    }
-
-    if (started)
-    {
-        g_motion_is_forward = robot_str_equal(p_name, "move_forward");
-        g_mode = ROBOT_MODE_MOTION;
-        tm_printf((UB *)"[cmd] %s %d (pwm %d)\n", p_name, (INT)amount, (INT)pwm);
-    }
-    return started;
-}
-
 static void robot_set_trim(int32_t left, int32_t right)
 {
     if ((left >= 0) && (left <= 100) && (right >= 0) && (right <= 100) &&
@@ -445,7 +394,6 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
     int32_t left     = -1;
     int32_t right    = -1;
     int32_t amount   = 0;
-    int32_t pwm      = ROBOT_DEFAULT_MOTION_PWM;
 
     if ((NULL == p_command) || ('\0' == p_command[0]))
     {
@@ -502,19 +450,11 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
-        (void)robot_json_int(p_command, "max_pwm", &pwm);
-        if (!robot_json_int(p_command, "distance_mm", &amount))
-        {
-            (void)robot_json_int(p_command, "angle_deg", &amount);
-        }
-        if (!robot_motion(name, amount, pwm))
-        {
-            tm_printf((UB *)"[cmd] ignored: %s\n", p_command);
-        }
+        tm_printf((UB *)"[cmd] ignored: %s\n", p_command);
         return;
     }
 
-    /* Plain-text form, e.g. "drive 30000 30000" or "move_forward 500 20000" */
+    /* Plain-text form, e.g. "drive 30000 30000" or "speed_limit 60" */
     {
         const char *p_rest = robot_first_word(p_command, name);
 
@@ -557,14 +497,7 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
-        if (robot_parse_int(p_rest, &amount, &p_rest))
-        {
-            (void)robot_parse_int(p_rest, &pwm, &p_rest);
-        }
-        if (!robot_motion(name, amount, pwm))
-        {
-            tm_printf((UB *)"[cmd] ignored: %s\n", p_command);
-        }
+        tm_printf((UB *)"[cmd] ignored: %s\n", p_command);
     }
 }
 
@@ -671,9 +604,10 @@ const char *robot_controller_mode_name(void)
 
 bool robot_controller_obstacle_watch_enabled(void)
 {
-    /* Motion is included for dashboard move_forward commands.  The monitor
-     * only takes over when the forward-facing ultrasonic sensor reports an
-     * actual close echo, so an idle rover never starts an avoidance move. */
+    /* Watched: forward manual drive, line following, and the forward move
+     * of a "go straight" barcode action.  The monitor only takes over when
+     * the forward-facing ultrasonic sensor reports an actual close echo, so
+     * an idle rover never starts an avoidance move. */
     return ((ROBOT_MODE_DRIVE == g_mode) && g_drive_is_forward) ||
            (ROBOT_MODE_LINE == g_mode) ||
            ((ROBOT_MODE_MOTION == g_mode) && g_motion_is_forward);

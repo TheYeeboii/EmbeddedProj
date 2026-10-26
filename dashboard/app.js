@@ -276,12 +276,7 @@ function appendSerial(data) {
 
 /* ---------- commands ---------- */
 
-/* On our rover the firmware's "left"/"right" turn the opposite way, so the
- * A/D keys and the left/right arrow buttons send the swapped command. */
-const TURN_SWAP = { left: 'right', right: 'left' };
-
 function sendCommand(command, values = {}, { quiet = false } = {}) {
-  command = TURN_SWAP[command] || command;
   if (!client || !client.connected) {
     commandResult.textContent = 'Broker offline. Check Mosquitto is running.';
     commandResult.style.color = 'var(--destructive)';
@@ -378,27 +373,6 @@ function showError(id, message, input) {
   el.textContent = message || '';
   if (message && input) input.focus();
 }
-
-document.querySelectorAll('[data-motion]').forEach((button) => {
-  button.addEventListener('click', () => {
-    const command = button.dataset.motion;
-    const isMove = command.startsWith('move_');
-    const amountInput = isMove ? $('#motion-distance') : $('#motion-angle');
-    const pwmInput = $('#motion-pwm');
-    const amount = readInt(amountInput, 1, isMove ? 100000 : 360);
-    const pwm = readInt(pwmInput, 1, 65535);
-    if (amount === null) {
-      showError('motion-error', isMove ? 'Enter a whole distance of at least 1 mm.' : 'Enter a whole angle between 1 and 360.', amountInput);
-      return;
-    }
-    if (pwm === null) {
-      showError('motion-error', 'Max PWM must be a whole number from 1 to 65535.', pwmInput);
-      return;
-    }
-    showError('motion-error', '');
-    sendCommand(command, { [isMove ? 'distance_mm' : 'angle_deg']: amount, max_pwm: pwm });
-  });
-});
 
 $('#drive-form').addEventListener('submit', (event) => {
   event.preventDefault();

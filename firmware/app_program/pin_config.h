@@ -22,20 +22,42 @@
 #define MOTOR_RIGHT_PWM_A     (10u)  /* M2A - forward  */
 #define MOTOR_RIGHT_PWM_B     (11u)  /* M2B - backward */
 
-/* Wheel encoders, one Grove cable each (rewired 24 Oct).  Motor cable pins:
- * 01 GND -> Grove GND, 04 power -> Grove 3V3, 02 phase A -> GPIO below,
- * 03 phase B -> not used by the code yet.
- * Right encoder is on Grove 4 using GP17 only: the kernel drives GP16 as its
- * board-LED output at boot (BOARD_LED_PIN), so no encoder output may be
- * connected to GP16.  Leave the right motor's pin 03 unconnected. */
-#define ENCODER_LEFT_A        (2u)   /* Grove 2: GP2 (phase B may go on GP3) */
-#define ENCODER_RIGHT_A       (17u)  /* Grove 4: GP17 (GP16 left empty)     */
+/* Wheel encoders (26 Oct).  Motor cable pins: 01 GND, 02 phase A,
+ * 03 phase B, 04 power (3V3), 05/06 motor.  Each encoder needs 01 -> GND,
+ * 04 -> 3V3 and ONE phase on the GPIO below; the code counts rising edges of
+ * that one phase only.
+ *   Left  -> Grove 2: 02 (phase A) -> GP2.  Pin 03 (phase B) and the
+ *            Grove 2 GP3 wire are NOT connected.
+ *   Right -> Grove 4: 02 (phase A) -> GP17.  Pin 03 and the Grove 4 GP16
+ *            wire are NOT connected.
+ * Pin safety: the kernel claims GP0/GP1 (UART0) and GP16 (board LED) at
+ * boot.  usermain() first releases every Grove signal pin (GP0-GP3,
+ * GP16-GP17) as a pulled-down input; modules then set up only the pins
+ * listed in this file.  Still, never wire a sensor or encoder OUTPUT to a
+ * pin this file does not read. */
+#define ENCODER_LEFT_A        (2u)   /* Grove 2: GP2 = left phase A (pin 02) */
+#define ENCODER_RIGHT_A       (17u)  /* Grove 4: GP17 = right phase A        */
 
-/* Servo for the ultrasonic scanner (Robo Pico servo header) */
+/* Diagnostic only - keep 0.  1 = left encoder pin pulled DOWN instead of up:
+ * its GP LED then stays ON if the encoder actively drives high, OFF if it is
+ * not driving at all.  Counting needs 0 (pull-up): these encoders pull
+ * their output low. */
+#define ENCODER_LEFT_PULLDOWN_TEST  (0)
+
+/* Workaround (26 Oct): the left encoder gives no edges on GP2.  1 = the
+ * motion code uses the RIGHT encoder's count for both wheels (signed by each
+ * wheel's commanded direction), so distance moves, turns, avoidance and the
+ * IMU hump check still work - but drift between the wheels is not seen.
+ * Set back to 0 once the left encoder counts. */
+#define ENCODER_LEFT_MIRROR_RIGHT   (1)
+
+/* Servo for the ultrasonic scanner (Robo Pico servo port GP15) */
 #define SERVO_PWM_PIN         (15u)  /* GP15 */
 
 /* HC-SR04+ ultrasonic sensor on Grove 1 (GND, 3V3, GP0, GP1), as in the
- * Week 6 design review.  GP0/GP1 are free because the console is USB. */
+ * Week 6 design review.  GP0 (Trig) is a Pico OUTPUT and GP1 (Echo) an
+ * input; the driver takes both pins back from the kernel's UART at start-up.
+ * Sensor Vcc -> 3V3, Gnd -> GND: a reversed pair shorts the 3.3 V supply. */
 #ifndef ULTRASONIC_TRIG_PIN        /* can be overridden with ROBOT_CFLAGS */
 #define ULTRASONIC_TRIG_PIN   (0u)   /* Grove 1: GP0 = Trig */
 #define ULTRASONIC_ECHO_PIN   (1u)   /* Grove 1: GP1 = Echo */

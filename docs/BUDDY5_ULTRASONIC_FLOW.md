@@ -2,13 +2,13 @@
 
 Buddy 5 consists of the HC-SR04+ ultrasonic sensor and its scanning servo.
 The sensor module is implemented in `firmware/app_program/buddy5_ultrasonic.c`.
-The higher-level obstacle-avoidance sequence is implemented by `sensor_task()`
-in `firmware/app_program/app_main.c`.
+The higher-level obstacle-avoidance sequence is implemented by
+`buddy5_avoidance_task()` in `firmware/app_program/buddy5_avoidance.c`.
 
 ## Normal forward measurement
 
-1. At startup, `buddy5_init()` configures GP17 as the Trigger output, GP16 as
-   the Echo input, and GP15 as the servo PWM output.
+1. At startup, `buddy5_init()` configures GP0 as the Trigger output, GP1 as
+   the Echo input (both on Grove 1), and GP15 as the servo PWM output.
 2. The servo is set to 90 degrees, so the ultrasonic sensor faces forward.
 3. Every sensor-task cycle, `buddy5_measure_cm(now_ms)` triggers the sensor.
 4. The Trigger pin is held HIGH for 10 microseconds, then returned LOW.

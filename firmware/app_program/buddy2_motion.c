@@ -238,7 +238,20 @@ static void buddy2_stop_locked(void)
 
 static void buddy2_encoder_pin_init(uint32_t pin)
 {
+#if ENCODER_LEFT_PULLDOWN_TEST
+    /* Diagnostic only (pin_config.h): pull the left encoder pin DOWN to see
+     * whether the encoder actively drives its output. */
+    if (ENCODER_LEFT_A == pin)
+    {
+        hal_gpio_input_pulldown(pin);
+    }
+    else
+    {
+        hal_gpio_input_pullup(pin);
+    }
+#else
     hal_gpio_input_pullup(pin);
+#endif
     (void)gpio_irq_register(pin, HAL_GPIO_EDGE_RISE, buddy2_encoder_callback);
 }
 
@@ -485,13 +498,22 @@ void buddy2_update(uint32_t now_ms)
     g_last_update_ms = now_ms;
 
     /* 32-bit reads are atomic on the Cortex-M0+, so no interrupt lock. */
-    left_ticks  = g_left_ticks;
     right_ticks = g_right_ticks;
+#if ENCODER_LEFT_MIRROR_RIGHT
+    /* Workaround (pin_config.h): left encoder dead, use the right count. */
+    left_ticks  = right_ticks;
+#else
+    left_ticks  = g_left_ticks;
+#endif
 
     {
         int32_t left_delta   = left_ticks  - g_state.left_ticks;
         int32_t right_delta  = right_ticks - g_state.right_ticks;
+#if ENCODER_LEFT_MIRROR_RIGHT
+        float   left_mm_tick  = buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev);
+#else
         float   left_mm_tick  = buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev);
+#endif
         float   right_mm_tick = buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev);
         float   left_distance  = (float)left_delta  * left_mm_tick  * (float)g_left_direction;
         float   right_distance = (float)right_delta * right_mm_tick * (float)g_right_direction;
