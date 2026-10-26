@@ -283,15 +283,10 @@ static void telemetry_task(INT stacd, void *p_exinf)
         (void)tk_dly_tsk(100);
     }
     tm_printf((UB *)"\n==========================================================\n");
-<<<<<<< Updated upstream
-    tm_printf((UB *)" Robot car (micro T-Kernel)\n");
-    tm_printf((UB *)" Buttons:  GP21 = line following on/off\n");
-=======
     tm_printf((UB *)" Robot car (micro T-Kernel), built %s %s\n", __DATE__, __TIME__);
     tm_printf((UB *)" Encoders: left GP%u, right GP%u\n",
               (UINT)ENCODER_LEFT_A, (UINT)ENCODER_RIGHT_A);
-    tm_printf((UB *)" Buttons:  GP20 = motion test   GP21 = line following on/off\n");
->>>>>>> Stashed changes
+    tm_printf((UB *)" Buttons:  GP21 = line following on/off\n");
 #if defined(TM_WIFI_MQTT) && (TM_WIFI_MQTT == 1)
     tm_printf((UB *)" Wi-Fi:    on (dashboard)\n");
 #else
@@ -413,6 +408,27 @@ EXPORT INT usermain(void)
 {
     /* 1. Hardware and subsystems. */
     hal_init();
+
+    /* Release every Grove signal pin (Grove 1: GP0/GP1, Grove 2: GP2/GP3,
+     * Grove 4: GP16/GP17) as a harmless pulled-down input before anything
+     * else.  The kernel claims some of them at boot (hw_setting.c): GP0/GP1
+     * as UART0 - and even in the USB-console build it mirrors console text
+     * out of GP0, so UART TX drives that pin - and GP16 as the board-LED
+     * output, driven low.  Our console is USB and no LED is fitted.  The
+     * modules below then set up only the pins they really use
+     * (pin_config.h), so a pin nothing uses is never driven and a stray
+     * wire on it is safe.  (Grove 3 is I2C and Grove 5-7 are ADC; their
+     * pins are set up by their own drivers.) */
+    {
+        static const uint8_t grove_pins[] = { 0u, 1u, 2u, 3u, 16u, 17u };
+        uint32_t             i;
+
+        for (i = 0u; i < (sizeof(grove_pins) / sizeof(grove_pins[0])); i++)
+        {
+            hal_gpio_input_pulldown((uint32_t)grove_pins[i]);
+        }
+    }
+
     if (!app_check("gpio_irq_init", (ER)gpio_irq_init()))
     {
         app_fail_forever("gpio_irq_init");
@@ -435,11 +451,6 @@ EXPORT INT usermain(void)
     }
 
     /* 2. Tasks.  The cyclic handlers are created after their tasks exist. */
-<<<<<<< Updated upstream
-=======
-    /* The kernel demo blink task drives GP16 (BOARD_LED_PIN).  It stays
-     * stopped, and nothing that outputs a signal is wired to GP16. */
->>>>>>> Stashed changes
     g_motion_task_id = app_start_task("motion task", &g_ctsk_motion);
     g_line_task_id   = app_start_task("line task", &g_ctsk_line);
     if (!app_check("motion cyclic", tk_cre_cyc(&g_ccyc_motion)))

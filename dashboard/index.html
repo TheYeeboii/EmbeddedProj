@@ -227,7 +227,7 @@
                 </div>
               </div>
               <p id="speed-error" class="field-error small" role="alert" hidden></p>
-              <p class="muted small">Scales everything: arrows, Raw PWM, Motion, line following and barcode moves. Line following runs at its own Speed × this limit; if the car stalls on the line, raise that Speed. Resets to 40% on reboot.</p>
+              <p class="muted small">Scales everything: arrows, Raw PWM, line following, barcode moves and obstacle avoidance. Line following runs at its own Speed × this limit; if the car stalls on the line, raise that Speed. Resets to 40% on reboot.</p>
             </form>
           </section>
 
@@ -264,34 +264,6 @@
 
         </div>
         <div class="side-stack">
-          <section class="card" aria-labelledby="motion-title">
-            <header class="card-header"><h2 id="motion-title">Motion</h2></header>
-
-            <form id="motion-form" class="stack" novalidate>
-              <div class="field-grid">
-                <div class="field">
-                  <label for="motion-distance">Distance (mm)</label>
-                  <input id="motion-distance" name="distance_mm" class="input num" type="number" inputmode="numeric" min="1" step="1" value="500" autocomplete="off">
-                </div>
-                <div class="field">
-                  <label for="motion-angle">Angle (°)</label>
-                  <input id="motion-angle" name="angle_deg" class="input num" type="number" inputmode="numeric" min="1" max="360" step="1" value="90" autocomplete="off">
-                </div>
-                <div class="field field-full">
-                  <label for="motion-pwm">Max PWM</label>
-                  <input id="motion-pwm" name="max_pwm" class="input num" type="number" inputmode="numeric" min="1" max="65535" step="1" value="20000" autocomplete="off">
-                </div>
-              </div>
-              <div class="btn-grid">
-                <button class="btn btn-outline" type="button" data-motion="move_forward"><i data-lucide="chevrons-up" aria-hidden="true"></i>Forward</button>
-                <button class="btn btn-outline" type="button" data-motion="move_backward"><i data-lucide="chevrons-down" aria-hidden="true"></i>Backward</button>
-                <button class="btn btn-outline" type="button" data-motion="turn_left"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Turn Left</button>
-                <button class="btn btn-outline" type="button" data-motion="turn_right"><i data-lucide="rotate-cw" aria-hidden="true"></i>Turn Right</button>
-              </div>
-              <p id="motion-error" class="field-error small" role="alert" hidden></p>
-            </form>
-          </section>
-
           <section class="card" aria-labelledby="pwm-title">
             <header class="card-header"><h2 id="pwm-title">Raw PWM</h2></header>
             <form id="drive-form" class="stack" novalidate>
@@ -357,6 +329,6 @@
 
   <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

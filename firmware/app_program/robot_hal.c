@@ -106,6 +106,13 @@ void hal_gpio_input_pullup(uint32_t pin)
     gpio_pull_up(pin);
 }
 
+void hal_gpio_input_pulldown(uint32_t pin)
+{
+    gpio_init(pin);
+    gpio_set_dir(pin, GPIO_IN);
+    gpio_pull_down(pin);
+}
+
 void hal_gpio_input(uint32_t pin)
 {
     gpio_init(pin);
