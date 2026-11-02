@@ -51,7 +51,14 @@ typedef struct
     int16_t base_pwm; // Base power of the motor: 32767 = full duty
 } line_follow_configs_t;
 
-// Snapshot of IR readings and interpreted line/barcode status.
+/* Raw and normalized values from one IR sensor. */
+typedef struct
+{
+    uint16_t raw; // Original ADC reading: 0-4095
+    uint16_t normalized; // Calibrated reading: 0-1000
+} ir_sensor_reading_t;
+
+// Compatibility snapshot of IR readings and interpreted line/barcode status.
 // Sensor order: front left, front right, side barcode.
 typedef struct
 {
