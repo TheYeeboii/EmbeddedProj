@@ -21,15 +21,16 @@
 #define BUDDY3_BARCODE_RIGHT     (2u)
 #define BUDDY3_BARCODE_STRAIGHT  (3u)
 
+// Contains IR sensor calibration parameters and line-following steering configurations.
 typedef struct
 {
-    uint16_t minimum[3];
-    uint16_t maximum[3];
-    bool     line_is_dark;
-    float    proportional_gain;
-    float    derivative_gain;
-    int16_t  base_pwm;
-} buddy3_calibration_t;
+    uint16_t minimum[3]; // Minimum raw readings of 3 IR sensors when NOT on track
+    uint16_t maximum[3]; // Maximum of 3 IR sensors when on track
+    bool     line_is_dark; // Option to invert readings if sensor reads higher value on dark instead of white
+    float    proportional_gain; // Steering strength: Too high cause overcorrection, too low causes missing the curve
+    float    derivative_gain; // CURRENTLY UNUSED - Multiplies the proportional gain
+    int16_t  base_pwm; // Base power of the motor: 32767 = full duty
+} buddy3_calibration_t; // TODO: Rename to something meaningful and refactor
 
 typedef struct
 {
