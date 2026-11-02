@@ -38,15 +38,17 @@ typedef struct
     int16_t  base_pwm; // Base power of the motor: 32767 = full duty
 } buddy3_calibration_t; // TODO: Rename to something meaningful and refactor
 
+// Snapshot of IR readings and interpreted line/barcode status.
+// Sensor order: front left, front right, side barcode.
 typedef struct
 {
-    uint16_t raw[3];
-    uint16_t normalized[3];
-    int16_t  line_position;
-    bool     line_seen;
-    bool     junction_seen;
-    bool     barcode_ready;
-    uint8_t  barcode_command;
+    uint16_t raw[3]; // Original ADC readings: 0-4095
+    uint16_t normalized[3]; // Calibrated readings: 0-1000
+    int16_t  line_position; // -1000 to +1000: negative = left, positive = right; zero at junctions
+    bool     line_seen; // Either front sensor detects black; false can also mean centred between sensors
+    bool     junction_seen; // Both front sensors meet the junction threshold; not proof of a physical junction
+    bool     barcode_ready; // A decoded command is waiting to be consumed
+    uint8_t  barcode_command; // 1 = left, 2 = right, 3 = straight; pending only when barcode_ready is true
 } buddy3_ir_state_t;
 
 void buddy3_init(void);
