@@ -13,6 +13,7 @@
 #include "comms.h"
 #include "mqtt_config.h"
 #include "robot_controller.h"
+#include "robot_debug.h"
 #include "robot_telemetry.h"
 
 /* Write a value in tenths as "-12.3" (tm_sprintf has no %f). */
@@ -66,7 +67,7 @@ void robot_telemetry_set_avoidance_scan(uint32_t ultra_left_cm, uint32_t ultra_r
 
     /* The telemetry module owns the human-readable decision summary as well
      * as the rover/debug JSON consumed by the dashboard. */
-    tm_printf((UB *)"[avoid telemetry] ultra_left: %u cm | ultra_right: %u cm | decision: %s\n",
+    ROBOT_ROUTINE_LOG((UB *)"[avoid telemetry] ultra_left: %u cm | ultra_right: %u cm | decision: %s\n",
               (UINT)ultra_left_cm, (UINT)ultra_right_cm,
               decision_left ? "left" : "right");
 }

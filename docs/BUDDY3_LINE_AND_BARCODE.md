@@ -1,5 +1,23 @@
 # Buddy 3 Line and Barcode Setup
 
+## Focused USB console logging
+
+Build from `firmware/build_make` with `BUDDY3_DEBUG=1` to suppress periodic
+status/encoder summaries, console JSON, successful sonar ping messages and the
+avoidance telemetry summary. Buddy 3 `[sensor]`/`[line]` messages, controller
+events, startup information, errors and safety messages remain visible.
+MQTT publication and sensor/control tasks continue normally.
+
+```sh
+make CONSOLE=usb_cdc PICO_SDK_PATH="$PICO_SDK_PATH" BUDDY3_DEBUG=1 -j8
+```
+
+Reflash the generated UF2 to use this mode. Rebuild with `BUDDY3_DEBUG=0`
+(the default) to restore normal output. Changing this option invalidates the
+build profile so old objects are rebuilt. Keep any Wi-Fi build options you
+normally use. Reduced printing is a diagnostic aid, not proof that logging
+caused a steering delay. Sonar faults can still produce repeated messages.
+
 ## Line following
 
 Buddy 3 samples the left, center, and right IR sensors every 10 ms. The left and center sensors are used for line detection and position estimation; the right sensor is reserved for barcode reading, matching the hardware layout. It normalizes readings to `0..1000`, detects two-sensor junctions, and applies proportional/derivative steering correction through Buddy 2 signed motor control.
