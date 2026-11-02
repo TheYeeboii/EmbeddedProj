@@ -23,20 +23,34 @@
 
 /*  TODO:
     1. Rename structs to appropriate name
-    2. Split the struct into IR Calibration Params and Steering Config
-    3. Split the struct again into 1 calibration param struct per IR sensor instead of for all 3
+    2. Split the struct again into 1 calibration param struct per IR sensor instead of for all 3
 */
 
-// Contains IR sensor calibration parameters and line-following steering configurations.
+/* Compatibility interface for existing callers; internal settings are split below. */
 typedef struct
 {
-    uint16_t minimum[3]; // Minimum raw readings of 3 IR sensors when NOT on track
-    uint16_t maximum[3]; // Maximum of 3 IR sensors when on track
-    bool     line_is_dark; // Option to invert readings if sensor reads higher value on dark instead of white
+    uint16_t minimum[3]; // Raw endpoints mapped to 0 before inversion
+    uint16_t maximum[3]; // Raw endpoints mapped to 1000 before inversion
+    bool     line_is_dark; // Invert when black produces lower raw readings than floor
     float    proportional_gain; // Steering strength: Too high cause overcorrection, too low causes missing the curve
-    float    derivative_gain; // CURRENTLY UNUSED - Multiplies the proportional gain
+    float    derivative_gain; // Multiplies position change; unused in current straddle mode
     int16_t  base_pwm; // Base power of the motor: 32767 = full duty
 } buddy3_calibration_t; // TODO: Rename to something meaningful and refactor
+
+/* Sensor order: front left, front right, side barcode. */
+typedef struct
+{
+    uint16_t minimum[3]; // Raw endpoints mapped to 0 before inversion
+    uint16_t maximum[3]; // Raw endpoints mapped to 1000 before inversion
+    bool     line_is_dark; // Invert all three readings when black produces lower values
+} ir_calibration_params_t;
+
+typedef struct
+{
+    float   proportional_gain; // Steering strength: Too high cause overcorrection, too low causes missing the curve
+    float   derivative_gain; // Multiplies position change; unused in current straddle mode
+    int16_t base_pwm; // Base power of the motor: 32767 = full duty
+} line_follow_configs_t;
 
 // Snapshot of IR readings and interpreted line/barcode status.
 // Sensor order: front left, front right, side barcode.
