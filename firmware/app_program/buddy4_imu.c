@@ -3,12 +3,13 @@
  * @brief   Buddy 4: LSM303DLHC accelerometer + compass (IMU) readings.
  *
  * The compass part is the team's original code (same registers and
- * settings), moved onto robot_hal.c.  The accelerometer part and the tilt
- * filtering and hump processing are implemented in buddy4_processing.c.
- * Physical calibration and known-height track validation are still required.
+ * settings), moved onto robot_hal.c.  Tilt filtering, hump detection and
+ * motion classification are in buddy4_processing.c.  Physical calibration
+ * and known-height track validation are still required.
  */
 
 #include <tk/tkernel.h>
+#include <tm/tmonitor.h>
 
 #include "app_main.h"
 #include "buddy2_motion.h"
@@ -16,31 +17,32 @@
 #include "comms.h"
 #include "pin_config.h"
 #include "robot_hal.h"
-#include <tm/tmonitor.h>
 
 /* LSM303DLHC compass registers (team's original settings). */
-#define LSM303_MAG_CRA_REG (0x00u)
-#define LSM303_MAG_CRA_15HZ (0x10u)
-#define LSM303_MAG_MR_REG (0x02u)
-#define LSM303_MAG_MR_CONTINUOUS (0x00u)
-#define LSM303_MAG_OUT_X_H (0x03u)
+#define LSM303_MAG_CRA_REG          (0x00u)
+#define LSM303_MAG_CRA_15HZ         (0x10u)
+#define LSM303_MAG_MR_REG           (0x02u)
+#define LSM303_MAG_MR_CONTINUOUS    (0x00u)
+#define LSM303_MAG_OUT_X_H          (0x03u)
 
 /* LSM303DLHC accelerometer registers. */
-#define LSM303_ACC_CTRL_REG1 (0x20u)
-#define LSM303_ACC_100HZ_XYZ (0x57u) /* 100 Hz, X/Y/Z enabled        */
-#define LSM303_ACC_CTRL_REG4 (0x23u)
-#define LSM303_ACC_HR_2G (0x88u) /* high resolution, +/-2 g      */
-#define LSM303_ACC_OUT_X_L (0x28u)
-#define LSM303_AUTO_INCREMENT (0x80u) /* multi-byte read              */
+#define LSM303_ACC_CTRL_REG1        (0x20u)
+#define LSM303_ACC_100HZ_XYZ        (0x57u)   /* 100 Hz, X/Y/Z enabled        */
+#define LSM303_ACC_CTRL_REG4        (0x23u)
+#define LSM303_ACC_HR_2G            (0x88u)   /* BDU, high resolution, +/-2 g */
+#define LSM303_ACC_OUT_X_L          (0x28u)
+#define LSM303_AUTO_INCREMENT       (0x80u)   /* multi-byte read              */
 
-#define BUDDY4_RAD_TO_DEG_X10 (572.957795f) /* 180/pi * 10 */
+#define BUDDY4_RETRY_MS             (1000u)
+#define BUDDY4_REPORT_MS            (1000u)
 
-static buddy4_imu_state_t g_state;
-static buddy4_processor_t g_processor;
+static buddy4_imu_state_t   g_state;
+static buddy4_processor_t   g_processor;
 static buddy4_calibration_t g_pending_cal;
-static bool g_cal_pending, g_reset_pending;
-static bool g_mag_configured, g_accel_configured;
-static uint32_t g_retry_ms;
+static bool                 g_cal_pending      = false;
+static bool                 g_mag_configured   = false;
+static bool                 g_accel_configured = false;
+static uint32_t             g_retry_ms         = 0u;
 
 static int16_t buddy4_be16(const uint8_t *p_bytes)
 {
@@ -70,188 +72,232 @@ static bool buddy4_read_regs(uint8_t address, uint8_t reg, uint8_t *p_buffer, ui
     return (HAL_I2C_OK == hal_i2c_read(IMU_I2C_PORT, address, p_buffer, length, false));
 }
 
+static bool buddy4_configure_mag(void)
+{
+    return buddy4_write_reg(LSM303_MAG_ADDR, LSM303_MAG_CRA_REG, LSM303_MAG_CRA_15HZ) &&
+           buddy4_write_reg(LSM303_MAG_ADDR, LSM303_MAG_MR_REG, LSM303_MAG_MR_CONTINUOUS);
+}
+
+static bool buddy4_configure_accel(void)
+{
+    return buddy4_write_reg(LSM303_ACCEL_ADDR, LSM303_ACC_CTRL_REG1, LSM303_ACC_100HZ_XYZ) &&
+           buddy4_write_reg(LSM303_ACCEL_ADDR, LSM303_ACC_CTRL_REG4, LSM303_ACC_HR_2G);
+}
+
 bool buddy4_init(void)
 {
-    bool mag_ok;
-    bool accel_ok;
-
     buddy4_processor_init(&g_processor, NULL);
     g_state = g_processor.state;
     if (!hal_i2c_init(IMU_I2C_PORT, IMU_I2C_BAUDRATE, IMU_SDA_PIN, IMU_SCL_PIN))
+    {
         return false;
-
-    mag_ok = buddy4_write_reg(LSM303_MAG_ADDR, LSM303_MAG_CRA_REG, LSM303_MAG_CRA_15HZ) &&
-             buddy4_write_reg(LSM303_MAG_ADDR, LSM303_MAG_MR_REG, LSM303_MAG_MR_CONTINUOUS);
-
-    accel_ok = buddy4_write_reg(LSM303_ACCEL_ADDR, LSM303_ACC_CTRL_REG1, LSM303_ACC_100HZ_XYZ) &&
-               buddy4_write_reg(LSM303_ACCEL_ADDR, LSM303_ACC_CTRL_REG4, LSM303_ACC_HR_2G);
-
-    g_mag_configured = mag_ok;
-    g_accel_configured = accel_ok;
-    return mag_ok && accel_ok;
+    }
+    g_mag_configured   = buddy4_configure_mag();
+    g_accel_configured = buddy4_configure_accel();
+    return g_mag_configured && g_accel_configured;
 }
 
 void buddy4_update(uint32_t now_ms)
 {
-    uint8_t buffer[6];
-    int16_t mag[3] = {0}, accel[3] = {0};
-    bool mok, aok, forward;
+    uint8_t               buffer[6];
+    int16_t               mag[3]   = { 0, 0, 0 };
+    int16_t               accel[3] = { 0, 0, 0 };
+    bool                  mag_read;
+    bool                  accel_read;
+    bool                  odometry_fresh;
+    bool                  forward;
+    bool                  apply_cal;
     buddy2_motion_state_t motion;
-    UINT irq;
-    unsigned i;
-    bool apply_cal, reset_peak;
-    buddy4_calibration_t cal;
-    DI(irq);
-    apply_cal = g_cal_pending;
-    reset_peak = g_reset_pending;
-    cal = g_pending_cal;
+    buddy4_calibration_t  cal;
+    UINT                  interrupt_state;
+    uint32_t              index;
+
+    DI(interrupt_state);
+    apply_cal     = g_cal_pending;
+    cal           = g_pending_cal;
     g_cal_pending = false;
-    g_reset_pending = false;
-    EI(irq);
+    EI(interrupt_state);
     if (apply_cal)
+    {
         buddy4_processor_init(&g_processor, &cal);
-    if (reset_peak)
-        g_processor.state.max_pitch_deg_x10 = 0;
+    }
+
     /* Retry configuration after a disconnected sensor, without resetting stats. */
-    if ((!g_mag_configured || !g_accel_configured) && now_ms - g_retry_ms >= 1000u)
+    if ((!g_mag_configured || !g_accel_configured) && ((now_ms - g_retry_ms) >= BUDDY4_RETRY_MS))
     {
-        g_retry_ms = now_ms;
-        g_mag_configured =
-            buddy4_write_reg(LSM303_MAG_ADDR, LSM303_MAG_CRA_REG, LSM303_MAG_CRA_15HZ) &&
-            buddy4_write_reg(LSM303_MAG_ADDR, LSM303_MAG_MR_REG, LSM303_MAG_MR_CONTINUOUS);
-        g_accel_configured =
-            buddy4_write_reg(LSM303_ACCEL_ADDR, LSM303_ACC_CTRL_REG1, LSM303_ACC_100HZ_XYZ) &&
-            buddy4_write_reg(LSM303_ACCEL_ADDR, LSM303_ACC_CTRL_REG4, LSM303_ACC_HR_2G);
+        g_retry_ms         = now_ms;
+        g_mag_configured   = buddy4_configure_mag();
+        g_accel_configured = buddy4_configure_accel();
     }
-    mok = g_mag_configured && buddy4_read_regs(LSM303_MAG_ADDR, LSM303_MAG_OUT_X_H, buffer, 6u);
-    if (mok)
+
+    mag_read = g_mag_configured && buddy4_read_regs(LSM303_MAG_ADDR, LSM303_MAG_OUT_X_H, buffer, 6u);
+    if (mag_read)
     {
-        mag[0] = buddy4_be16(buffer);
-        mag[2] = buddy4_be16(buffer + 2);
-        mag[1] = buddy4_be16(buffer + 4);
+        /* Register order is X, Z, Y. */
+        mag[0] = buddy4_be16(&buffer[0]);
+        mag[2] = buddy4_be16(&buffer[2]);
+        mag[1] = buddy4_be16(&buffer[4]);
     }
     else
+    {
         g_mag_configured = false;
-    aok =
-        g_accel_configured &&
-        buddy4_read_regs(LSM303_ACCEL_ADDR, LSM303_ACC_OUT_X_L | LSM303_AUTO_INCREMENT, buffer, 6u);
-    if (aok)
-        for (i = 0; i < 3; i++)
-            accel[i] = (int16_t)(buddy4_le16(buffer + 2 * i) / 16);
+    }
+
+    accel_read = g_accel_configured &&
+                 buddy4_read_regs(LSM303_ACCEL_ADDR, LSM303_ACC_OUT_X_L | LSM303_AUTO_INCREMENT,
+                                  buffer, 6u);
+    if (accel_read)
+    {
+        for (index = 0u; index < 3u; index++)
+        {
+            /* 12-bit left-justified, 1 mg per count at +/-2 g. */
+            accel[index] = (int16_t)(buddy4_le16(&buffer[2u * index]) / 16);
+        }
+    }
     else
+    {
         g_accel_configured = false;
+    }
+
     buddy2_get_motion_state(&motion);
     now_ms = app_now_ms();
     /* Buddy 2 signs odometry using commanded direction; slip and externally
      * pushed wheels still require physical validation. */
-    forward = now_ms - motion.timestamp_ms <= BUDDY4_STALE_MS && motion.left_speed_mm_s > 0 &&
-              motion.right_speed_mm_s > 0;
-    buddy4_process(&g_processor, now_ms, mok, mag, aok, accel,
-                   (motion.left_distance_mm + motion.right_distance_mm) * 0.5f, forward);
-    DI(irq);
+    odometry_fresh = ((now_ms - motion.timestamp_ms) <= BUDDY4_STALE_MS);
+    forward        = odometry_fresh && (motion.left_speed_mm_s > 0.0f) && (motion.right_speed_mm_s > 0.0f);
+    buddy4_process(&g_processor, now_ms, mag_read, mag, accel_read, accel,
+                   (motion.left_distance_mm + motion.right_distance_mm) * 0.5f,
+                   (motion.right_distance_mm - motion.left_distance_mm) * 0.5f,
+                   odometry_fresh, forward);
+
+    DI(interrupt_state);
     g_state = g_processor.state;
-    EI(irq);
+    EI(interrupt_state);
 }
 
 void buddy4_get_state(buddy4_imu_state_t *p_state)
 {
-    UINT interrupt_state;
+    UINT     interrupt_state;
+    uint32_t now_ms;
 
-    if (NULL != p_state)
+    if (NULL == p_state)
     {
-        DI(interrupt_state);
-        *p_state = g_state;
-        EI(interrupt_state);
-        {
-            uint32_t now = app_now_ms();
-            if (now - p_state->mag_timestamp_ms > BUDDY4_STALE_MS)
-                p_state->mag_ok = false;
-            if (now - p_state->accel_timestamp_ms > BUDDY4_STALE_MS)
-                p_state->accel_ok = false;
-            p_state->imu_fault = !p_state->mag_ok || !p_state->accel_ok;
-        }
+        return;
     }
+    DI(interrupt_state);
+    *p_state = g_state;
+    EI(interrupt_state);
+
+    now_ms = app_now_ms();
+    if ((now_ms - p_state->mag_timestamp_ms) > BUDDY4_STALE_MS)
+    {
+        p_state->mag_ok = 0u;
+    }
+    if ((now_ms - p_state->accel_timestamp_ms) > BUDDY4_STALE_MS)
+    {
+        p_state->accel_ok = 0u;
+    }
+    p_state->imu_fault = ((0u == p_state->mag_ok) || (0u == p_state->accel_ok)) ? 1u : 0u;
 }
 
-void buddy4_reset_max_pitch(void)
+bool buddy4_set_calibration(const buddy4_calibration_t *p_cal)
 {
-    UINT irq;
-    DI(irq);
-    g_reset_pending = true;
-    EI(irq);
-}
+    UINT     interrupt_state;
+    uint32_t index;
 
-bool buddy4_set_calibration(const buddy4_calibration_t *cal)
-{
-    UINT irq;
-    unsigned i;
-    if (!cal || cal->pitch_zero_x10 < -900 || cal->pitch_zero_x10 > 900 ||
-        cal->roll_zero_x10 < -1800 || cal->roll_zero_x10 > 1800)
+    if ((NULL == p_cal) || (p_cal->pitch_zero_x10 < -900) || (p_cal->pitch_zero_x10 > 900) ||
+        (p_cal->roll_zero_x10 < -1800) || (p_cal->roll_zero_x10 > 1800))
+    {
         return false;
-    for (i = 0; i < 3; i++)
+    }
+    for (index = 0u; index < 3u; index++)
     {
         /* Comparisons also reject NaN and infinities. */
-        if (!(cal->mag_scale[i] >= 0.01f && cal->mag_scale[i] <= 100.0f) ||
-            !(cal->accel_bias_mg[i] >= -2000 && cal->accel_bias_mg[i] <= 2000) ||
-            !(cal->mag_bias[i] >= -4095 && cal->mag_bias[i] <= 4095))
+        if (!((p_cal->mag_scale[index] >= 0.01f) && (p_cal->mag_scale[index] <= 100.0f)) ||
+            !((p_cal->accel_bias_mg[index] >= -2000.0f) && (p_cal->accel_bias_mg[index] <= 2000.0f)) ||
+            !((p_cal->mag_bias[index] >= -4095.0f) && (p_cal->mag_bias[index] <= 4095.0f)))
+        {
             return false;
+        }
     }
-    DI(irq);
-    g_pending_cal = *cal;
+    DI(interrupt_state);
+    g_pending_cal = *p_cal;
     g_cal_pending = true;
-    EI(irq);
+    EI(interrupt_state);
     return true;
 }
 
-void buddy4_task(int32_t stacd, void *exinf)
+/* Publish the IMU/hump report: periodically, and at once after an event. */
+static void buddy4_report(const buddy4_imu_state_t *p_state)
 {
-    uint32_t reported = 0, last_report = 0;
-    char message[384];
-    uint8_t packet[BUDDY4_PACKET_SIZE];
-    char hex[BUDDY4_PACKET_SIZE * 2 + 1];
-    unsigned i;
+    static const char digits[] = "0123456789abcdef";
+    char              message[COMMS_PAYLOAD_MAX];
+    char              hex[(BUDDY4_PACKET_SIZE * 2u) + 1u];
+    uint8_t           packet[BUDDY4_PACKET_SIZE];
+    uint32_t          index;
+
+    (void)buddy4_pack(p_state, packet);
+    for (index = 0u; index < BUDDY4_PACKET_SIZE; index++)
+    {
+        hex[2u * index]        = digits[packet[index] >> 4];
+        hex[(2u * index) + 1u] = digits[packet[index] & 0x0Fu];
+    }
+    hex[BUDDY4_PACKET_SIZE * 2u] = '\0';
+
+    /* Separate small JSON report: keeps the main telemetry message unchanged.
+     * The sequence numbers repeat in every report, so a dropped one is
+     * recovered by the next. */
+    (void)tm_sprintf((UB *)message,
+        (UB *)"{\"imu_fault\":%u,\"imu_calibrated\":%u,\"roll_x10\":%d,"
+              "\"hump_state\":%u,\"hump_count\":%u,\"hump_seq\":%u,"
+              "\"hump_peak_x10\":%d,\"highest_peak_x10\":%d,"
+              "\"hump_height_mm\":%u,\"height_valid\":%u,\"highest_hump_mm\":%u,"
+              "\"motion\":%u,\"turn_rate_x10\":%d,\"impacts\":%u,"
+              "\"imu_interval_ms\":%u,\"imu_packed\":\"%s\"}",
+        (UINT)p_state->imu_fault, (UINT)p_state->calibrated, (INT)p_state->roll_deg_x10,
+        (UINT)p_state->hump_state, (UINT)p_state->hump_count, (UINT)p_state->hump_sequence,
+        (INT)p_state->hump_peak_deg_x10, (INT)p_state->highest_peak_deg_x10,
+        (UINT)p_state->hump_height_mm, (UINT)p_state->height_valid, (UINT)p_state->highest_hump_mm,
+        (UINT)p_state->motion_class, (INT)p_state->turn_rate_dps_x10, (UINT)p_state->impact_count,
+        (UINT)p_state->sample_interval_ms, hex);
+    (void)comms_publish(COMMS_TOPIC_TELEMETRY, message);
+}
+
+void buddy4_task(int32_t stacd, void *p_exinf)
+{
+    uint32_t reported_hump   = 0u;
+    uint32_t reported_impact = 0u;
+    uint32_t last_report_ms  = 0u;
+
     (void)stacd;
-    (void)exinf;
+    (void)p_exinf;
     while (1)
     {
-        uint32_t start = app_now_ms(), elapsed;
-        buddy4_imu_state_t s;
-        buddy4_update(start);
-        buddy4_get_state(&s);
-        /* Separate small JSON report preserves existing dashboard protocol and
-         * buffer limits. Sequence remains in every report if an event is lost. */
-        if (s.hump_sequence != reported || start - last_report >= 1000u)
+        uint32_t           start_ms = app_now_ms();
+        uint32_t           elapsed_ms;
+        buddy4_imu_state_t state;
+
+        buddy4_update(start_ms);
+        buddy4_get_state(&state);
+        if ((state.hump_sequence != reported_hump) || (state.impact_count != reported_impact) ||
+            ((start_ms - last_report_ms) >= BUDDY4_REPORT_MS))
         {
-            static const char digits[] = "0123456789abcdef";
-            (void)buddy4_pack(&s, packet);
-            for (i = 0; i < BUDDY4_PACKET_SIZE; i++)
+            buddy4_report(&state);
+            if (state.hump_sequence != reported_hump)
             {
-                hex[2 * i] = digits[packet[i] >> 4];
-                hex[2 * i + 1] = digits[packet[i] & 15];
-            }
-            hex[BUDDY4_PACKET_SIZE * 2] = 0;
-            (void)tm_sprintf(
-                (UB *)message,
-                (UB *)"{\"imu_fault\":%u,\"imu_calibrated\":%u,\"roll_x10\":%d,\"hump_state\":%u,"
-                      "\"hump_count\":%u,\"hump_seq\":%u,\"hump_peak_x10\":%d,\"hump_height_mm\":%"
-                      "u,"
-                      "\"height_valid\":%u,\"highest_hump_mm\":%u,\"imu_interval_ms\":%u,\"imu_"
-                      "packed\":\"%s\"}",
-                (UINT)s.imu_fault, (UINT)s.calibrated, (INT)s.roll_deg_x10, (UINT)s.hump_state,
-                (UINT)s.hump_count, (UINT)s.hump_sequence, (INT)s.hump_peak_deg_x10,
-                (UINT)s.hump_height_mm, (UINT)s.height_valid, (UINT)s.highest_hump_mm,
-                (UINT)s.sample_interval_ms, hex);
-            (void)comms_publish(COMMS_TOPIC_TELEMETRY, message);
-            /* Periodic sequence reporting recovers a dropped event without a
-             * high-priority retry loop flooding the four-message outbox. */
-            if (s.hump_sequence != reported)
                 tm_printf((UB *)"[hump] seq=%u peak=%d height=%u mm valid=%u\n",
-                          (UINT)s.hump_sequence, (INT)s.hump_peak_deg_x10, (UINT)s.hump_height_mm,
-                          (UINT)s.height_valid);
-            reported = s.hump_sequence;
-            last_report = start;
+                          (UINT)state.hump_sequence, (INT)state.hump_peak_deg_x10,
+                          (UINT)state.hump_height_mm, (UINT)state.height_valid);
+            }
+            if (state.impact_count != reported_impact)
+            {
+                tm_printf((UB *)"[imu] sudden impact, count=%u\n", (UINT)state.impact_count);
+            }
+            reported_hump   = state.hump_sequence;
+            reported_impact = state.impact_count;
+            last_report_ms  = start_ms;
         }
-        elapsed = app_now_ms() - start;
-        (void)tk_dly_tsk(elapsed < BUDDY4_PERIOD_MS ? BUDDY4_PERIOD_MS - elapsed : 1u);
+        elapsed_ms = app_now_ms() - start_ms;
+        (void)tk_dly_tsk((elapsed_ms < BUDDY4_PERIOD_MS) ? (TMO)(BUDDY4_PERIOD_MS - elapsed_ms) : 1);
     }
 }

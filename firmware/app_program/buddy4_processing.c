@@ -1,255 +1,594 @@
-#include "buddy4_processing.h"
-#include <math.h>
+/**
+ * @file    buddy4_processing.c
+ * @brief   Buddy 4: portable IMU processing (tilt, humps, motion events).
+ *
+ * Tilt:   median of three, then a time-aware low-pass filter.
+ * Humps:  flat -> climbing -> top -> descending -> flat, with debounce.
+ * Height: sum of wheel travel x sin(pitch) during the hump.
+ * Motion: impact, hump, turning, stationary, accelerating, decelerating
+ *         or cruising, from acceleration, compass and wheel odometry.
+ * All thresholds below are first estimates; tune them on the track.
+ */
 
-#define DEG10 572.957795f
-static float median(float a, float b, float c)
+#include <math.h>
+#include <stddef.h>
+
+#include "buddy4_processing.h"
+
+#define BUDDY4_DEG10                (572.957795f)   /* 180 / pi * 10 */
+
+/* Tilt filter. */
+#define BUDDY4_FILTER_TAU_MS        (100.0f)
+#define BUDDY4_GRAVITY_MIN_SQ       (640000.0f)     /* (0.8 g)^2, mg^2 */
+#define BUDDY4_GRAVITY_MAX_SQ       (1440000.0f)    /* (1.2 g)^2       */
+/* A few rejected samples in a row (a bump, vibration) keep the filter and
+ * the hump; more than this (about the 250 ms staleness limit) reset them. */
+#define BUDDY4_MAX_REJECTED_IN_ROW  (4u)
+
+/* Hump detection, tenths of a degree. */
+#define BUDDY4_HUMP_ENTER_X10       (60)
+#define BUDDY4_HUMP_TOP_X10         (30)
+#define BUDDY4_HUMP_DESCEND_X10     (-60)
+#define BUDDY4_HUMP_LEVEL_X10       (30)
+#define BUDDY4_HUMP_CONFIRM         (3u)
+#define BUDDY4_HUMP_TIMEOUT_MS      (15000u)
+#define BUDDY4_HUMP_MAX_STEP_MM     (100.0f)
+#define BUDDY4_HUMP_COUNT_MAX       (7u)
+
+/* Motion classification. */
+#define BUDDY4_IMPACT_LOW_SQ        (250000.0f)     /* (0.5 g)^2 */
+#define BUDDY4_IMPACT_HIGH_SQ       (2250000.0f)    /* (1.5 g)^2 */
+#define BUDDY4_IMPACT_HOLD_MS       (500u)
+#define BUDDY4_IMPACT_COUNT_MAX     (255u)
+#define BUDDY4_RATE_WINDOW_MS       (200u)          /* compass turn rate */
+/* One encoder tick (10.2 mm at 20 ticks/rev) is 25 mm/s over 400 ms, so a
+ * speed change must exceed two ticks to count as speeding up or slowing. */
+#define BUDDY4_SPEED_WINDOW_MS      (400u)
+#define BUDDY4_SPEED_CHANGE_MM_S    (60.0f)         /* per window */
+#define BUDDY4_STOPPED_MM_S         (5.0f)
+#define BUDDY4_MAX_SPEED_MM_S       (1000.0f)       /* odometry reset guard */
+#define BUDDY4_TURNING_DPS_X10      (250)           /* 25 deg/s */
+
+#define BUDDY4_PACKET_VERSION       (2u)
+
+static float buddy4_median(float first, float second, float third)
 {
-    if (a > b)
+    float low  = first;
+    float high = second;
+
+    if (low > high)
     {
-        float t = a;
-        a = b;
-        b = t;
+        low  = second;
+        high = first;
     }
-    if (b > c)
-        b = c;
-    return a > b ? a : b;
-}
-static void abort_hump(buddy4_processor_t *p)
-{
-    p->state.hump_state = BUDDY4_FLAT;
-    p->enter_count = p->exit_count = 0;
-    p->elevation = p->peak_elevation = 0;
-    p->event_height_valid = false;
-}
-void buddy4_processor_init(buddy4_processor_t *p, const buddy4_calibration_t *cal)
-{
-    *p = (buddy4_processor_t){0};
-    p->calibration.mag_scale[0] = p->calibration.mag_scale[1] = p->calibration.mag_scale[2] = 1;
-    if (cal)
-        p->calibration = *cal;
-    p->state.calibrated = p->calibration.calibrated;
-    p->state.imu_fault = true;
-}
-void buddy4_process(buddy4_processor_t *p, uint32_t now, bool mok, const int16_t m[3], bool aok,
-                    const int16_t a[3], float distance, bool forward)
-{
-    buddy4_imu_state_t *s = &p->state;
-    uint32_t dt = p->started ? now - p->last_ms : 0;
-    float ds = distance - p->last_distance;
-    bool gap = p->started && (dt > BUDDY4_STALE_MS || dt == 0);
-    bool path = forward && p->calibration.calibrated && p->calibration.distance_calibrated &&
-                isfinite(ds) && ds >= 0 && ds <= 100;
-    float ax = a[0] - p->calibration.accel_bias_mg[0];
-    float ay = a[1] - p->calibration.accel_bias_mg[1];
-    float az = a[2] - p->calibration.accel_bias_mg[2];
-    float norm = ax * ax + ay * ay + az * az;
-    unsigned i;
-    s->sample_interval_ms = dt;
-    s->timestamp_ms = now;
-    for (i = 0; i < 3; i++)
+    if (high > third)
     {
-        s->mag_raw[i] = m[i];
-        s->accel_mg[i] = a[i];
+        high = third;
     }
+    return (low > high) ? low : high;
+}
+
+static int16_t buddy4_wrap_x10(int32_t change_x10)
+{
+    if (change_x10 > 1800)
+    {
+        change_x10 -= 3600;
+    }
+    else if (change_x10 < -1800)
+    {
+        change_x10 += 3600;
+    }
+    else
+    {
+        /* already the shortest way round */
+    }
+    return (int16_t)change_x10;
+}
+
+static void buddy4_abort_hump(buddy4_processor_t *p_proc)
+{
+    p_proc->state.hump_state  = BUDDY4_FLAT;
+    p_proc->enter_count       = 0u;
+    p_proc->exit_count        = 0u;
+    p_proc->elevation         = 0.0f;
+    p_proc->peak_elevation    = 0.0f;
+    p_proc->event_height_valid = false;
+}
+
+void buddy4_processor_init(buddy4_processor_t *p_proc, const buddy4_calibration_t *p_cal)
+{
+    *p_proc = (buddy4_processor_t){ 0 };
+    p_proc->calibration.mag_scale[0] = 1.0f;
+    p_proc->calibration.mag_scale[1] = 1.0f;
+    p_proc->calibration.mag_scale[2] = 1.0f;
+    if (NULL != p_cal)
+    {
+        p_proc->calibration = *p_cal;
+    }
+    p_proc->state.calibrated = p_proc->calibration.calibrated ? 1u : 0u;
+    p_proc->state.imu_fault  = 1u;
+}
+
+/* Accelerometer: tilt filter and impact detection.  Returns true when a new
+ * filtered pitch was produced by this sample. */
+static bool buddy4_process_accel(buddy4_processor_t *p_proc, uint32_t now_ms, uint32_t dt_ms,
+                                 bool accel_ok, const int16_t accel[3])
+{
+    buddy4_imu_state_t *p_state = &p_proc->state;
+    float accel_x = (float)accel[0] - p_proc->calibration.accel_bias_mg[0];
+    float accel_y = (float)accel[1] - p_proc->calibration.accel_bias_mg[1];
+    float accel_z = (float)accel[2] - p_proc->calibration.accel_bias_mg[2];
+    float norm_sq = (accel_x * accel_x) + (accel_y * accel_y) + (accel_z * accel_z);
+    bool  is_new  = false;
+
+    if (accel_ok && isfinite(norm_sq) &&
+        ((norm_sq < BUDDY4_IMPACT_LOW_SQ) || (norm_sq > BUDDY4_IMPACT_HIGH_SQ)))
+    {
+        /* One collision gives several wild samples: count at most one
+         * impact per 500 ms. */
+        if ((0u == p_state->impact_count) ||
+            ((now_ms - p_proc->impact_ms) >= BUDDY4_IMPACT_HOLD_MS))
+        {
+            if (p_state->impact_count < BUDDY4_IMPACT_COUNT_MAX)
+            {
+                p_state->impact_count++;
+            }
+            p_proc->impact_ms = now_ms;
+        }
+    }
+
+    /* +/-20% of g is only a plausibility check, not proof of static gravity. */
+    if (accel_ok && isfinite(norm_sq) &&
+        (norm_sq >= BUDDY4_GRAVITY_MIN_SQ) && (norm_sq <= BUDDY4_GRAVITY_MAX_SQ))
+    {
+        float pitch = (atan2f(-accel_x, sqrtf((accel_y * accel_y) + (accel_z * accel_z))) *
+                       BUDDY4_DEG10) - (float)p_proc->calibration.pitch_zero_x10;
+        float roll  = (atan2f(accel_y, accel_z) * BUDDY4_DEG10) -
+                      (float)p_proc->calibration.roll_zero_x10;
+
+        p_proc->rejected_in_row = 0u;
+        p_proc->pitch_history[p_proc->history_index] = pitch;
+        p_proc->roll_history[p_proc->history_index]  = roll;
+        p_proc->history_index = (uint8_t)((p_proc->history_index + 1u) % 3u);
+        if (p_proc->history_count < 3u)
+        {
+            p_proc->history_count++;
+        }
+        if (3u == p_proc->history_count)
+        {
+            float median_pitch = buddy4_median(p_proc->pitch_history[0], p_proc->pitch_history[1],
+                                               p_proc->pitch_history[2]);
+            float median_roll  = buddy4_median(p_proc->roll_history[0], p_proc->roll_history[1],
+                                               p_proc->roll_history[2]);
+            float alpha        = (float)dt_ms / (BUDDY4_FILTER_TAU_MS + (float)dt_ms);
+
+            if (!p_proc->filter_ready)
+            {
+                p_proc->filtered_pitch = median_pitch;
+                p_proc->filtered_roll  = median_roll;
+                p_proc->filter_ready   = true;
+            }
+            else
+            {
+                p_proc->filtered_pitch += alpha * (median_pitch - p_proc->filtered_pitch);
+                p_proc->filtered_roll  += alpha * (median_roll - p_proc->filtered_roll);
+            }
+            p_state->pitch_deg_x10 = (int16_t)p_proc->filtered_pitch;
+            p_state->roll_deg_x10  = (int16_t)p_proc->filtered_roll;
+            if (p_state->pitch_deg_x10 > p_state->max_pitch_deg_x10)
+            {
+                p_state->max_pitch_deg_x10 = p_state->pitch_deg_x10;
+            }
+            p_state->accel_timestamp_ms = now_ms;
+            is_new = true;
+        }
+    }
+    else
+    {
+        if (p_proc->rejected_in_row < UINT8_MAX)
+        {
+            p_proc->rejected_in_row++;
+        }
+        if (p_proc->rejected_in_row > BUDDY4_MAX_REJECTED_IN_ROW)
+        {
+            p_proc->history_count = 0u;
+            p_proc->filter_ready  = false;
+        }
+    }
+    p_state->accel_ok = p_proc->filter_ready ? 1u : 0u;
+    return is_new;
+}
+
+/* Magnetometer: heading and compass turn rate. */
+static void buddy4_process_mag(buddy4_processor_t *p_proc, uint32_t now_ms,
+                               bool mag_ok, const int16_t mag[3])
+{
+    buddy4_imu_state_t *p_state = &p_proc->state;
+    uint32_t            index;
+
+    /* Reject overflow sentinels, zero horizontal field and non-finite results. */
+    for (index = 0u; index < 3u; index++)
+    {
+        if ((mag[index] <= -4096) || (mag[index] > 4095))
+        {
+            mag_ok = false;
+        }
+    }
+    if (mag_ok)
+    {
+        float mag_x   = ((float)mag[0] - p_proc->calibration.mag_bias[0]) * p_proc->calibration.mag_scale[0];
+        float mag_y   = ((float)mag[1] - p_proc->calibration.mag_bias[1]) * p_proc->calibration.mag_scale[1];
+        float heading = (atan2f(mag_y, mag_x) * BUDDY4_DEG10) + (float)p_proc->calibration.heading_offset_x10;
+
+        mag_ok = isfinite(heading) && isfinite(mag_x) && isfinite(mag_y) &&
+                 (((mag_x * mag_x) + (mag_y * mag_y)) >= 1.0f);
+        if (mag_ok)
+        {
+            heading = fmodf(heading + 36000.0f, 3600.0f);
+            if (heading < 0.0f)
+            {
+                heading += 3600.0f;
+            }
+            p_state->heading_deg_x10  = (int16_t)heading;
+            p_state->mag_timestamp_ms = now_ms;
+        }
+    }
+    p_state->mag_ok = mag_ok ? 1u : 0u;
+
+    if (!mag_ok)
+    {
+        p_proc->rate_ready         = false;
+        p_state->turn_rate_dps_x10 = 0;
+    }
+    else if (!p_proc->rate_ready)
+    {
+        p_state->turn_rate_dps_x10 = 0;   /* no rate until a window closes */
+        p_proc->rate_ready       = true;
+        p_proc->rate_ms          = now_ms;
+        p_proc->rate_heading_x10 = p_state->heading_deg_x10;
+    }
+    else if ((now_ms - p_proc->rate_ms) >= BUDDY4_RATE_WINDOW_MS)
+    {
+        /* The 15 Hz compass repeats samples at a 20 Hz poll, so the rate is
+         * taken over a 200 ms window instead of sample to sample. */
+        int32_t change_x10 = buddy4_wrap_x10((int32_t)p_state->heading_deg_x10 -
+                                             (int32_t)p_proc->rate_heading_x10);
+
+        p_state->turn_rate_dps_x10 = (int16_t)((change_x10 * 1000) / (int32_t)(now_ms - p_proc->rate_ms));
+        p_proc->rate_ms          = now_ms;
+        p_proc->rate_heading_x10 = p_state->heading_deg_x10;
+    }
+    else
+    {
+        /* keep the last rate until the window closes */
+    }
+}
+
+/* Wheel odometry: forward and pivot speed per window, and the speed trend. */
+static void buddy4_process_speed(buddy4_processor_t *p_proc, uint32_t now_ms,
+                                 float distance_mm, float pivot_mm, bool odometry_fresh)
+{
+    if (!odometry_fresh || !isfinite(distance_mm) || !isfinite(pivot_mm))
+    {
+        p_proc->window_open = false;
+        p_proc->speed_known = false;
+        p_proc->speed_trend = 0;
+    }
+    else if (!p_proc->window_open)
+    {
+        p_proc->window_open     = true;
+        p_proc->window_ms       = now_ms;
+        p_proc->window_distance = distance_mm;
+        p_proc->window_pivot    = pivot_mm;
+    }
+    else if ((now_ms - p_proc->window_ms) >= BUDDY4_SPEED_WINDOW_MS)
+    {
+        float seconds     = (float)(now_ms - p_proc->window_ms) / 1000.0f;
+        float speed       = (distance_mm - p_proc->window_distance) / seconds;
+        float pivot_speed = (pivot_mm - p_proc->window_pivot) / seconds;
+
+        if ((fabsf(speed) > BUDDY4_MAX_SPEED_MM_S) || (fabsf(pivot_speed) > BUDDY4_MAX_SPEED_MM_S))
+        {
+            /* Faster than the rover can drive: Buddy 2 reset its odometry. */
+            p_proc->speed_known = false;
+            p_proc->speed_trend = 0;
+        }
+        else
+        {
+            float change = fabsf(speed) - fabsf(p_proc->window_speed_mm_s);
+
+            p_proc->speed_trend = 0;
+            if (p_proc->speed_known && (change > BUDDY4_SPEED_CHANGE_MM_S))
+            {
+                p_proc->speed_trend = 1;
+            }
+            else if (p_proc->speed_known && (change < -BUDDY4_SPEED_CHANGE_MM_S))
+            {
+                p_proc->speed_trend = -1;
+            }
+            else
+            {
+                /* steady, or the first window */
+            }
+            p_proc->window_speed_mm_s = speed;
+            p_proc->pivot_speed_mm_s  = pivot_speed;
+            p_proc->speed_known       = true;
+        }
+        p_proc->window_ms       = now_ms;
+        p_proc->window_distance = distance_mm;
+        p_proc->window_pivot    = pivot_mm;
+    }
+    else
+    {
+        /* window still open */
+    }
+}
+
+/* Hump state machine and height; only called with a new filtered pitch. */
+static void buddy4_process_hump(buddy4_processor_t *p_proc, uint32_t now_ms, float travelled_mm,
+                                bool path_valid)
+{
+    buddy4_imu_state_t *p_state = &p_proc->state;
+    float               pitch   = p_proc->filtered_pitch;
+    float               rise_mm = travelled_mm * sinf((pitch + p_proc->last_pitch) * 0.5f / BUDDY4_DEG10);
+
+    if (BUDDY4_FLAT == p_state->hump_state)
+    {
+        if (pitch >= (float)BUDDY4_HUMP_ENTER_X10)
+        {
+            /* Keep the climb made during the debounce window. */
+            if (0u == p_proc->enter_count)
+            {
+                p_proc->elevation          = 0.0f;
+                p_proc->peak_elevation     = 0.0f;
+                p_proc->event_height_valid = path_valid;
+            }
+            p_proc->event_height_valid = p_proc->event_height_valid && path_valid;
+            if (path_valid)
+            {
+                p_proc->elevation += rise_mm;
+            }
+            p_proc->peak_elevation = p_proc->elevation;
+            p_proc->enter_count++;
+            if (p_proc->enter_count >= BUDDY4_HUMP_CONFIRM)
+            {
+                p_state->hump_state        = BUDDY4_CLIMBING;
+                p_state->hump_peak_deg_x10 = (int16_t)pitch;
+                p_state->height_valid      = 0u;
+                p_proc->started_ms         = now_ms;
+                p_proc->exit_count         = 0u;
+            }
+        }
+        else
+        {
+            p_proc->enter_count = 0u;
+        }
+        return;
+    }
+
+    p_proc->event_height_valid = p_proc->event_height_valid && path_valid;
+    if (path_valid)
+    {
+        p_proc->elevation += rise_mm;
+    }
+    if (p_proc->elevation > p_proc->peak_elevation)
+    {
+        p_proc->peak_elevation = p_proc->elevation;
+    }
+    if (pitch > (float)p_state->hump_peak_deg_x10)
+    {
+        p_state->hump_peak_deg_x10 = (int16_t)pitch;
+    }
+
+    if ((now_ms - p_proc->started_ms) > BUDDY4_HUMP_TIMEOUT_MS)
+    {
+        buddy4_abort_hump(p_proc);
+    }
+    else if ((BUDDY4_CLIMBING == p_state->hump_state) && (pitch < (float)BUDDY4_HUMP_TOP_X10))
+    {
+        p_state->hump_state = BUDDY4_TOP;
+        p_proc->exit_count  = 0u;
+    }
+    else if (BUDDY4_TOP == p_state->hump_state)
+    {
+        if (pitch <= (float)BUDDY4_HUMP_DESCEND_X10)
+        {
+            p_proc->exit_count++;
+            if (p_proc->exit_count >= BUDDY4_HUMP_CONFIRM)
+            {
+                p_state->hump_state = BUDDY4_DESCENDING;
+                p_proc->exit_count  = 0u;
+            }
+        }
+        else
+        {
+            p_proc->exit_count = 0u;
+        }
+    }
+    else if (BUDDY4_DESCENDING == p_state->hump_state)
+    {
+        if (fabsf(pitch) <= (float)BUDDY4_HUMP_LEVEL_X10)
+        {
+            p_proc->exit_count++;
+            if (p_proc->exit_count >= BUDDY4_HUMP_CONFIRM)
+            {
+                bool height_ok = p_proc->event_height_valid && (p_proc->peak_elevation >= 0.0f) &&
+                                 (p_proc->peak_elevation <= 65535.0f);
+
+                p_state->hump_sequence++;
+                if (p_state->hump_count < BUDDY4_HUMP_COUNT_MAX)
+                {
+                    p_state->hump_count++;
+                }
+                if (p_state->hump_peak_deg_x10 > p_state->highest_peak_deg_x10)
+                {
+                    p_state->highest_peak_deg_x10 = p_state->hump_peak_deg_x10;
+                }
+                p_state->height_valid   = height_ok ? 1u : 0u;
+                p_state->hump_height_mm = height_ok ? (uint16_t)(p_proc->peak_elevation + 0.5f) : 0u;
+                if (height_ok && (p_state->hump_height_mm > p_state->highest_hump_mm))
+                {
+                    p_state->highest_hump_mm = p_state->hump_height_mm;
+                }
+                buddy4_abort_hump(p_proc);
+            }
+        }
+        else
+        {
+            p_proc->exit_count = 0u;
+        }
+    }
+    else
+    {
+        /* climbing, still above the top threshold */
+    }
+}
+
+static uint8_t buddy4_classify(const buddy4_processor_t *p_proc, uint32_t now_ms)
+{
+    const buddy4_imu_state_t *p_state = &p_proc->state;
+    int32_t                   rate    = p_state->turn_rate_dps_x10;
+
+    if ((0u != p_state->impact_count) && ((now_ms - p_proc->impact_ms) < BUDDY4_IMPACT_HOLD_MS))
+    {
+        return BUDDY4_MOTION_IMPACT;
+    }
+    if (BUDDY4_FLAT != p_state->hump_state)
+    {
+        return BUDDY4_MOTION_HUMP;
+    }
+    if (p_proc->rate_ready && ((rate >= BUDDY4_TURNING_DPS_X10) || (rate <= -BUDDY4_TURNING_DPS_X10)))
+    {
+        return BUDDY4_MOTION_TURNING;
+    }
+    if (!p_proc->speed_known)
+    {
+        return BUDDY4_MOTION_UNKNOWN;
+    }
+    if ((fabsf(p_proc->window_speed_mm_s) < BUDDY4_STOPPED_MM_S) &&
+        (fabsf(p_proc->pivot_speed_mm_s) < BUDDY4_STOPPED_MM_S))
+    {
+        return BUDDY4_MOTION_STATIONARY;
+    }
+    if (p_proc->speed_trend > 0)
+    {
+        return BUDDY4_MOTION_ACCELERATING;
+    }
+    if (p_proc->speed_trend < 0)
+    {
+        return BUDDY4_MOTION_DECELERATING;
+    }
+    return BUDDY4_MOTION_CRUISING;
+}
+
+void buddy4_process(buddy4_processor_t *p_proc, uint32_t now_ms,
+                    bool mag_ok, const int16_t mag[3],
+                    bool accel_ok, const int16_t accel[3],
+                    float distance_mm, float pivot_mm, bool odometry_fresh, bool forward_valid)
+{
+    buddy4_imu_state_t *p_state     = &p_proc->state;
+    uint32_t            dt_ms       = p_proc->started ? (now_ms - p_proc->last_ms) : 0u;
+    bool                gap         = p_proc->started && ((dt_ms > BUDDY4_STALE_MS) || (0u == dt_ms));
+    float               travelled   = distance_mm - p_proc->last_distance;   /* since last good pitch */
+    float               step        = distance_mm - p_proc->sample_distance; /* this sample only     */
+    bool                path_valid  = forward_valid && p_proc->calibration.calibrated &&
+                                      p_proc->calibration.distance_calibrated && isfinite(step) &&
+                                      (step >= 0.0f) && (step <= BUDDY4_HUMP_MAX_STEP_MM);
+    bool                new_pitch;
+
+    p_state->sample_interval_ms = (dt_ms > UINT16_MAX) ? UINT16_MAX : (uint16_t)dt_ms;
     if (gap)
     {
-        abort_hump(p);
-        p->history_count = 0;
-        p->filter_ready = false;
+        buddy4_abort_hump(p_proc);
+        p_proc->history_count = 0u;
+        p_proc->filter_ready  = false;
+        p_proc->window_open   = false;
+        p_proc->speed_known   = false;
+        p_proc->rate_ready    = false;
     }
-    /* +/-20% of g is only a plausibility check, not proof of static gravity. */
-    aok = aok && isfinite(norm) && norm >= 640000 && norm <= 1440000;
-    if (aok)
+
+    new_pitch = buddy4_process_accel(p_proc, now_ms, dt_ms, accel_ok, accel);
+    buddy4_process_mag(p_proc, now_ms, mag_ok, mag);
+    buddy4_process_speed(p_proc, now_ms, distance_mm, pivot_mm, odometry_fresh);
+    p_state->imu_fault = ((0u == p_state->mag_ok) || (0u == p_state->accel_ok)) ? 1u : 0u;
+
+    if (!p_proc->filter_ready || gap)
     {
-        float pitch = atan2f(-ax, sqrtf(ay * ay + az * az)) * DEG10 - p->calibration.pitch_zero_x10;
-        float roll = atan2f(ay, az) * DEG10 - p->calibration.roll_zero_x10;
-        p->pitch_history[p->history_index] = pitch;
-        p->roll_history[p->history_index] = roll;
-        p->history_index = (uint8_t)((p->history_index + 1) % 3);
-        if (p->history_count < 3)
-            p->history_count++;
-        if (p->history_count == 3)
-        {
-            float mp = median(p->pitch_history[0], p->pitch_history[1], p->pitch_history[2]);
-            float mr = median(p->roll_history[0], p->roll_history[1], p->roll_history[2]);
-            float alpha = (float)dt / (100.0f + (float)dt);
-            if (!p->filter_ready)
-            {
-                p->filtered_pitch = mp;
-                p->filtered_roll = mr;
-                p->filter_ready = true;
-            }
-            else
-            {
-                p->filtered_pitch += alpha * (mp - p->filtered_pitch);
-                p->filtered_roll += alpha * (mr - p->filtered_roll);
-            }
-            s->pitch_deg_x10 = (int16_t)p->filtered_pitch;
-            s->roll_deg_x10 = (int16_t)p->filtered_roll;
-            if (s->pitch_deg_x10 > s->max_pitch_deg_x10)
-                s->max_pitch_deg_x10 = s->pitch_deg_x10;
-            s->accel_timestamp_ms = now;
-        }
-        else
-            aok = false;
+        buddy4_abort_hump(p_proc);
+        p_proc->last_distance = distance_mm;
+    }
+    else if (new_pitch)
+    {
+        buddy4_process_hump(p_proc, now_ms, travelled, path_valid);
+        p_proc->last_distance = distance_mm;
     }
     else
     {
-        s->rejected_samples++;
-        p->history_count = 0;
-        p->filter_ready = false;
+        /* Isolated rejected sample: keep the hump and the travel since the
+         * last good pitch, but remember if this step spoils the height. */
+        p_proc->event_height_valid = p_proc->event_height_valid && path_valid;
     }
-    s->accel_ok = aok && p->filter_ready;
-    /* Preserve original level heading convention. Reject overflow sentinels,
-     * zero horizontal field, and non-finite calibration results. */
-    for (i = 0; i < 3; i++)
-        if (m[i] <= -4096 || m[i] > 4095)
-            mok = false;
-    if (mok)
-    {
-        float mx = (m[0] - p->calibration.mag_bias[0]) * p->calibration.mag_scale[0];
-        float my = (m[1] - p->calibration.mag_bias[1]) * p->calibration.mag_scale[1];
-        float h = atan2f(my, mx) * DEG10 + p->calibration.heading_offset_x10;
-        mok = isfinite(h) && isfinite(mx) && isfinite(my) && mx * mx + my * my >= 1;
-        if (mok)
-        {
-            h = fmodf(h + 36000, 3600);
-            if (h < 0)
-                h += 3600;
-            s->heading_deg_x10 = (int16_t)h;
-            s->mag_timestamp_ms = now;
-        }
-    }
-    s->mag_ok = mok;
-    s->imu_fault = !mok || !s->accel_ok;
-    if (!s->accel_ok || gap)
-        abort_hump(p);
-    else
-    {
-        float pitch = p->filtered_pitch;
-        /* Retain ascent distance during the debounce window. */
-        if (s->hump_state == BUDDY4_FLAT)
-        {
-            if (pitch >= 60)
-            {
-                if (p->enter_count == 0)
-                {
-                    p->elevation = p->peak_elevation = 0;
-                    p->event_height_valid = path;
-                }
-                p->event_height_valid = p->event_height_valid && path;
-                if (path)
-                    p->elevation += ds * sinf((pitch + p->last_pitch) * 0.5f / DEG10);
-                p->peak_elevation = p->elevation;
-                if (++p->enter_count >= 3)
-                {
-                    s->hump_state = BUDDY4_CLIMBING;
-                    s->hump_peak_deg_x10 = (int16_t)pitch;
-                    s->height_valid = false;
-                    p->started_ms = now;
-                    p->exit_count = 0;
-                }
-            }
-            else
-                p->enter_count = 0;
-        }
-        else
-        {
-            p->event_height_valid = p->event_height_valid && path;
-            if (path)
-                p->elevation += ds * sinf((pitch + p->last_pitch) * 0.5f / DEG10);
-            if (p->elevation > p->peak_elevation)
-                p->peak_elevation = p->elevation;
-            if (pitch > s->hump_peak_deg_x10)
-                s->hump_peak_deg_x10 = (int16_t)pitch;
-            if (now - p->started_ms > 15000)
-                abort_hump(p);
-            else if (s->hump_state == BUDDY4_CLIMBING && pitch < 30)
-            {
-                s->hump_state = BUDDY4_TOP;
-                p->exit_count = 0;
-            }
-            else if (s->hump_state == BUDDY4_TOP)
-            {
-                if (pitch <= -60)
-                {
-                    if (++p->exit_count >= 3)
-                    {
-                        s->hump_state = BUDDY4_DESCENDING;
-                        p->exit_count = 0;
-                    }
-                }
-                else
-                    p->exit_count = 0;
-            }
-            else if (s->hump_state == BUDDY4_DESCENDING)
-            {
-                if (fabsf(pitch) <= 30)
-                {
-                    if (++p->exit_count >= 3)
-                    {
-                        s->hump_sequence++;
-                        if (s->hump_count < 7)
-                            s->hump_count++;
-                        s->height_valid = p->event_height_valid && p->peak_elevation >= 0 &&
-                                          p->peak_elevation <= 65535;
-                        s->hump_height_mm =
-                            s->height_valid ? (uint16_t)(p->peak_elevation + 0.5f) : 0;
-                        if (s->height_valid && s->hump_height_mm > s->highest_hump_mm)
-                            s->highest_hump_mm = s->hump_height_mm;
-                        abort_hump(p);
-                    }
-                }
-                else
-                    p->exit_count = 0;
-            }
-        }
-    }
-    p->last_ms = now;
-    p->last_distance = distance;
-    p->last_pitch = p->filtered_pitch;
-    p->started = true;
+
+    p_state->motion_class = buddy4_classify(p_proc, now_ms) & 0x07u;
+    p_proc->sample_distance = distance_mm;
+    p_proc->last_ms    = now_ms;
+    p_proc->last_pitch = p_proc->filtered_pitch;
+    p_proc->started    = true;
 }
-static void bits(uint8_t *out, unsigned *pos, uint32_t value, unsigned n)
+
+static void buddy4_put_bits(uint8_t *p_out, uint32_t *p_pos, uint32_t value, uint32_t width)
 {
-    unsigned i;
-    for (i = 0; i < n; i++, (*pos)++)
-        if (value & (1u << i))
-            out[*pos / 8] |= (uint8_t)(1u << (*pos % 8));
-}
-static int clamp(int v, int lo, int hi, bool *ok)
-{
-    if (v < lo)
+    uint32_t bit;
+
+    for (bit = 0u; bit < width; bit++)
     {
-        *ok = false;
-        return lo;
+        if (0u != (value & (1u << bit)))
+        {
+            p_out[*p_pos / 8u] |= (uint8_t)(1u << (*p_pos % 8u));
+        }
+        (*p_pos)++;
     }
-    if (v > hi)
-    {
-        *ok = false;
-        return hi;
-    }
-    return v;
 }
-bool buddy4_pack(const buddy4_imu_state_t *s, uint8_t out[BUDDY4_PACKET_SIZE])
+
+static int32_t buddy4_saturate(int32_t value, int32_t low, int32_t high, bool *p_ok)
 {
-    unsigned i, pos = 0;
-    bool ok = true;
-    for (i = 0; i < BUDDY4_PACKET_SIZE; i++)
-        out[i] = 0;
-    bits(out, &pos, 1, 4); /* format version */
-    bits(out, &pos, s->mag_ok, 1);
-    bits(out, &pos, s->accel_ok, 1);
-    bits(out, &pos, s->height_valid, 1);
-    bits(out, &pos, s->calibrated, 1);
-    bits(out, &pos, (uint32_t)clamp(s->heading_deg_x10, 0, 3599, &ok), 12);
-    bits(out, &pos, (uint32_t)clamp(s->pitch_deg_x10, -900, 900, &ok) & 2047u, 11);
-    bits(out, &pos, (uint32_t)clamp(s->roll_deg_x10, -1800, 1800, &ok) & 4095u, 12);
-    bits(out, &pos, (uint32_t)clamp(s->hump_peak_deg_x10, -900, 900, &ok) & 2047u, 11);
-    bits(out, &pos, (uint32_t)clamp(s->hump_state, 0, 3, &ok), 2);
-    bits(out, &pos, (uint32_t)clamp(s->hump_count, 0, 7, &ok), 3);
-    bits(out, &pos, (uint32_t)clamp(s->hump_height_mm, 0, 255, &ok), 8);
-    bits(out, &pos, !ok, 1);
-    bits(out, &pos, s->imu_fault, 1);
-    return ok;
+    if (value < low)
+    {
+        *p_ok = false;
+        return low;
+    }
+    if (value > high)
+    {
+        *p_ok = false;
+        return high;
+    }
+    return value;
+}
+
+bool buddy4_pack(const buddy4_imu_state_t *p_state, uint8_t out[BUDDY4_PACKET_SIZE])
+{
+    uint32_t index;
+    uint32_t pos = 0u;
+    bool     fits = true;
+
+    for (index = 0u; index < BUDDY4_PACKET_SIZE; index++)
+    {
+        out[index] = 0u;
+    }
+    buddy4_put_bits(out, &pos, BUDDY4_PACKET_VERSION, 4u);
+    buddy4_put_bits(out, &pos, p_state->mag_ok, 1u);
+    buddy4_put_bits(out, &pos, p_state->accel_ok, 1u);
+    buddy4_put_bits(out, &pos, p_state->height_valid, 1u);
+    buddy4_put_bits(out, &pos, p_state->calibrated, 1u);
+    buddy4_put_bits(out, &pos, (uint32_t)buddy4_saturate(p_state->heading_deg_x10, 0, 3599, &fits), 12u);
+    buddy4_put_bits(out, &pos, (uint32_t)buddy4_saturate(p_state->pitch_deg_x10, -900, 900, &fits) & 0x7FFu, 11u);
+    buddy4_put_bits(out, &pos, (uint32_t)buddy4_saturate(p_state->roll_deg_x10, -1800, 1800, &fits) & 0xFFFu, 12u);
+    buddy4_put_bits(out, &pos, (uint32_t)buddy4_saturate(p_state->hump_peak_deg_x10, -900, 900, &fits) & 0x7FFu, 11u);
+    buddy4_put_bits(out, &pos, p_state->hump_state, 2u);
+    buddy4_put_bits(out, &pos, p_state->hump_count, 3u);
+    buddy4_put_bits(out, &pos, (uint32_t)buddy4_saturate(p_state->hump_height_mm, 0, 255, &fits), 8u);
+    buddy4_put_bits(out, &pos, fits ? 0u : 1u, 1u);
+    buddy4_put_bits(out, &pos, p_state->imu_fault, 1u);
+    buddy4_put_bits(out, &pos, p_state->motion_class, 3u);
+    return fits;
 }
