@@ -33,6 +33,7 @@
 #include "gpio_irq.h"
 #include "pin_config.h"
 #include "robot_controller.h"
+#include "robot_debug.h"
 #include "robot_hal.h"
 #include "robot_telemetry.h"
 #include "usb_console_compat.h"
@@ -292,9 +293,16 @@ static void telemetry_task(INT stacd, void *p_exinf)
 #else
     tm_printf((UB *)" Wi-Fi:    not in this build\n");
 #endif
-    tm_printf((UB *)" [status] every %u s: front L/R = line sensors, side = barcode\n",
-              (UINT)((APP_TELEMETRY_TICK_MS * APP_STATUS_EVERY_N) / 1000));
-    tm_printf((UB *)"          sensor (BLACK = line, or nothing under it)\n");
+    if (BUDDY3_DEBUG)
+    {
+        tm_printf((UB *)" Buddy 3 debug: routine console output muted; errors and safety events retained\n");
+    }
+    else
+    {
+        tm_printf((UB *)" [status] every %u s: front L/R = line sensors, side = barcode\n",
+                  (UINT)((APP_TELEMETRY_TICK_MS * APP_STATUS_EVERY_N) / 1000));
+        tm_printf((UB *)"          sensor (BLACK = line, or nothing under it)\n");
+    }
     tm_printf((UB *)"==========================================================\n");
 
     while (1)
@@ -314,7 +322,7 @@ static void telemetry_task(INT stacd, void *p_exinf)
 #endif
 
         /* Human-readable status for the USB console. */
-        if (0u == (tick % APP_STATUS_EVERY_N))
+        if (!BUDDY3_DEBUG && (0u == (tick % APP_STATUS_EVERY_N)))
         {
             app_print_status();
         }
@@ -322,14 +330,14 @@ static void telemetry_task(INT stacd, void *p_exinf)
         /* JSON for the dashboard (MQTT).  Printed only if APP_CONSOLE_JSON. */
         robot_telemetry_build_debug(buffer);
         (void)comms_publish(COMMS_TOPIC_DEBUG, buffer);
-#if APP_CONSOLE_JSON
+#if APP_CONSOLE_JSON && !BUDDY3_DEBUG
         tm_printf((UB *)"[debug] %s\n", buffer);
 #endif
         if (0u == (tick % APP_TELEMETRY_EVERY_N))
         {
             robot_telemetry_build(buffer, app_now_ms());
             (void)comms_publish(COMMS_TOPIC_TELEMETRY, buffer);
-#if APP_CONSOLE_JSON
+#if APP_CONSOLE_JSON && !BUDDY3_DEBUG
             tm_printf((UB *)"[telemetry] %s\n", buffer);
 #endif
         }

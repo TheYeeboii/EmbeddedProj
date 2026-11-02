@@ -16,6 +16,7 @@
 #include "buddy5_ultrasonic.h"
 #include "pin_config.h"
 #include "robot_hal.h"
+#include "robot_debug.h"
 
 #define BUDDY5_TRIGGER_PULSE_US     (10u)
 #define BUDDY5_ECHO_TIMEOUT_US      (40000u) /* ~6.8 m round trip */
@@ -169,7 +170,7 @@ static uint32_t buddy5_ping_cm(uint32_t now_ms, bool store_for_telemetry,
     pulse_us = (uint32_t)(echo_finished_us - echo_started_us);
     distance_cm = pulse_us / BUDDY5_US_PER_CM;
     result = BUDDY5_PING_VALID;
-    tm_printf((UB *)"[sonar] pulse=%u us distance=%u cm\n",
+    ROBOT_ROUTINE_LOG((UB *)"[sonar] pulse=%u us distance=%u cm\n",
               (UINT)pulse_us, (UINT)distance_cm);
 
 store_reading:
