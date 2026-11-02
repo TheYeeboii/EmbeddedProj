@@ -23,7 +23,6 @@
 
 /*  TODO:
     1. Rename structs to appropriate name
-    2. Split the struct again into 1 calibration param struct per IR sensor instead of for all 3
 */
 
 /* Compatibility interface for existing callers; internal settings are split below. */
@@ -37,12 +36,12 @@ typedef struct
     int16_t  base_pwm; // Base power of the motor: 32767 = full duty
 } buddy3_calibration_t; // TODO: Rename to something meaningful and refactor
 
-/* Sensor order: front left, front right, side barcode. */
+/* Calibration parameters for one IR sensor. */
 typedef struct
 {
-    uint16_t minimum[3]; // Raw endpoints mapped to 0 before inversion
-    uint16_t maximum[3]; // Raw endpoints mapped to 1000 before inversion
-    bool     line_is_dark; // Invert all three readings when black produces lower values
+    uint16_t minimum; // Raw endpoint mapped to 0 before inversion
+    uint16_t maximum; // Raw endpoint mapped to 1000 before inversion
+    bool     line_is_dark; // Invert this sensor's reading when black produces lower values
 } ir_calibration_params_t;
 
 typedef struct
