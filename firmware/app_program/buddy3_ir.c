@@ -109,7 +109,18 @@ static line_follow_configs_t g_steering_configs =
     11469
 };
 
-static buddy3_ir_state_t g_state;
+/* Internal snapshot groups each sensor's raw and normalized readings together. */
+typedef struct
+{
+    ir_sensor_reading_t sensors[BUDDY3_SENSOR_COUNT];
+    int16_t line_position;
+    bool line_seen;
+    bool junction_seen;
+    bool barcode_ready;
+    uint8_t barcode_command;
+} ir_processing_state_t;
+
+static ir_processing_state_t g_state;
 static volatile bool     g_line_following     = false;
 /* Records brief front-line observations while normal following is paused for
  * Buddy 5 avoidance.  The final return phase consumes this event. */
@@ -247,7 +258,7 @@ static void buddy3_decode_barcode(uint16_t sensor_value)
 
 void buddy3_init(void)
 {
-    buddy3_ir_state_t empty = { { 0u, 0u, 0u }, { 0u, 0u, 0u }, 0, false, false, false, 0u };
+    ir_processing_state_t empty = { 0 };
 
     hal_adc_init();
     hal_adc_pin_init(IR_SENSOR_LEFT_PIN);
@@ -308,7 +319,7 @@ void buddy3_get_calibration(buddy3_calibration_t *p_calibration)
 
 void buddy3_update(uint32_t now_ms)
 {
-    buddy3_ir_state_t next;
+    ir_processing_state_t next;
     uint16_t          raw[BUDDY3_SENSOR_COUNT];
     uint32_t          index;
 #if !BUDDY3_LINE_BETWEEN_SENSORS
@@ -331,8 +342,8 @@ void buddy3_update(uint32_t now_ms)
     next = g_state;
     for (index = 0u; index < BUDDY3_SENSOR_COUNT; index++)
     {
-        next.raw[index]        = raw[index];
-        next.normalized[index] = buddy3_normalize(raw[index],
+        next.sensors[index].raw        = raw[index];
+        next.sensors[index].normalized = buddy3_normalize(raw[index],
                                                   g_sensor_configs[index].minimum,
                                                   g_sensor_configs[index].maximum,
                                                   g_sensor_configs[index].line_is_dark);
@@ -346,8 +357,8 @@ void buddy3_update(uint32_t now_ms)
      * side so the line goes back between them.  position = right - left:
      * > 0 -> line under the right-front sensor -> turn right. */
     {
-        int32_t left  = (int32_t)next.normalized[BUDDY3_FRONT_LEFT];
-        int32_t right = (int32_t)next.normalized[BUDDY3_FRONT_RIGHT];
+        int32_t left  = (int32_t)next.sensors[BUDDY3_FRONT_LEFT].normalized;
+        int32_t right = (int32_t)next.sensors[BUDDY3_FRONT_RIGHT].normalized;
 
         next.line_seen     = (left >= BUDDY3_EDGE_THRESHOLD) || (right >= BUDDY3_EDGE_THRESHOLD);
         next.junction_seen = (left >= BUDDY3_JUNCTION_THRESHOLD) &&
@@ -358,14 +369,14 @@ void buddy3_update(uint32_t now_ms)
     }
 #else
     /* Original algorithm: the line runs UNDER the two front sensors. */
-    weighted_total     = (uint32_t)next.normalized[0] + (uint32_t)next.normalized[1];
+    weighted_total     = (uint32_t)next.sensors[0].normalized + (uint32_t)next.sensors[1].normalized;
     next.line_seen     = (weighted_total >= BUDDY3_LINE_THRESHOLD);
-    next.junction_seen = (next.normalized[0] >= BUDDY3_JUNCTION_THRESHOLD) &&
-                         (next.normalized[1] >= BUDDY3_JUNCTION_THRESHOLD);
+    next.junction_seen = (next.sensors[0].normalized >= BUDDY3_JUNCTION_THRESHOLD) &&
+                         (next.sensors[1].normalized >= BUDDY3_JUNCTION_THRESHOLD);
     if (next.line_seen)
     {
-        int32_t weighted_position = ((int32_t)next.normalized[1] -
-                                     (int32_t)next.normalized[0]) * 1000;
+        int32_t weighted_position = ((int32_t)next.sensors[1].normalized -
+                                     (int32_t)next.sensors[0].normalized) * 1000;
 
         next.line_position   = (int16_t)(weighted_position / (int32_t)weighted_total);
         g_previous_position  = next.line_position;
@@ -382,7 +393,7 @@ void buddy3_update(uint32_t now_ms)
 #endif
 
     /* The outrigger sensor (ADC2) reads the barcodes beside the track. */
-    buddy3_decode_barcode(next.normalized[2]);
+    buddy3_decode_barcode(next.sensors[2].normalized);
     next.barcode_ready   = g_barcode_ready;
     next.barcode_command = g_pending_barcode;
 
@@ -398,8 +409,8 @@ void buddy3_update(uint32_t now_ms)
     {
         /* Which front sensor(s) are on black right now: 1 left, 2 right. */
         uint8_t side = (uint8_t)
-            (((next.normalized[BUDDY3_FRONT_LEFT]  >= BUDDY3_EDGE_THRESHOLD) ? 1u : 0u) |
-             ((next.normalized[BUDDY3_FRONT_RIGHT] >= BUDDY3_EDGE_THRESHOLD) ? 2u : 0u));
+            (((next.sensors[BUDDY3_FRONT_LEFT].normalized  >= BUDDY3_EDGE_THRESHOLD) ? 1u : 0u) |
+             ((next.sensors[BUDDY3_FRONT_RIGHT].normalized >= BUDDY3_EDGE_THRESHOLD) ? 2u : 0u));
 
 #if BUDDY3_SEARCH_ENABLE
         /* Forward only: during a search, black seen while the car points
@@ -486,9 +497,9 @@ void buddy3_update(uint32_t now_ms)
 
 #if BUDDY3_LINE_BETWEEN_SENSORS
     /* Lifted / dark surface: every sensor reads "black". */
-    if ((next.normalized[0] >= BUDDY3_EDGE_THRESHOLD) &&
-        (next.normalized[1] >= BUDDY3_EDGE_THRESHOLD) &&
-        (next.normalized[2] >= BUDDY3_EDGE_THRESHOLD))
+    if ((next.sensors[0].normalized >= BUDDY3_EDGE_THRESHOLD) &&
+        (next.sensors[1].normalized >= BUDDY3_EDGE_THRESHOLD) &&
+        (next.sensors[2].normalized >= BUDDY3_EDGE_THRESHOLD))
     {
         if (0u == g_all_black_since_ms)
         {
@@ -547,7 +558,7 @@ void buddy3_update(uint32_t now_ms)
         if (!g_reported_lost)
         {
             tm_printf((UB *)"[line] no line under the sensors (L=%u C=%u raw) - waiting\n",
-                      (UINT)next.raw[0], (UINT)next.raw[1]);
+                      (UINT)next.sensors[0].raw, (UINT)next.sensors[1].raw);
             g_reported_lost = true;
         }
         return;
@@ -739,11 +750,22 @@ bool buddy3_line_following(void)
 void buddy3_get_state(buddy3_ir_state_t *p_state)
 {
     UINT interrupt_state;
+    uint32_t index;
 
     if (NULL != p_state)
     {
         DI(interrupt_state);
-        *p_state = g_state;
+        /* Adapt the per-sensor storage to the existing public snapshot. */
+        for (index = 0u; index < BUDDY3_SENSOR_COUNT; index++)
+        {
+            p_state->raw[index] = g_state.sensors[index].raw;
+            p_state->normalized[index] = g_state.sensors[index].normalized;
+        }
+        p_state->line_position = g_state.line_position;
+        p_state->line_seen = g_state.line_seen;
+        p_state->junction_seen = g_state.junction_seen;
+        p_state->barcode_ready = g_state.barcode_ready;
+        p_state->barcode_command = g_state.barcode_command;
         EI(interrupt_state);
     }
 }
