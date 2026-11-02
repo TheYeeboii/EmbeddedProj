@@ -21,6 +21,12 @@
 #define BUDDY3_BARCODE_RIGHT     (2u)
 #define BUDDY3_BARCODE_STRAIGHT  (3u)
 
+/*  TODO:
+    1. Rename structs to appropriate name
+    2. Split the struct into IR Calibration Params and Steering Config
+    3. Split the struct again into 1 calibration param struct per IR sensor instead of for all 3
+*/
+
 // Contains IR sensor calibration parameters and line-following steering configurations.
 typedef struct
 {
