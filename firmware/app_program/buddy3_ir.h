@@ -52,13 +52,20 @@ typedef struct
 } buddy3_ir_state_t;
 
 void buddy3_init(void);
+
+// Calibration struct utility
 void buddy3_set_calibration(const buddy3_calibration_t *p_calibration);
 void buddy3_get_calibration(buddy3_calibration_t *p_calibration);
 void buddy3_update(uint32_t now_ms);
+
+// Line following logic
 void buddy3_start_line_follow(void);
 void buddy3_stop_line_follow(void);
 bool buddy3_line_following(void);
+
+// IR struct utility
 void buddy3_get_state(buddy3_ir_state_t *p_state);
+
 /** Clear the latched front-line observation used by Buddy 5's final return. */
 void buddy3_clear_line_seen_event(void);
 /** Return and clear whether either front sensor has seen black since the last clear. */
