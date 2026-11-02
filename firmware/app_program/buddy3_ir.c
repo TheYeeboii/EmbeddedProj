@@ -94,11 +94,15 @@
  * car, much less than ~35 % does not overcome friction (the old CMake value
  * was only ~18 %).  Steering gains: a full-scale line offset (1000) gives a
  * 9000 difference between the wheels. */
-static buddy3_calibration_t g_calibration =
+static ir_calibration_params_t g_sensor_configs =
 {
     { 0u, 0u, 0u },
     { 4095u, 4095u, 4095u },
-    false,
+    false
+};
+
+static line_follow_configs_t g_steering_configs =
+{
     9.0f,
     2.5f,
     11469
@@ -258,24 +262,43 @@ void buddy3_init(void)
 void buddy3_set_calibration(const buddy3_calibration_t *p_calibration)
 {
     UINT interrupt_state;
+    uint32_t index;
 
     if (NULL == p_calibration)
     {
         return;
     }
     DI(interrupt_state);
-    g_calibration = *p_calibration;
+    /* Keep both groups in one protected update for legacy callers. */
+    for (index = 0u; index < BUDDY3_SENSOR_COUNT; index++)
+    {
+        g_sensor_configs.minimum[index] = p_calibration->minimum[index];
+        g_sensor_configs.maximum[index] = p_calibration->maximum[index];
+    }
+    g_sensor_configs.line_is_dark = p_calibration->line_is_dark;
+    g_steering_configs.proportional_gain = p_calibration->proportional_gain;
+    g_steering_configs.derivative_gain = p_calibration->derivative_gain;
+    g_steering_configs.base_pwm = p_calibration->base_pwm;
     EI(interrupt_state);
 }
 
 void buddy3_get_calibration(buddy3_calibration_t *p_calibration)
 {
     UINT interrupt_state;
+    uint32_t index;
 
     if (NULL != p_calibration)
     {
         DI(interrupt_state);
-        *p_calibration = g_calibration;
+        for (index = 0u; index < BUDDY3_SENSOR_COUNT; index++)
+        {
+            p_calibration->minimum[index] = g_sensor_configs.minimum[index];
+            p_calibration->maximum[index] = g_sensor_configs.maximum[index];
+        }
+        p_calibration->line_is_dark = g_sensor_configs.line_is_dark;
+        p_calibration->proportional_gain = g_steering_configs.proportional_gain;
+        p_calibration->derivative_gain = g_steering_configs.derivative_gain;
+        p_calibration->base_pwm = g_steering_configs.base_pwm;
         EI(interrupt_state);
     }
 }
@@ -307,9 +330,9 @@ void buddy3_update(uint32_t now_ms)
     {
         next.raw[index]        = raw[index];
         next.normalized[index] = buddy3_normalize(raw[index],
-                                                  g_calibration.minimum[index],
-                                                  g_calibration.maximum[index],
-                                                  g_calibration.line_is_dark);
+                                                  g_sensor_configs.minimum[index],
+                                                  g_sensor_configs.maximum[index],
+                                                  g_sensor_configs.line_is_dark);
     }
 
     previous_position = g_previous_position;
@@ -543,8 +566,8 @@ void buddy3_update(uint32_t now_ms)
      *   both black        : straight (crossing / start box) */
     (void)previous_position;
     {
-        int32_t  base       = (int32_t)g_calibration.base_pwm;
-        int32_t  turn       = (int32_t)(g_calibration.proportional_gain * 1000.0f);
+        int32_t  base       = (int32_t)g_steering_configs.base_pwm;
+        int32_t  turn       = (int32_t)(g_steering_configs.proportional_gain * 1000.0f);
         int32_t  left_pwm   = base;
         int32_t  right_pwm  = base;
         uint8_t  side       = g_last_touch_side;
@@ -678,11 +701,11 @@ void buddy3_update(uint32_t now_ms)
 #else
     {
         float derivative = (float)next.line_position - (float)previous_position;
-        float correction = (g_calibration.proportional_gain * (float)next.line_position) +
-                           (g_calibration.derivative_gain * derivative);
+        float correction = (g_steering_configs.proportional_gain * (float)next.line_position) +
+                           (g_steering_configs.derivative_gain * derivative);
 
-        buddy2_set_motor_pwm(buddy3_clamp_pwm((float)g_calibration.base_pwm + correction),
-                             buddy3_clamp_pwm((float)g_calibration.base_pwm - correction));
+        buddy2_set_motor_pwm(buddy3_clamp_pwm((float)g_steering_configs.base_pwm + correction),
+                             buddy3_clamp_pwm((float)g_steering_configs.base_pwm - correction));
     }
 #endif
 }
