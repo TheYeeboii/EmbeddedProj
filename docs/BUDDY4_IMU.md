@@ -1,22 +1,29 @@
 # Buddy 4 implementation and rover validation
 
-Implemented 23 October 2026. Software tests and the USB firmware build pass;
-this is not a claim of completed physical calibration or track acceptance.
+Software tests and both firmware builds pass; this is not a claim of completed physical calibration or track acceptance.
 
 ## What changed
 
 - `buddy4_imu.c/.h`: LSM303 I2C driver, accelerometer block-data-update enabled
-  (`CTRL_REG4_A = 0x88`), configuration retry after disconnect, queued calibration
-  and peak reset, independent IMU task, freshness checks and telemetry.
+  (`CTRL_REG4_A = 0x88`), configuration retry after disconnect, queued calibration,
+  independent IMU task, freshness checks and telemetry.
 - `buddy4_processing.c/.h`: portable processing, calibration offsets/scales,
   median-of-three plus time-aware low-pass tilt filtering, hump lifecycle,
-  height estimation, compact serialization. No kernel or SDK dependencies.
+  height estimation, motion classification, sudden-impact detection, compass
+  turn rate, compact serialization. No kernel or SDK dependencies.
 - `app_main.c`: starts the IMU task at priority 9 with a target 50 ms period.
   Buddy 5 (priority 10) no longer performs I2C updates. Motion, line and controller
   retain priorities 5, 6 and 7. This adds a 4096-byte task stack from the kernel pool.
 - `robot_telemetry.c`: accelerometer failures no longer appear as all sensors OK.
 - Dashboard: separate IMU/hump panel; independent IMU reports do not clear the
   existing heading, distance, motor or line tiles.
+
+Later changes: a single implausible accelerometer sample no longer cancels a
+hump (see below); motion classification, impact detection, turn rate and
+highest hump peak were added; the shared snapshot uses bit-fields (Change
+Requirement 1); both files follow Barr-C (braces, one declaration per line,
+module prefixes, named constants). The unused `buddy4_reset_max_pitch()` and the
+unread raw-axis, rejected-count and timestamp fields were removed.
 
 Register reference: [ST LSM303DLHC datasheet](https://www.st.com/resource/en/datasheet/lsm303dlhc.pdf).
 The BDU bit prevents a high/low-byte pair changing halfway through its read.
@@ -41,8 +48,12 @@ magnetic field are rejected. Acceleration magnitude must lie within 0.8–1.2 g.
 Three plausible accelerometer samples are required to prime the median filter.
 The low-pass time constant is 100 ms. A single isolated pitch spike is rejected
 by the median filter; sustained vehicle acceleration can still bias tilt.
-The getter invalidates readings older than 250 ms. Gaps over 250 ms, duplicate
-timestamps, or invalid acceleration cancel an unfinished hump. Configuration
+The getter invalidates readings older than 250 ms. Gaps over 250 ms or duplicate
+timestamps cancel an unfinished hump. Up to four implausible accelerometer
+samples in a row (a jolt at the hump edge, motor vibration) are skipped: the
+filter, the hump state and the travel since the last good sample are kept. A
+fifth one in a row (about the 250 ms staleness limit) resets the filter and
+cancels the hump. Before this change one jolt cancelled the hump. Configuration
 is retried every second after an I2C failure.
 
 `mag_ok` / `accel_ok` now mean usable readings under these checks, not just ACKs.
@@ -93,6 +104,10 @@ manually tilting the sensor can also produce that sequence.
 increments on every completed hump, so telemetry consumers can detect further
 events. Peak pitch and the last completed height are retained; `highest_hump_mm`
 retains the largest valid height estimate since initialization/calibration reset.
+`highest_peak_deg_x10` is the steepest peak pitch of any **completed** hump. It
+answers "highest hump peak experienced during the run" even before height is
+calibrated, and unlike `max_pitch_deg_x10` it ignores lifting or tilting the
+rover by hand (that never completes the climb/top/descend sequence).
 
 Height uses average wheel travel and pitch:
 
@@ -108,12 +123,45 @@ wheelbase/chassis geometry and filter lag still affect accuracy. Starting the
 integration at the +6-degree threshold can underestimate a gradual approach.
 The estimator is intended for slow, forward traversal of known test humps.
 
+## Motion events, impacts and turn rate
+
+`motion_class` (3 bits) is one class per sample; when several apply the first
+in this list wins:
+
+| Value | Class | Rule (first estimates, tune on the track) |
+|---:|---|---|
+| 7 | Sudden impact | Acceleration below 0.5 g or above 1.5 g, held 500 ms |
+| 6 | On a hump | Hump state is not flat (`hump_state` says climbing/top/descending) |
+| 5 | Turning | Compass turn rate at least 25 deg/s |
+| 0 | Unknown | No fresh Buddy 2 odometry |
+| 1 | Stationary | Forward and pivot wheel speed both under 5 mm/s |
+| 3 | Accelerating | Speed up by more than 60 mm/s since the last 400 ms window |
+| 4 | Decelerating | Speed down by more than 60 mm/s |
+| 2 | Cruising | Moving at a steady speed |
+
+- **Impacts:** `impact_count` (8 bits, saturating) counts sudden impacts; one
+  collision gives several wild samples, so samples within 500 ms count once.
+  The IMU only reads the newest of the 100 Hz samples every 50 ms, so a very
+  short knock can be missed. A hard hump edge can also count as an impact.
+  Buddy 4 only reports impacts; deciding to stop belongs to the controller.
+- **Turn rate:** `turn_rate_dps_x10` is the compass heading change over a 200 ms
+  window (the 15 Hz compass repeats samples at the 20 Hz poll), shortest way
+  round 359 to 0. Positive means the heading number increases; check which way
+  that is on the rover. The compass is not tilt-compensated and motors disturb
+  it, so check the rate against a timed 90-degree turn.
+- **Speed:** 400 ms windows of Buddy 2 odometry. One encoder tick at the current
+  20 ticks/rev default is 25 mm/s over 400 ms, so the 60 mm/s threshold needs
+  more than two ticks. Pivot speed `(right - left) / 2` keeps an on-the-spot
+  turn from reading as stationary. Re-check thresholds after Buddy 2 calibrates.
+
 ## Telemetry and compact representation
 
 The IMU task publishes a separate small JSON object on `rover/telemetry` every
-second and immediately after a completed hump. It carries fault/calibration,
-roll, hump state/count/sequence/peak, last and highest height, height validity,
-sample interval and `imu_packed`. A completed event is also printed on USB.
+second, immediately after a completed hump and immediately after an impact. It
+carries fault/calibration, roll, hump state/count/sequence/peak, highest peak,
+last and highest height, height validity, `motion`, `turn_rate_x10`, `impacts`,
+sample interval and `imu_packed`. Completed humps and impacts are also printed
+on USB.
 If the nonblocking mailbox drops a report, the retained sequence and results
 are repeated in subsequent periodic reports. This is not guaranteed event
 delivery or an event history queue.
@@ -124,7 +172,7 @@ returns false and sets the overflow bit if any field required saturation.
 
 | Bit offset | Width | Meaning |
 |---|---:|---|
-| 0 | 4 | Version = 1 |
+| 0 | 4 | Version = 2 |
 | 4, 5, 6, 7 | 1 each | Compass OK, accel OK, height valid, calibrated |
 | 8 | 12 | Heading in tenths, 0–3599 |
 | 20 | 11 | Signed pitch in tenths, -900–900 |
@@ -135,28 +183,68 @@ returns false and sets the overflow bit if any field required saturation.
 | 59 | 8 | Last height, saturated at 255 mm |
 | 67 | 1 | Packing overflow |
 | 68 | 1 | IMU fault |
-| 69 | 3 | Reserved zero |
+| 69 | 3 | Motion class (version 2; was reserved zero in version 1) |
 
 `imu_packed` contains these bytes as 18 hexadecimal characters. The existing
 Buddy 1 transport uses NUL-terminated JSON, so binary bytes must not be passed
 to `comms_publish()`. This implementation supplies Buddy 4's compact payload
 without changing the team's entire MQTT protocol. Full binary transport,
 one-byte binary event messages, and a shared system fault byte require Buddy 1
-integration. Runtime control values and raw diagnostic arrays stay unpacked;
-raw magnetic readings must not be blindly truncated to 12 bits.
+integration. Runtime control values stay unpacked.
+
+### Change Requirement 1: Buddy 4 data representation
+
+The shared snapshot `buddy4_imu_state_t` (copied by other tasks under DI/EI)
+keeps flags, states and counters in one 32-bit bit-field word. Only the IMU task
+writes it, and readers copy it whole, so packed read-modify-write is safe on
+the single-core build.
+
+| Field | Valid range | Bits | Representation |
+|---|---|---:|---|
+| `mag_ok`, `accel_ok`, `height_valid`, `imu_fault`, `calibrated` | 0–1 | 1 each | bit-field |
+| `hump_state` | 0–3 | 2 | bit-field |
+| `hump_count` | 0–7 (saturating) | 3 | bit-field |
+| `motion_class` | 0–7 | 3 | bit-field |
+| `impact_count` | 0–255 (saturating) | 8 | bit-field |
+| `heading_deg_x10` | 0–3599 | 12 | `int16_t` in RAM, 12 bits in the packet |
+| `pitch_deg_x10`, `hump_peak_deg_x10` | -900–900 | 11 | `int16_t` in RAM, 11 bits in the packet |
+| `roll_deg_x10` | -1800–1800 | 12 | `int16_t` in RAM, 12 bits in the packet |
+| `hump_height_mm` | 0–255 sent | 8 | `uint16_t` in RAM, saturated to 8 bits in the packet |
+| `hump_sequence`, `sample_interval_ms` | 0–65535 | 16 | `uint16_t` (was `uint32_t`) |
+| `*_timestamp_ms` | uptime | 32 | `uint32_t` (16 bits would wrap after 65 s) |
+
+Angles stay `int16_t` in RAM because they are signed values used in maths;
+signed bit-fields are not allowed by Barr-C. They are packed to their minimum
+width in `imu_packed`.
+
+| Measurement (arm-none-eabi-gcc, Cortex-M0+) | Before | After |
+|---|---:|---|
+| `buddy4_imu_state_t` (copied on every `buddy4_get_state()`) | 60 bytes | 36 bytes |
+| `buddy4_processor_t` (IMU task only) | 168 bytes | 184 bytes (new speed/turn windows) |
+| Wi-Fi build `.bss` (whole firmware) | 49 980 bytes | 49 972 bytes |
+| USB build `.text` (whole firmware) | 63 244 bytes | 64 292 bytes (new features) |
+| Buddy 4 packet | 9 bytes | 9 bytes (motion class uses the 3 spare bits) |
 
 ## Validation performed
 
-The host test sources and runner were removed after validation at the user's
-request. The completed tests covered flat readings, isolated spikes, complete/incomplete/repeated humps,
-height validity and calibration gating, rejected acceleration, magnetic
-overflow, I2C failures and recovery, stale snapshots, timer wraparound, distance
-reset/reverse movement, packed-field boundaries, and dashboard report isolation.
+A host test of `buddy4_processing.c` (kept outside the repository, like the
+earlier one) passes. It checks: stationary and cruising
+classes; a complete hump with valid height and highest peak; one 1.8 g jolt in
+the climb keeps the hump and counts one impact; five bad samples in a row
+cancel the hump; a 90-degree turn in 1 s gives 90 deg/s and the turning class;
+accelerating and decelerating; stale odometry gives unknown; a slow pivot is not
+stationary; an uncalibrated hump has no valid height; packet version 2, motion
+bits and the overflow bit. The same jolt check against the previous code
+showed the old behaviour: the hump was cancelled.
 
-The USB (`SMP=0`, `CONSOLE=usb_cdc`) firmware was built using ARM GCC 15.2 and
-Pico SDK 2.3.0. Output: `firmware/build_make/mtk3pico_smp0_usb_cdc.uf2`.
-It has not been flashed. The MQTT profile additionally needs the project's
-local `firmware/config/wifi_credentials.h`; that file was absent during this work.
+A code review then led to these fixes, each with its own host check: a stopped
+or reversing step during a skipped sample now spoils the height; travel over several skipped samples is checked one step
+at a time (100 mm per sample), not as one total; impacts are counted at most
+once per 500 ms from the counted one, so a later impact is not hidden; a
+sampling gap no longer brings back an old turn rate.
+
+Both profiles build with `-Wall -Wextra` and no Buddy 4 warnings: USB (`SMP=0`, `CONSOLE=usb_cdc`) and Wi-Fi MQTT. Nothing has been
+flashed or tested on the rover.
 
 Before accepting Buddy 4 on the rover:
 
