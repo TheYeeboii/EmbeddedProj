@@ -94,11 +94,12 @@
  * car, much less than ~35 % does not overcome friction (the old CMake value
  * was only ~18 %).  Steering gains: a full-scale line offset (1000) gives a
  * 9000 difference between the wheels. */
-static ir_calibration_params_t g_sensor_configs =
+/* Sensor order: front left, front right, side barcode. */
+static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 {
-    { 0u, 0u, 0u },
-    { 4095u, 4095u, 4095u },
-    false
+    { 0u, 4095u, false },
+    { 0u, 4095u, false },
+    { 0u, 4095u, false }
 };
 
 static line_follow_configs_t g_steering_configs =
@@ -272,10 +273,11 @@ void buddy3_set_calibration(const buddy3_calibration_t *p_calibration)
     /* Keep both groups in one protected update for legacy callers. */
     for (index = 0u; index < BUDDY3_SENSOR_COUNT; index++)
     {
-        g_sensor_configs.minimum[index] = p_calibration->minimum[index];
-        g_sensor_configs.maximum[index] = p_calibration->maximum[index];
+        g_sensor_configs[index].minimum = p_calibration->minimum[index];
+        g_sensor_configs[index].maximum = p_calibration->maximum[index];
+        /* The compatibility API applies one inversion setting to every sensor. */
+        g_sensor_configs[index].line_is_dark = p_calibration->line_is_dark;
     }
-    g_sensor_configs.line_is_dark = p_calibration->line_is_dark;
     g_steering_configs.proportional_gain = p_calibration->proportional_gain;
     g_steering_configs.derivative_gain = p_calibration->derivative_gain;
     g_steering_configs.base_pwm = p_calibration->base_pwm;
@@ -292,10 +294,11 @@ void buddy3_get_calibration(buddy3_calibration_t *p_calibration)
         DI(interrupt_state);
         for (index = 0u; index < BUDDY3_SENSOR_COUNT; index++)
         {
-            p_calibration->minimum[index] = g_sensor_configs.minimum[index];
-            p_calibration->maximum[index] = g_sensor_configs.maximum[index];
+            p_calibration->minimum[index] = g_sensor_configs[index].minimum;
+            p_calibration->maximum[index] = g_sensor_configs[index].maximum;
         }
-        p_calibration->line_is_dark = g_sensor_configs.line_is_dark;
+        /* All sensors share inversion while configured through the compatibility API. */
+        p_calibration->line_is_dark = g_sensor_configs[0].line_is_dark;
         p_calibration->proportional_gain = g_steering_configs.proportional_gain;
         p_calibration->derivative_gain = g_steering_configs.derivative_gain;
         p_calibration->base_pwm = g_steering_configs.base_pwm;
@@ -330,9 +333,9 @@ void buddy3_update(uint32_t now_ms)
     {
         next.raw[index]        = raw[index];
         next.normalized[index] = buddy3_normalize(raw[index],
-                                                  g_sensor_configs.minimum[index],
-                                                  g_sensor_configs.maximum[index],
-                                                  g_sensor_configs.line_is_dark);
+                                                  g_sensor_configs[index].minimum,
+                                                  g_sensor_configs[index].maximum,
+                                                  g_sensor_configs[index].line_is_dark);
     }
 
     previous_position = g_previous_position;
