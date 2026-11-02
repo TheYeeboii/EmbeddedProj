@@ -15,6 +15,8 @@ const STALE_AFTER_MS = 25000;
 const SERIAL_MAX_LINES = 200;
 const SPARK_POINTS = 40;
 const BARCODE_NAMES = { 1: 'left', 2: 'right', 3: 'straight' };
+/* Buddy 4 BUDDY4_MOTION_* values (buddy4_processing.h). */
+const MOTION_NAMES = ['Unknown', 'Stationary', 'Cruising', 'Accelerating', 'Decelerating', 'Turning', 'On a hump', 'Sudden impact'];
 const MODE_TONES = { idle: 'muted', drive: 'accent', motion: 'accent', line: 'success' };
 const KEY_COMMANDS = {
   w: 'forward', arrowup: 'forward',
@@ -101,6 +103,10 @@ function showTelemetry(data) {
     setText('hump-state', ['Flat', 'Climbing', 'Top', 'Descending'][data.hump_state] ?? 'Unknown');
     setText('hump-count', data.hump_seq);
     setText('hump-peak', fmt(data.hump_peak_x10 / 10));
+    setText('hump-highest-peak', data.hump_count > 0 ? fmt(data.highest_peak_x10 / 10) : '--');
+    setText('imu-motion', MOTION_NAMES[data.motion] ?? '--');
+    setText('imu-turn-rate', fmt(data.turn_rate_x10 / 10));
+    setText('imu-impacts', fmt(data.impacts));
     setText('hump-height', data.height_valid ? `${data.hump_height_mm} mm (estimate)` : 'Not validated');
     setText('hump-highest', data.highest_hump_mm > 0 ? `${data.highest_hump_mm} mm (estimate)` : '--');
     setText('imu-interval', `${data.imu_interval_ms} ms`);
