@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="styles.css?v=10">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -115,17 +115,50 @@
         </section>
 
         <section class="card" aria-labelledby="hump-title">
-          <header class="card-header"><h2 id="hump-title">IMU and humps</h2></header>
-          <dl class="pair">
-            <div><dt>Sensor status</dt><dd id="imu-health">Waiting for readings</dd></div>
-            <div><dt>Roll (degrees)</dt><dd id="imu-roll">--</dd></div>
-            <div><dt>Terrain</dt><dd id="hump-state">--</dd></div>
-            <div><dt>Completed humps</dt><dd id="hump-count">--</dd></div>
-            <div><dt>Hump peak (degrees)</dt><dd id="hump-peak">--</dd></div>
-            <div><dt>Hump height</dt><dd id="hump-height">--</dd></div>
-            <div><dt>Motion (turn rate)</dt><dd id="imu-motion">--</dd></div>
-            <div><dt>Sudden impacts</dt><dd id="imu-impacts">--</dd></div>
-          </dl>
+          <header class="card-header">
+            <h2 id="hump-title">IMU and humps</h2>
+            <span class="imu-status">
+              <span id="imu-interval" class="muted small num"></span>
+              <span id="imu-health" class="badge" data-tone="muted">Waiting</span>
+            </span>
+          </header>
+
+          <div class="metrics imu-metrics">
+            <article class="metric">
+              <div class="metric-head"><span>Terrain</span><i data-lucide="mountain" aria-hidden="true"></i></div>
+              <div class="metric-value metric-text"><strong id="hump-state">--</strong></div>
+              <span id="hump-count" class="metric-sub num">-- humps completed</span>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Hump peak</span><i data-lucide="trending-up" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="hump-peak" class="num">--</strong><span class="unit">°</span></div>
+              <span id="hump-peak-note" class="metric-sub">no hump yet</span>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Hump height</span><i data-lucide="ruler" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="hump-height" class="num">--</strong><span class="unit">mm</span></div>
+              <span id="hump-height-note" class="metric-sub">--</span>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Motion</span><span class="num">Turn <span id="imu-turn-rate">--</span> °/s</span></div>
+              <div class="metric-value metric-text"><strong id="imu-motion">--</strong></div>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Roll</span><i data-lucide="move-horizontal" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="imu-roll" class="num">--</strong><span class="unit">°</span></div>
+              <span class="metric-sub">+ = left side down</span>
+            </article>
+
+            <article class="metric">
+              <div class="metric-head"><span>Sudden impacts</span><i data-lucide="triangle-alert" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="imu-impacts" class="num">--</strong></div>
+              <span class="metric-sub">since boot</span>
+            </article>
+          </div>
         </section>
 
         <section class="card" aria-labelledby="line-title">
@@ -336,6 +369,6 @@
   <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
   <script src="action-log.js?v=1"></script>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

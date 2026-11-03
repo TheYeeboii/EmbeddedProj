@@ -398,3 +398,15 @@ kbd {
   .line-hint { display: none; }
   .summary-item { padding-top: 6px; padding-bottom: 6px; }
 }
+
+/* Buddy 4 IMU card: status badge and word-valued tiles. */
+.imu-status { display: inline-flex; align-items: center; gap: 8px; }
+.metric-text strong { font-size: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metrics.imu-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 520px) { .metrics.imu-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Fixed-height desktop layout: value and note share a line so the card stays short. */
+@media (min-width: 1180px) {
+  .imu-metrics .metric { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; align-items: baseline; }
+  .imu-metrics .metric-head { grid-column: 1 / -1; }
+  .imu-metrics .metric-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
