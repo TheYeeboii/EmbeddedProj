@@ -11,12 +11,12 @@ int main(void) {
     buddy3_steering_t s;
     buddy3_steering_output_t o;
     buddy3_steering_reset(&s);
-    o=step(&s,1,1,0); assert(o.left==10000 && o.right==12000 && o.phase==B3_MICRO);
+    o=step(&s,1,1,0); assert(o.left==10000 && o.right==14000 && o.phase==B3_MICRO);
     o=step(&s,1,1,1000); assert(o.phase==B3_MICRO);
     o=step(&s,1,0,1010); assert(o.left==12000 && o.right==12000);
     o=step(&s,1,0,9000); assert(o.phase==B3_TRACK);
     buddy3_steering_reset(&s);
-    o=step(&s,1,2,0); assert(o.right==10000 && o.left==12000);
+    o=step(&s,1,2,0); assert(o.right==10000 && o.left==14000);
     o=step(&s,1,3,10); assert(o.phase==B3_AMBIGUOUS && o.right<o.left);
     o=step(&s,1,3,160); assert(o.phase==B3_STOP && o.left==0 && o.right==0);
     o=step(&s,1,0,200); assert(o.phase==B3_STOP);
@@ -44,14 +44,17 @@ int main(void) {
     /* Requested stronger correction must not hit the old 20%-of-base cap. */
     buddy3_steering_reset(&s);
     o=buddy3_steering_step(&s,1,1,0,12000,4800);
-    assert(o.left==7200 && o.right==12000);
+    assert(o.left==7200 && o.right==16800);
     buddy3_steering_reset(&s);
     o=buddy3_steering_step(&s,1,2,0,12000,4800);
-    assert(o.right==7200 && o.left==12000);
-    /* Saturation stops the inner wheel without reverse or outer boost. */
+    assert(o.right==7200 && o.left==16800);
+    /* Preserve main's outer boost while clamping forward PWM safely. */
     buddy3_steering_reset(&s);
     o=buddy3_steering_step(&s,1,1,0,12000,20000);
-    assert(o.left==0 && o.right==12000);
+    assert(o.left==0 && o.right==24000);
+    buddy3_steering_reset(&s);
+    o=buddy3_steering_step(&s,1,2,0,25000,20000);
+    assert(o.left==32767 && o.right==5000);
     buddy3_steering_reset(&s);
     o=buddy3_steering_step(&s,1,1,0,12000,-2000);
     assert(o.left==12000 && o.right==12000);

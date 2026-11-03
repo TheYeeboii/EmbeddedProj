@@ -94,9 +94,9 @@
  * never runs backwards, so a correction curves instead of pivoting. */
 #define BUDDY3_INNER_MIN_PWM        (0)
 
-/* API PWM: 32767 = full duty before Buddy 2's global speed limit and trim.
- * Default base is 35%; a one-sided detection requests 14 percentage points
- * less on the inner wheel. Physical traction must be checked on the car. */
+/* API PWM before Buddy 2's global speed limit and trim. Base is 35%;
+ * main's 27 percentage-point curve power commands about 8%/62% on a
+ * one-sided detection. Junction crossing uses the base and encoder hold. */
 /* Sensor order: front left, front right, side barcode. */
 static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 {
@@ -107,7 +107,7 @@ static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 
 static line_follow_configs_t g_steering_configs =
 {
-    (14.0f * (float)BUDDY2_PWM_MAX) / 100000.0f, // default: 14 percentage-point correction
+    (27.0f * (float)BUDDY2_PWM_MAX) / 100000.0f, // default: 27 percentage-point curve power
     2.5f, // derivative gain: 2.5f = 2500 / 1000
     11469 // base PWM: 11469 = 35 % duty
 };
