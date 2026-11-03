@@ -17,8 +17,10 @@ void buddy2_get_calibration(buddy2_calibration_t *c) {
 void buddy2_set_motor_pwm(int16_t l,int16_t r) { left_pwm=l; right_pwm=r; }
 void buddy2_stop(void) { left_pwm=0; right_pwm=0; }
 static void observe(unsigned side,uint32_t now,float l,float r) {
-    adc[0]=(side&2)?3200:2900; adc[1]=(side&1)?2000:1000;
-    adc[2]=2000; /* Side barcode sensor remains white. */
+    /* Express inputs as black/white, independent of the active calibration. */
+    adc[0]=(side&2)?g_sensor_configs[0].maximum:g_sensor_configs[0].minimum;
+    adc[1]=(side&1)?g_sensor_configs[1].maximum:g_sensor_configs[1].minimum;
+    adc[2]=g_sensor_configs[2].minimum; /* Side barcode sensor remains white. */
     fake_motion.left_distance_mm=l; fake_motion.right_distance_mm=r;
     buddy3_update(now);
 }
@@ -27,6 +29,18 @@ static void reset(void) {
     buddy3_init(); buddy3_set_test_stage(1); buddy3_start_line_follow();
 }
 int main(void) {
+    buddy3_init();
+    assert(buddy3_test_stage()==3u); /* Dashboard/GP21 Start gets recovery by default. */
+    reset();
+    observe(0,10,0,0);
+    observe(0,20,1,3);
+    assert(left_pwm>right_pwm); /* Keep a centred, both-white straight segment straight. */
+    observe(1,30,4,6);
+    assert(left_pwm<right_pwm); /* A line edge immediately overrides encoder hold. */
+    reset();
+    g_test_steering.corner_active=true;
+    observe(3,10,0,0);
+    assert(g_junction.phase==B3J_CONFIRM); /* A long curve may enter a real junction. */
     reset();
     observe(0,10,0,0); assert(left_pwm==right_pwm&&left_pwm>0);
     observe(1,20,1,1); assert(left_pwm<right_pwm);

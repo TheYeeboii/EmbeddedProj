@@ -1,6 +1,6 @@
 # Going straight across junctions
 
-The GP21 default (stage 1) includes this crossing controller. Stages 2/3 use it
+The GP21/dashboard Start default (stage 3) includes this crossing controller. Stages 1/2 use it
 too; stage 0 is legacy steering. No extra command is required after flashing.
 
 ## Behaviour
@@ -27,8 +27,9 @@ The existing all-three-black protection also remains. These are per-crossing
 bounds, not a fixed circuit run limit.
 
 A detected black patch shorter than 30 ms does not commit: normal steering
-resumes when it clears. During an existing tight corner or seeking manoeuvre,
-the crossing controller does not take over; existing recovery rules apply.
+resumes when it clears. A sustained curve may enter a real junction, so a
+confirmed both-black crossing takes priority over ordinary corner steering.
+During a seek/recovery manoeuvre the crossing controller does not take over.
 
 Barcode decoding is invalidated during crossing so the transverse black area
 is not mistaken for a barcode. Mode 2 barcode actions decoded before crossing

@@ -70,8 +70,9 @@ buddy3_steering_output_t buddy3_steering_step(buddy3_steering_t *s,
         out.phase = B3_MICRO;
         if (stage >= 2u && ((now - s->side_since) >= B3_CORRECTION_MS ||
                             s->corner_active)) {
-            if (!s->corner_active) { s->corner_since = now; s->corner_active = true; }
-            if ((now - s->corner_since) >= B3_CORNER_MAX_MS) goto stopped;
+            /* A continuously seen edge can be a long circular section of the
+             * track. It is evidence to keep turning, not a reason to stop. */
+            s->corner_active = true;
             inner = 0;
             outer = base;
             out.phase = B3_CORNER;

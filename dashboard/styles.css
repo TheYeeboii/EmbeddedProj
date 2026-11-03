@@ -262,6 +262,7 @@ code, kbd, pre { font-family: var(--font-mono); }
 .btn-icon { width: 36px; height: 36px; padding: 0; }
 .btn-row { display: flex; gap: 6px; }
 .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.servo-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .drive-pad {
   display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px);

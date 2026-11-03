@@ -7,7 +7,7 @@
 
 static bool following, motion, accept_move=true, calibrated=true, button_high=true;
 static bool encoder_fault;
-static uint8_t stage=1, event;
+static uint8_t stage=1, event, servo_angle=90;
 static unsigned starts, stops, lefts, rights, forwards;
 int tm_printf(const unsigned char *fmt, ...) { (void)fmt; return 0; }
 void hal_gpio_input_pullup(uint32_t pin) { (void)pin; }
@@ -20,6 +20,7 @@ void buddy2_get_motion_state(buddy2_motion_state_t *s) {
 void buddy2_set_motor_pwm(int16_t l,int16_t r) { (void)l; (void)r; }
 bool buddy2_set_trim(uint8_t l,uint8_t r) { (void)l; (void)r; return true; }
 bool buddy2_set_speed_limit(uint8_t p) { (void)p; return true; }
+void buddy5_set_servo_angle(uint8_t angle) { servo_angle=angle; }
 bool buddy2_turn_left(float a,int16_t p) { assert(a==90.0f); (void)p; ++lefts; motion=accept_move; return motion; }
 bool buddy2_turn_right(float a,int16_t p) { assert(a==90.0f); (void)p; ++rights; motion=accept_move; return motion; }
 bool buddy2_move_forward(float d,int16_t p) { assert(d==300.0f); (void)p; ++forwards; motion=accept_move; return motion; }
@@ -38,10 +39,15 @@ static void reset(void) {
     robot_stop_all(); robot_controller_init();
     g_barcode_mode=1; stage=1; calibrated=true; accept_move=true;
     button_high=true; g_line_button_count=0; g_line_button_was=false;
-    starts=stops=lefts=rights=forwards=0; event=0; encoder_fault=false;
+    starts=stops=lefts=rights=forwards=0; event=0; encoder_fault=false; servo_angle=90;
 }
 static void command(const char *c,uint32_t n) { robot_controller_handle_command(c,n); }
 int main(void) {
+    reset(); command("{\"cmd\":\"servo_angle\",\"angle\":135}",0); assert(servo_angle==135);
+    command("servo_angle 45",0); assert(servo_angle==45);
+    command("servo_angle 181",0); assert(servo_angle==45);
+    command("line_follow",0); assert(servo_angle==90);
+    command("servo_angle 135",0); assert(servo_angle==90);
     reset(); command("line_follow",0); event=1; robot_controller_step(10);
     assert(following && lefts==0); /* Read-only cannot take motor control. */
     for(unsigned cmd=1;cmd<=3;++cmd) {

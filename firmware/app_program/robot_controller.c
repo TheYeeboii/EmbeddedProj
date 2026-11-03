@@ -21,6 +21,7 @@
 
 #include "buddy2_motion.h"
 #include "buddy3_ir.h"
+#include "buddy5_ultrasonic.h"
 #include "pin_config.h"
 #include "robot_controller.h"
 #include "robot_hal.h"
@@ -37,6 +38,9 @@
 #define ROBOT_FORWARD_SPEED           (30000u)   /* dashboard units */
 #define ROBOT_REVERSE_SPEED           (20000u)
 #define ROBOT_DRIVE_TIMEOUT_MS        (1000u)    /* raw drive safety stop */
+#define ROBOT_SERVO_MIN_ANGLE          (0)
+#define ROBOT_SERVO_MAX_ANGLE          (180)
+#define ROBOT_SERVO_FORWARD_ANGLE      (90u)
 
 #define ROBOT_BARCODE_TURN_DEG        (90.0f)
 #define ROBOT_BARCODE_STRAIGHT_MM     (300.0f)
@@ -262,6 +266,9 @@ static void robot_drive(uint32_t left, uint32_t right, int32_t sign, uint32_t no
     robot_barcode_action_cancel(&g_barcode_action);
     buddy3_stop_line_follow();
     buddy2_stop();
+    /* A manual sonar test may have left the scanner looking sideways. Any
+     * drive command must restore the forward view before motion begins. */
+    buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
     g_drive_left    = left;
     g_drive_right   = right;
     g_last_drive_ms = now_ms;
@@ -302,6 +309,24 @@ static void robot_set_speed_limit(int32_t percent)
     }
 }
 
+/** Set the ultrasonic scanner angle for a stationary mechanical check. */
+static void robot_set_servo_angle(int32_t angle)
+{
+    if (ROBOT_MODE_IDLE != g_mode)
+    {
+        tm_printf((UB *)"[cmd] servo rejected: stop the rover before moving the scanner\n");
+        return;
+    }
+    if ((angle < ROBOT_SERVO_MIN_ANGLE) || (angle > ROBOT_SERVO_MAX_ANGLE))
+    {
+        tm_printf((UB *)"[cmd] servo angle rejected (0..180): %d\n", (INT)angle);
+        return;
+    }
+
+    buddy5_set_servo_angle((uint8_t)angle);
+    tm_printf((UB *)"[cmd] servo angle %d deg\n", (INT)angle);
+}
+
 /* Line-follow speed in percent of full power: base = straight speed,
  * turn = extra/less power on the outer/inner wheel on curves. */
 static void robot_set_line_speed(int32_t base_pct, int32_t turn_pct)
@@ -333,6 +358,7 @@ static void robot_start_line(void)
     g_drive_is_forward  = false;
     g_motion_is_forward = false;
     g_avoid_resume_line = false;
+    buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
     buddy3_start_line_follow();
     g_mode = ROBOT_MODE_LINE;
     tm_printf((UB *)"[cmd] line following ON\n");
@@ -474,6 +500,15 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
+        if (robot_str_equal(name, "servo_angle"))
+        {
+            /* {"cmd":"servo_angle","angle":135}; accepted only when idle. */
+            if (robot_json_int(p_command, "angle", &amount))
+            {
+                robot_set_servo_angle(amount);
+            }
+            return;
+        }
         if (robot_str_equal(name, "barcode_mode"))
         {
             if (robot_json_int(p_command, "mode", &amount)) robot_set_barcode_mode(amount);
@@ -540,6 +575,14 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             if (robot_parse_int(p_rest, &amount, &p_rest))
             {
                 robot_set_speed_limit(amount);
+            }
+            return;
+        }
+        if (robot_str_equal(name, "servo_angle"))
+        {
+            if (robot_parse_int(p_rest, &amount, &p_rest))
+            {
+                robot_set_servo_angle(amount);
             }
             return;
         }
@@ -757,5 +800,13 @@ void robot_controller_finish_obstacle_avoidance(void)
             g_avoid_resume_line = false;
             g_mode = ROBOT_MODE_IDLE;
         }
+    }
+}
+
+void robot_controller_abort_obstacle_avoidance(void)
+{
+    if (ROBOT_MODE_AVOID == g_mode)
+    {
+        robot_stop_all();
     }
 }

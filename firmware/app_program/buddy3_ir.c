@@ -93,6 +93,12 @@
 /* Lowest power for the inner wheel on a correction.  0 = it may stop but
  * never runs backwards, so a correction curves instead of pivoting. */
 #define BUDDY3_INNER_MIN_PWM        (0)
+/* Keep an open-loop straight segment from gradually curving away while both
+ * front sensors see the floor.  The same wheel-distance correction is used
+ * while crossing a junction, but normal tracking needs it too: with a
+ * straddling two-sensor layout, both-white cannot tell a centred line from a
+ * completely missed line. */
+#define BUDDY3_STRAIGHT_HEADING_PWM_PER_MM  (120.0f)
 
 /* API PWM before Buddy 2's global speed limit and trim. Base is 35%;
  * main's 27 percentage-point curve power commands about 8%/62% on a
@@ -100,9 +106,9 @@
 /* Sensor order: front left, front right, side barcode. */
 static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 {
-    { 2900u, 3200u, false }, // right sensor
-    { 1000u, 2000u, false }, // left sensor
-    { 2000u, 2700u, false } // side sensor
+    { 200u, 3000u, false }, // right sensor
+    { 200u, 1300u, false }, // left sensor
+    { 2000u, 2500u, false } // side sensor
 };
 
 static line_follow_configs_t g_steering_configs =
@@ -125,7 +131,9 @@ typedef struct
 
 static ir_processing_state_t g_state;
 static volatile bool     g_line_following     = false;
-static uint8_t g_test_stage = 1u;
+/* Start uses bounded corner recovery. Stage 1 remains available for the
+ * isolated, gentle-tracking test through the serial line_stage command. */
+static uint8_t g_test_stage = 3u;
 static buddy3_steering_t g_test_steering;
 static buddy3_junction_t g_junction;
 static uint8_t g_junction_last_phase = B3J_IDLE;
@@ -153,6 +161,9 @@ static uint32_t          g_all_black_since_ms = 0u;
 static bool              g_reported_black     = false;
 static uint32_t          g_side_since_ms      = 0u;   /* when the current L/R pattern began */
 static uint8_t           g_last_single_side   = 0u;   /* 1 L, 2 R: last side seen alone */
+static bool              g_straight_hold_active = false;
+static float             g_straight_hold_left_mm;
+static float             g_straight_hold_right_mm;
 
 /* Line search sweep (see BUDDY3_SEARCH_*). */
 #define BUDDY3_SEARCH_IDLE          (0u)
@@ -231,6 +242,67 @@ static void buddy3_search_begin_step(uint8_t step, int8_t direction, uint32_t no
     g_search_dir      = direction;
     g_search_step_ms  = now_ms;
     g_search_step_deg = buddy3_encoder_angle_deg();
+}
+
+/* When the line is centred between the two front sensors, both report white.
+ * Preserve the current heading using the encoders so unequal motors do not
+ * silently carry the car off the line before either sensor can see an edge.
+ * A one-sided line reading always takes priority and resets this hold. */
+static void buddy3_apply_straight_heading_hold(buddy3_steering_output_t *p_output,
+                                                uint8_t side)
+{
+    buddy2_motion_state_t motion = {0};
+    float left;
+    float right;
+    float error;
+    float correction;
+    int16_t base;
+
+    if ((NULL == p_output) || (B3_TRACK != p_output->phase) || (0u != side))
+    {
+        g_straight_hold_active = false;
+        return;
+    }
+
+    buddy2_get_motion_state(&motion);
+    if (motion.left_encoder_fault || motion.right_encoder_fault)
+    {
+        g_straight_hold_active = false;
+        return;
+    }
+    if (!g_straight_hold_active)
+    {
+        g_straight_hold_left_mm  = motion.left_distance_mm;
+        g_straight_hold_right_mm = motion.right_distance_mm;
+        g_straight_hold_active   = true;
+        return;
+    }
+
+    left  = motion.left_distance_mm  - g_straight_hold_left_mm;
+    right = motion.right_distance_mm - g_straight_hold_right_mm;
+    if (!(left >= 0.0f) || !(right >= 0.0f))
+    {
+        /* A reset or reverse must establish a new forward reference. */
+        g_straight_hold_left_mm  = motion.left_distance_mm;
+        g_straight_hold_right_mm = motion.right_distance_mm;
+        return;
+    }
+
+    error = right - left;
+    correction = (error < 0.0f ? -error : error) * BUDDY3_STRAIGHT_HEADING_PWM_PER_MM;
+    base = (p_output->left < p_output->right) ? p_output->left : p_output->right;
+    if (correction > (float)base / 3.0f)
+    {
+        correction = (float)base / 3.0f;
+    }
+    if (error > 0.0f)
+    {
+        p_output->right -= (int16_t)correction;
+    }
+    else if (error < 0.0f)
+    {
+        p_output->left -= (int16_t)correction;
+    }
 }
 
 /* Sampling remains 10 ms; bit boundaries are measured in encoder distance. */
@@ -553,8 +625,10 @@ void buddy3_update(uint32_t now_ms)
         buddy2_motion_state_t motion = {0};
         buddy3_junction_output_t junction;
         bool was_crossing = buddy3_junction_active(&g_junction);
-        bool entry_allowed = !g_test_steering.corner_active &&
-                             !g_test_steering.recovering && !g_test_steering.stopped;
+        /* A long curve may legitimately lead straight into a junction. The
+         * junction's own both-black debounce then owns that crossing; only a
+         * genuine line-loss recovery or an already stopped run blocks entry. */
+        bool entry_allowed = !g_test_steering.recovering && !g_test_steering.stopped;
         buddy3_steering_output_t output;
         static const char *const phases[] = {
             "straight", "micro", "corner", "seek", "align", "both-black", "stopped"
@@ -574,6 +648,8 @@ void buddy3_update(uint32_t now_ms)
             /* Discard the old correction: do not turn toward a side branch. */
             buddy3_steering_reset(&g_test_steering);
             g_test_last_phase = 255u;
+            /* Junction crossing owns its own encoder heading reference. */
+            g_straight_hold_active = false;
             if (junction.stopped) buddy3_stop_line_follow();
             else buddy2_set_motor_pwm(junction.left, junction.right);
             return;
@@ -585,6 +661,7 @@ void buddy3_update(uint32_t now_ms)
         output = buddy3_steering_step(&g_test_steering, g_test_stage,
                     g_last_touch_side, now_ms, g_steering_configs.base_pwm,
                     buddy3_clamp_pwm(g_steering_configs.proportional_gain * 1000.0f));
+        buddy3_apply_straight_heading_hold(&output, g_last_touch_side);
         if (output.phase != g_test_last_phase)
         {
             tm_printf((UB *)"[steer] stage=%u %s L=%d R=%d\n",
@@ -822,6 +899,7 @@ void buddy3_start_line_follow(void)
     g_last_single_side   = 0u;
     g_search_step        = BUDDY3_SEARCH_IDLE;
     g_side_since_ms      = g_last_update_ms;
+    g_straight_hold_active = false;
     g_line_following     = true;
 }
 
@@ -832,6 +910,7 @@ void buddy3_stop_line_follow(void)
     buddy3_barcode_reset(&g_barcode_decoder);
     g_barcode_ready = false;
     g_state.barcode_ready = false;
+    g_straight_hold_active = false;
     buddy2_stop();
 }
 

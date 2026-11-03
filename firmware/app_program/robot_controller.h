@@ -39,5 +39,7 @@ bool        robot_controller_begin_obstacle_avoidance(void);
 bool        robot_controller_obstacle_avoidance_active(void);
 /** Release the motors after an avoidance sequence has completed or failed. */
 void        robot_controller_finish_obstacle_avoidance(void);
+/** Stop a failed avoidance run without restarting line following. */
+void        robot_controller_abort_obstacle_avoidance(void);
 
 #endif /* ROBOT_CONTROLLER_H */
