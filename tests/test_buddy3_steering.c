@@ -11,12 +11,12 @@ int main(void) {
     buddy3_steering_t s;
     buddy3_steering_output_t o;
     buddy3_steering_reset(&s);
-    o=step(&s,1,1,0); assert(o.left==10000 && o.right==12000 && o.phase==B3_MICRO);
+    o=step(&s,1,1,0); assert(o.left==10000 && o.right==14000 && o.phase==B3_MICRO);
     o=step(&s,1,1,1000); assert(o.phase==B3_MICRO);
     o=step(&s,1,0,1010); assert(o.left==12000 && o.right==12000);
     o=step(&s,1,0,9000); assert(o.phase==B3_TRACK);
     buddy3_steering_reset(&s);
-    o=step(&s,1,2,0); assert(o.right==10000 && o.left==12000);
+    o=step(&s,1,2,0); assert(o.right==10000 && o.left==14000);
     o=step(&s,1,3,10); assert(o.phase==B3_AMBIGUOUS && o.right<o.left);
     o=step(&s,1,3,160); assert(o.phase==B3_STOP && o.left==0 && o.right==0);
     o=step(&s,1,0,200); assert(o.phase==B3_STOP);

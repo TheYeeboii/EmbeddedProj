@@ -93,10 +93,10 @@
  * never runs backwards, so a correction curves instead of pivoting. */
 #define BUDDY3_INNER_MIN_PWM        (0)
 
-/* Units: 32767 = 100 % motor duty.  Base 11469 is 35 % duty - on the
- * car, much less than ~35 % does not overcome friction (the old CMake value
- * was only ~18 %).  Steering gains: a full-scale line offset (1000) gives a
- * 9000 difference between the wheels. */
+/* Units: 32767 = 100 % motor duty. Base 11469 is 35 % duty - on the car,
+ * much less than ~35 % does not overcome friction. The default 27 % curve
+ * power gives a forward-only 62 % / 8 % wheel command when one front sensor
+ * sees the line, so the rover begins correcting without waiting to pivot. */
 /* Sensor order: front left, front right, side barcode. */
 static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 {
@@ -107,7 +107,7 @@ static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 
 static line_follow_configs_t g_steering_configs =
 {
-    (6.0f * (float)BUDDY2_PWM_MAX) / 100000.0f, // default: 6 percentage-point correction
+    (27.0f * (float)BUDDY2_PWM_MAX) / 100000.0f, // default: 27 percentage-point curve power
     2.5f, // derivative gain: 2.5f = 2500 / 1000
     11469 // base PWM: 11469 = 35 % duty
 };
