@@ -39,6 +39,12 @@
 /* While level, the flat attitude follows the floor and the sensor mounting
  * over about 2 s, so no zero offsets are needed to detect a hump. */
 #define BUDDY4_FLAT_ALPHA           (0.025f)
+/* One-wheel hump height: the raised wheel lifts its side by about
+ * track width x sin(roll change), with no odometry or zero offsets.
+ * shortcut: copies Buddy 2's default track width; read it from
+ * buddy2_get_calibration() if Buddy 2 measures a different value. */
+#define BUDDY4_TRACK_WIDTH_MM       (150.0f)
+#define BUDDY4_HUMP_MIN_ROLL_X10    (10)    /* below 1 deg: both wheels climbed */
 #define BUDDY4_HUMP_TIMEOUT_MS      (15000u)
 #define BUDDY4_HUMP_MAX_STEP_MM     (100.0f)
 #define BUDDY4_HUMP_COUNT_MAX       (7u)
@@ -100,6 +106,7 @@ static void buddy4_abort_hump(buddy4_processor_t *p_proc)
     p_proc->exit_count        = 0u;
     p_proc->elevation         = 0.0f;
     p_proc->peak_elevation    = 0.0f;
+    p_proc->peak_roll         = 0.0f;
     p_proc->event_height_valid = false;
 }
 
@@ -414,6 +421,10 @@ static void buddy4_process_hump(buddy4_processor_t *p_proc, uint32_t now_ms, flo
     {
         p_state->hump_peak_deg_x10 = (int16_t)tilt;
     }
+    if (fabsf(p_proc->filtered_roll - p_proc->flat_roll) > p_proc->peak_roll)
+    {
+        p_proc->peak_roll = fabsf(p_proc->filtered_roll - p_proc->flat_roll);
+    }
 
     if ((now_ms - p_proc->started_ms) > BUDDY4_HUMP_TIMEOUT_MS)
     {
@@ -447,8 +458,17 @@ static void buddy4_process_hump(buddy4_processor_t *p_proc, uint32_t now_ms, flo
         p_proc->exit_count++;
         if (p_proc->exit_count >= BUDDY4_HUMP_SETTLE)
         {
-            bool height_ok = p_proc->event_height_valid && (p_proc->peak_elevation >= 0.0f) &&
-                             (p_proc->peak_elevation <= 65535.0f);
+            bool  height_ok = p_proc->event_height_valid && (p_proc->peak_elevation >= 0.0f) &&
+                              (p_proc->peak_elevation <= 65535.0f);
+            float height_mm = p_proc->peak_elevation;
+
+            /* No two-wheel estimate (needs calibration and odometry): use
+             * the one-wheel lean, which the track hump produces. */
+            if (!height_ok && (p_proc->peak_roll >= (float)BUDDY4_HUMP_MIN_ROLL_X10))
+            {
+                height_mm = BUDDY4_TRACK_WIDTH_MM * sinf(p_proc->peak_roll / BUDDY4_DEG10);
+                height_ok = true;
+            }
 
             p_state->hump_sequence++;
             if (p_state->hump_count < BUDDY4_HUMP_COUNT_MAX)
@@ -460,7 +480,7 @@ static void buddy4_process_hump(buddy4_processor_t *p_proc, uint32_t now_ms, flo
                 p_state->highest_peak_deg_x10 = p_state->hump_peak_deg_x10;
             }
             p_state->height_valid   = height_ok ? 1u : 0u;
-            p_state->hump_height_mm = height_ok ? (uint16_t)(p_proc->peak_elevation + 0.5f) : 0u;
+            p_state->hump_height_mm = height_ok ? (uint16_t)(height_mm + 0.5f) : 0u;
             if (height_ok && (p_state->hump_height_mm > p_state->highest_hump_mm))
             {
                 p_state->highest_hump_mm = p_state->hump_height_mm;
