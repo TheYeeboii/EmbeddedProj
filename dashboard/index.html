@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="styles.css?v=12">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -73,27 +73,13 @@
             <span id="updated" class="muted small num">No data yet</span>
           </header>
 
-          <div class="metrics">
+          <div class="metrics telemetry-metrics">
             <article class="metric metric-wide">
               <div class="metric-head"><span>Ultrasonic distance</span><i data-lucide="radar" aria-hidden="true"></i></div>
               <div class="metric-value"><strong id="distance" class="num">--</strong><span class="unit">cm</span></div>
               <svg id="distance-spark" class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
                 <polyline points=""></polyline>
               </svg>
-            </article>
-
-            <article class="metric">
-              <div class="metric-head"><span>Heading</span><i data-lucide="compass" aria-hidden="true"></i></div>
-              <div class="metric-row">
-                <div class="metric-value"><strong id="heading" class="num">--</strong><span class="unit">°</span></div>
-                <div class="compass" aria-hidden="true"><span id="compass-needle" class="needle"></span></div>
-              </div>
-            </article>
-
-            <article class="metric">
-              <div class="metric-head"><span>Pitch</span><i data-lucide="move-diagonal" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="pitch" class="num">--</strong><span class="unit">°</span></div>
-              <span class="metric-sub num">Peak <span id="max-pitch">--</span>°</span>
             </article>
 
             <article class="metric">
@@ -125,22 +111,26 @@
 
           <div class="metrics imu-metrics">
             <article class="metric">
-              <div class="metric-head"><span>Terrain</span><i data-lucide="mountain" aria-hidden="true"></i></div>
-              <div class="metric-value metric-text"><strong id="hump-state">--</strong></div>
-              <span id="hump-count" class="metric-sub num">-- humps completed</span>
+              <div class="metric-head"><span>Heading</span><i data-lucide="compass" aria-hidden="true"></i></div>
+              <div class="metric-row">
+                <div class="metric-value"><strong id="heading" class="num">--</strong><span class="unit">°</span></div>
+                <div class="compass" aria-hidden="true"><span id="compass-needle" class="needle"></span></div>
+              </div>
             </article>
 
             <article class="metric">
-              <div class="metric-head"><span>Hump peak</span><i data-lucide="trending-up" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="hump-peak" class="num">--</strong><span class="unit">°</span></div>
-              <span id="hump-peak-note" class="metric-sub">no hump yet</span>
+              <div class="metric-head"><span>Pitch</span><i data-lucide="move-diagonal" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="pitch" class="num">--</strong><span class="unit">°</span></div>
+              <span class="metric-sub">+ nose up</span>
             </article>
 
+
             <article class="metric">
-              <div class="metric-head"><span>Hump height</span><i data-lucide="ruler" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="hump-height" class="num">--</strong><span class="unit">mm</span></div>
-              <span id="hump-height-note" class="metric-sub">--</span>
+              <div class="metric-head"><span>Roll</span><i data-lucide="move-horizontal" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="imu-roll" class="num">--</strong><span class="unit">°</span></div>
+              <span class="metric-sub">+ left down</span>
             </article>
+
 
             <article class="metric">
               <div class="metric-head"><span>Motion</span><span class="num">Turn <span id="imu-turn-rate">--</span> °/s</span></div>
@@ -148,10 +138,25 @@
             </article>
 
             <article class="metric">
-              <div class="metric-head"><span>Roll</span><i data-lucide="move-horizontal" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="imu-roll" class="num">--</strong><span class="unit">°</span></div>
-              <span class="metric-sub">+ = left side down</span>
+              <div class="metric-head"><span>Terrain</span><i data-lucide="mountain" aria-hidden="true"></i></div>
+              <div class="metric-value metric-text"><strong id="hump-state">--</strong></div>
+              <span id="hump-count" class="metric-sub num">-- humps</span>
             </article>
+
+
+            <article class="metric">
+              <div class="metric-head"><span>Hump peak</span><i data-lucide="trending-up" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="hump-peak" class="num">--</strong><span class="unit">°</span></div>
+              <span id="hump-peak-note" class="metric-sub">none yet</span>
+            </article>
+
+
+            <article class="metric">
+              <div class="metric-head"><span>Hump height</span><i data-lucide="ruler" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="hump-height" class="num">--</strong><span class="unit">mm</span></div>
+              <span id="hump-height-note" class="metric-sub">--</span>
+            </article>
+
 
             <article class="metric">
               <div class="metric-head"><span>Sudden impacts</span><i data-lucide="triangle-alert" aria-hidden="true"></i></div>
@@ -369,6 +374,6 @@
   <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
   <script src="action-log.js?v=1"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>
