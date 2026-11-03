@@ -56,11 +56,13 @@ fifth one in a row (about the 250 ms staleness limit) resets the filter and
 cancels the hump. Before this change one jolt cancelled the hump.
 
 Both sensors' configuration is re-sent every second, not only after an I2C
-failure. A power dip (for example when the motors start) can reset the LSM303
-to its sleep defaults while I2C reads still succeed: the compass then returns
-the same value forever and the heading froze, with no fault shown, until the
-Pico was reset. Re-sending costs four short register writes per second and
-brings a reset sensor back within a second.
+failure. On the rover the compass sometimes stopped updating while I2C reads
+still succeeded: the heading stayed at exactly one value, with no fault shown,
+sometimes from boot before any motor had run. A Pico reset cleared it on one
+try and not on the next, which fits the compass being left in its sleep
+default. Re-sending costs four short register writes per second and should
+bring it back within a second; if the heading still freezes, the cause is
+elsewhere (wiring or the module).
 
 `mag_ok` / `accel_ok` now mean usable readings under these checks, not just ACKs.
 `imu_fault` is their combined failure flag. Buddy 5 still uses compass validity
@@ -89,8 +91,14 @@ retain them across boots. No flash-storage format or dashboard calibration
 command was introduced. Calibration accepts finite positive scales and bounded
 offsets. It does not perform an automatic calibration experiment.
 
-Preserve the original mounting convention: level Z approximately +1000 mg,
-and nose-up produces negative X. Verify Y/roll direction on the rover. This
+The LSM303 is mounted turned 90 degrees: tilting the rover's nose moves the
+sensor's Y axis and tilting it sideways moves X. Before this was found, pitch
+showed the sideways tilt, roll showed the nose tilt, and leaning the rover
+sideways counted as a hump. `buddy4_imu.c` now rotates both sensors (rover
+X = sensor Y, rover Y = minus sensor X), so processing sees level Z
+approximately +1000 mg and nose-up negative X, as before. Because it is a
+rotation and not a swap, the compass still turns the same way; only its
+fixed offset changes. Roll is positive with the left side down. This
 implementation preserves `atan2(mag_y, mag_x)` heading, with hard-iron offsets,
 axis scales and a heading offset. It is **not tilt-compensated** and does not
 correct general cross-axis soft-iron distortion. Validate heading on the surface
