@@ -340,22 +340,21 @@ kbd {
 .side-stack { display: grid; gap: 16px; align-content: start; min-width: 0; }
 .stepper-apply { grid-template-columns: 36px minmax(0, 1fr) 36px auto; }
 
-/* Wide screens: three columns, compact spacing, page fits the window and
- * the serial monitor takes whatever height is left. */
+/* Wide screens: three columns with normal document scrolling.  The earlier
+ * fixed-height desktop layout clipped lower cards and made the serial monitor
+ * unreachable at 100% browser zoom. */
 @media (min-width: 1180px) {
-  body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-  .topbar { flex: none; padding-top: 8px; padding-bottom: 8px; }
+  .topbar { padding-top: 8px; padding-bottom: 8px; }
   .shell {
-    flex: 1; min-height: 0; display: flex; flex-direction: column;
     width: calc(100% - 32px); max-width: 1680px; padding: 10px 0 8px;
   }
-  .summary { flex: none; margin-bottom: 10px; }
+  .summary { margin-bottom: 10px; }
   .summary-item { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 14px; }
   .summary-value { font-size: 14px; }
 
-  .layout { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 660px); gap: 10px; align-items: stretch; }
-  .col-main { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-  .col-side { grid-template-columns: 1fr 1fr; gap: 10px; min-height: 0; overflow-y: auto; align-content: start; }
+  .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 660px); gap: 10px; align-items: start; }
+  .col-main { gap: 10px; }
+  .col-side { grid-template-columns: 1fr 1fr; gap: 10px; align-content: start; }
   .side-stack { gap: 10px; }
 
   .card { padding: 12px 14px; }
@@ -373,9 +372,9 @@ kbd {
 
   .ir-bars { gap: 8px; }
 
-  /* The serial monitor grows to fill the rest of the main column. */
-  .col-main > .card:last-child { flex: 1; min-height: 140px; display: flex; flex-direction: column; }
-  .console { flex: 1; height: auto; min-height: 0; }
+  /* Keep each console independently scrollable while the page itself can
+   * scroll to every card. */
+  .console { height: 260px; }
 
   .stack { gap: 8px; }
   .btn { height: 32px; }
