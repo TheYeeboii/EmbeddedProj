@@ -182,7 +182,8 @@ void robot_telemetry_build(char *p_buffer, uint32_t now_ms)
               "\"motor_left\":%u,\"motor_right\":%u,\"status\":\"%s\","
               "\"mode\":\"%s\",\"pitch_deg\":%s,\"max_pitch_deg\":%s,"
               "\"trim_left\":%u,\"trim_right\":%u,"
-              "\"line_base\":%d,\"line_turn\":%d,\"speed\":%u}",
+               "\"line_base\":%d,\"line_turn\":%d,\"speed\":%u,"
+               "\"servo_angle_deg\":%u}",
         ROBOT_MQTT_CLIENT_ID, (UINT)now_ms, p_state,
         (UINT)ir.raw[0], (UINT)ir.raw[1], (UINT)ir.raw[2],
         (UINT)sonar.distance_cm, heading,
@@ -190,7 +191,7 @@ void robot_telemetry_build(char *p_buffer, uint32_t now_ms)
         (UINT)drive_left, (UINT)drive_right, p_state,
         robot_controller_mode_name(), pitch, max_pitch,
         (UINT)trim_left, (UINT)trim_right, line_base_pct, line_turn_pct,
-        (UINT)speed_pct);
+        (UINT)speed_pct, (UINT)sonar.servo_angle_deg);
 }
 
 void robot_telemetry_build_debug(char *p_buffer)
@@ -215,7 +216,8 @@ void robot_telemetry_build_debug(char *p_buffer)
                      (ROBOT_AVOID_STATUS_TIMEOUT == avoidance.status) ? "timeout" :
                      (ROBOT_AVOID_STATUS_CANCELLED == avoidance.status) ? "cancelled" :
                      (ROBOT_AVOID_STATUS_FORWARD == avoidance.status) ? "forward" :
-                     (ROBOT_AVOID_STATUS_RECOVERING == avoidance.status) ? "recovering" : "idle";
+                     (ROBOT_AVOID_STATUS_RECOVERING == avoidance.status) ? "recovering" :
+                     (ROBOT_AVOID_STATUS_REVERSING == avoidance.status) ? "reversing" : "idle";
     (void)tm_sprintf((UB *)p_buffer,
         (UB *)"{\"raw_left\":%u,\"raw_center\":%u,\"raw_right\":%u,"
               "\"norm_left\":%u,\"norm_center\":%u,\"norm_right\":%u,"

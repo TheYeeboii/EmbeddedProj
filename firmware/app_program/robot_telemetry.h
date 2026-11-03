@@ -37,6 +37,7 @@ void robot_telemetry_set_avoidance_scan_values(uint32_t ultra_left_cm,
 #define ROBOT_AVOID_STATUS_CANCELLED        (8u)
 #define ROBOT_AVOID_STATUS_FORWARD          (9u)
 #define ROBOT_AVOID_STATUS_RECOVERING        (10u)
+#define ROBOT_AVOID_STATUS_REVERSING         (11u)
 void robot_telemetry_set_avoidance_status(uint8_t status, int16_t heading_change_x10,
                                           uint16_t heading_target_x10);
 /** Last left/right PWM commands used by the avoidance turn. */

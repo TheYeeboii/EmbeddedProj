@@ -147,6 +147,11 @@ function showTelemetry(data) {
     setText('speed-current', `${data.speed}%`);
     syncInputs('speed', { 'speed-limit': data.speed });
   }
+  if (typeof data.servo_angle_deg === 'number') {
+    setText('servo-current', `${data.servo_angle_deg}°`);
+    syncInputs('servo', { 'servo-angle': data.servo_angle_deg });
+  }
+  setServoControlsDisabled(mode !== 'idle');
   if (typeof data.line_base === 'number') {
     setText('line-current', `${data.line_base}% / ${data.line_turn}%`);
     syncInputs('line', { 'line-base': data.line_base, 'line-turn': data.line_turn });
@@ -449,8 +454,27 @@ function sendSpeedLimit() {
   }
 }
 
+function setServoControlsDisabled(disabled) {
+  document.querySelectorAll('[data-servo-control]').forEach((control) => {
+    control.disabled = disabled;
+  });
+}
+
+function sendServoAngle(angle = readInt($('#servo-angle'), 0, 180)) {
+  const input = $('#servo-angle');
+  if (angle === null) {
+    showError('servo-error', 'Servo angle must be a whole number from 0 to 180.', input);
+    return;
+  }
+  input.value = angle;
+  showError('servo-error', '');
+  if (sendCommand('servo_angle', { angle })) {
+    commandResult.textContent = `Servo set to ${angle}°`;
+  }
+}
+
 /* Groups listed here send as soon as −/+ is pressed; others wait for Apply. */
-const STEPPER_SENDERS = { trim: sendTrim, line: sendLineSpeed };
+const STEPPER_SENDERS = { trim: sendTrim, line: sendLineSpeed, servo: () => sendServoAngle() };
 
 /* −/+ buttons: nudge the target input within its min/max, then send at once. */
 document.querySelectorAll('[data-target]').forEach((button) => {
@@ -471,13 +495,20 @@ document.querySelectorAll('[data-target]').forEach((button) => {
     STEPPER_SENDERS[group]?.();
   });
 });
-['trim-left', 'trim-right', 'line-base', 'line-turn', 'speed-limit'].forEach((id) => {
+['trim-left', 'trim-right', 'line-base', 'line-turn', 'speed-limit', 'servo-angle'].forEach((id) => {
   $(`#${id}`).addEventListener('input', () => noteEdit(id.split('-')[0]));
 });
 $('#trim-send').addEventListener('click', sendTrim);
 $('#speed-form').addEventListener('submit', (event) => {
   event.preventDefault();
   sendSpeedLimit();
+});
+$('#servo-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  sendServoAngle();
+});
+document.querySelectorAll('[data-servo-angle]').forEach((button) => {
+  button.addEventListener('click', () => sendServoAngle(Number(button.dataset.servoAngle)));
 });
 $('#trim-reset').addEventListener('click', () => {
   $('#trim-left').value = 100;

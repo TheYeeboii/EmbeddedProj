@@ -255,6 +255,31 @@
             <p class="hint muted small">Hold a direction to keep driving. Release, <kbd>Space</kbd> or <kbd>Esc</kbd> stops. Keys: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows.</p>
           </section>
 
+          <section class="card" aria-labelledby="servo-title">
+            <header class="card-header">
+              <h2 id="servo-title">Ultrasonic servo</h2>
+              <span class="muted small num">Command: <span id="servo-current">--</span></span>
+            </header>
+            <form id="servo-form" class="stack" novalidate>
+              <div class="field">
+                <label for="servo-angle">Angle (degrees)</label>
+                <div class="stepper stepper-apply">
+                  <button class="btn btn-outline btn-icon" type="button" data-target="servo-angle" data-step="-5" data-servo-control aria-label="Decrease ultrasonic servo angle by 5 degrees"><i data-lucide="minus" aria-hidden="true"></i></button>
+                  <input id="servo-angle" name="servo_angle" class="input num" type="number" inputmode="numeric" min="0" max="180" step="1" value="90" autocomplete="off" data-servo-control>
+                  <button class="btn btn-outline btn-icon" type="button" data-target="servo-angle" data-step="5" data-servo-control aria-label="Increase ultrasonic servo angle by 5 degrees"><i data-lucide="plus" aria-hidden="true"></i></button>
+                  <button class="btn btn-primary" type="submit" data-servo-control><i data-lucide="send" aria-hidden="true"></i>Set</button>
+                </div>
+              </div>
+              <div class="btn-grid servo-presets" role="group" aria-label="Ultrasonic servo preset positions">
+                <button class="btn btn-outline" type="button" data-servo-angle="45" data-servo-control>Right 45°</button>
+                <button class="btn btn-outline" type="button" data-servo-angle="90" data-servo-control>Centre 90°</button>
+                <button class="btn btn-outline" type="button" data-servo-angle="135" data-servo-control>Left 135°</button>
+              </div>
+              <p id="servo-error" class="field-error small" role="alert" hidden></p>
+              <p class="muted small">For checking cable clearance only. The rover must be idle; driving or line following automatically centres the scanner.</p>
+            </form>
+          </section>
+
           <section class="card" aria-labelledby="speed-title">
             <header class="card-header">
               <h2 id="speed-title">Speed limit</h2>

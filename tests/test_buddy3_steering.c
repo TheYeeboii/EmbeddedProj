@@ -37,7 +37,7 @@ int main(void) {
     o=step(&s,3,0,1510); assert(o.phase==B3_STOP);
     buddy3_steering_reset(&s);
     step(&s,2,2,0); step(&s,2,2,300);
-    o=step(&s,2,2,2100); assert(o.phase==B3_STOP);
+    o=step(&s,2,2,2100); assert(o.phase==B3_CORNER && o.right==0 && o.left==12000);
     buddy3_steering_reset(&s);
     step(&s,2,1,UINT32_MAX-100);
     o=step(&s,2,1,199); assert(o.phase==B3_CORNER);

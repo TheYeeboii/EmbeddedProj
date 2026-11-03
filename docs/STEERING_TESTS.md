@@ -1,7 +1,8 @@
 # Staged steering tests (test/fix-and-diagnose-steering)
 
-These tests exercise steering before barcode navigation. Start at stage 1.
-The default after reboot is stage 1; selection is not saved to flash.
+These tests exercise steering before barcode navigation. Start at stage 1 when
+isolating the basic steering behaviour. The normal Start button uses stage 3.
+The default after reboot is stage 3; selection is not saved to flash.
 No physical sensor/motor mapping was swapped: verify the actual wiring first.
 Stages 1..3 now include straight cross-junction traversal; see
 [CROSS_JUNCTIONS.md](CROSS_JUNCTIONS.md) for the policy, bounds and track tests.
@@ -21,8 +22,8 @@ on other computers (this Makefile does not handle spaces in SDK paths).
 
 ## Controls
 
-For stage 1, no serial commands are required: after flashing, press GP21.
-The boot defaults are stage 1, 35% base PWM and 27 percentage-point curve
+For normal stage-3 operation, no serial commands are required: after flashing,
+press GP21. The boot defaults are stage 3, 35% base PWM and 27 percentage-point curve
 power. Press GP21 again to stop; a new press after stopping starts a
 fresh run. There is no fixed run-duration cutoff; GP21/stop ends a run.
 
@@ -61,7 +62,9 @@ with a hand is not necessarily equivalent to a black track.
 - Physical left black/right white: [steer] micro L less than R.
   The physical left wheel must slow down while the right wheel speeds up.
 - Physical right black/left white: mirror of the above.
-- Both white: equal wheel commands; no search even after 1 second.
+- Both white: normally equal wheel commands; if one encoder gets ahead, its
+  wheel is slowed to preserve the current heading. There is no blind search
+  while the line is centred between the sensors.
 - Left-only immediately followed by both-black: cancel the old left turn,
   command straight and commit after 30 ms. Mirror for right.
 - Both-black from startup: try straight crossing; without encoder movement,
@@ -96,7 +99,8 @@ Record thin/thick line width, sensor gap, base/correction and observed result.
 Send stop, line_stage 2, line_speed 35 27, line_follow.
 First check with wheels lifted: hold left black for 300 ms.
 Expect micro then corner, with left wheel stopped and right at base.
-Mirror for right. A continuously held corner stops after 1800 ms.
+Mirror for right. A continuously held corner keeps turning while that sensor
+continues to see the line; this supports long circular track sections.
 If both become white during cornering, stage 2 stops rather than guessing.
 
 Only then try a single left 90-degree corner, followed by a right corner.
