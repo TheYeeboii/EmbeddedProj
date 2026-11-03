@@ -25,12 +25,26 @@
  * the hump; more than this (about the 250 ms staleness limit) reset them. */
 #define BUDDY4_MAX_REJECTED_IN_ROW  (4u)
 
-/* Hump detection, tenths of a degree. */
-#define BUDDY4_HUMP_ENTER_X10       (60)
-#define BUDDY4_HUMP_TOP_X10         (30)
-#define BUDDY4_HUMP_DESCEND_X10     (-60)
-#define BUDDY4_HUMP_LEVEL_X10       (30)
+/* Hump detection on the total tilt from the flat attitude, tenths of a
+ * degree.  First values from one track hump (one wheel up gave about 6
+ * degrees: -3 pitch, +5.4 roll); tune them from logs. */
+#define BUDDY4_HUMP_ENTER_X10       (50)
+#define BUDDY4_HUMP_LEVEL_X10       (25)
+#define BUDDY4_HUMP_FALL_X10        (20)    /* this far below the peak: coming down */
+#define BUDDY4_HUMP_RISE_X10        (2)     /* per reading (4 deg/s): still climbing */
 #define BUDDY4_HUMP_CONFIRM         (3u)
+/* Level readings that end a hump (400 ms), so a two-wheel crossing that is
+ * level on the crest for a moment still counts once. */
+#define BUDDY4_HUMP_SETTLE          (8u)
+/* While level, the flat attitude follows the floor and the sensor mounting
+ * over about 2 s, so no zero offsets are needed to detect a hump. */
+#define BUDDY4_FLAT_ALPHA           (0.025f)
+/* One-wheel hump height: the raised wheel lifts its side by about
+ * track width x sin(roll change), with no odometry or zero offsets.
+ * shortcut: copies Buddy 2's default track width; read it from
+ * buddy2_get_calibration() if Buddy 2 measures a different value. */
+#define BUDDY4_TRACK_WIDTH_MM       (150.0f)
+#define BUDDY4_HUMP_MIN_ROLL_X10    (10)    /* below 1 deg: both wheels climbed */
 #define BUDDY4_HUMP_TIMEOUT_MS      (15000u)
 #define BUDDY4_HUMP_MAX_STEP_MM     (100.0f)
 #define BUDDY4_HUMP_COUNT_MAX       (7u)
@@ -92,6 +106,7 @@ static void buddy4_abort_hump(buddy4_processor_t *p_proc)
     p_proc->exit_count        = 0u;
     p_proc->elevation         = 0.0f;
     p_proc->peak_elevation    = 0.0f;
+    p_proc->peak_roll         = 0.0f;
     p_proc->event_height_valid = false;
 }
 
@@ -324,17 +339,43 @@ static void buddy4_process_speed(buddy4_processor_t *p_proc, uint32_t now_ms,
     }
 }
 
-/* Hump state machine and height; only called with a new filtered pitch. */
+/* Hump state machine and height; only called with a new filtered pitch.
+ * The track hump is under one wheel: the body then leans sideways and a
+ * little nose-down, the lean holds on top and goes back to level after it.
+ * So detection uses the total tilt (pitch and roll) from the flat attitude,
+ * not the sign of the pitch. */
 static void buddy4_process_hump(buddy4_processor_t *p_proc, uint32_t now_ms, float travelled_mm,
                                 bool path_valid)
 {
     buddy4_imu_state_t *p_state = &p_proc->state;
     float               pitch   = p_proc->filtered_pitch;
     float               rise_mm = travelled_mm * sinf((pitch + p_proc->last_pitch) * 0.5f / BUDDY4_DEG10);
+    float               tilt;
+    bool                rising;
+    bool                turning = (p_state->turn_rate_dps_x10 >= BUDDY4_TURNING_DPS_X10) ||
+                                  (p_state->turn_rate_dps_x10 <= -BUDDY4_TURNING_DPS_X10);
+
+    if (!p_proc->flat_ready)
+    {
+        p_proc->flat_pitch = pitch;
+        p_proc->flat_roll  = p_proc->filtered_roll;
+        p_proc->last_tilt  = 0.0f;
+        p_proc->flat_ready = true;
+    }
+    tilt   = hypotf(pitch - p_proc->flat_pitch, p_proc->filtered_roll - p_proc->flat_roll);
+    rising = (tilt > (p_proc->last_tilt + (float)BUDDY4_HUMP_RISE_X10));
+    p_proc->last_tilt = tilt;
 
     if (BUDDY4_FLAT == p_state->hump_state)
     {
-        if (pitch >= (float)BUDDY4_HUMP_ENTER_X10)
+        if (tilt <= (float)BUDDY4_HUMP_LEVEL_X10)
+        {
+            p_proc->flat_pitch += BUDDY4_FLAT_ALPHA * (pitch - p_proc->flat_pitch);
+            p_proc->flat_roll  += BUDDY4_FLAT_ALPHA * (p_proc->filtered_roll - p_proc->flat_roll);
+        }
+        /* A pivot turn leans the body outwards (sideways force), so a lean
+         * that starts during a turn is not a hump. */
+        if ((tilt >= (float)BUDDY4_HUMP_ENTER_X10) && !turning)
         {
             /* Keep the climb made during the debounce window. */
             if (0u == p_proc->enter_count)
@@ -353,10 +394,11 @@ static void buddy4_process_hump(buddy4_processor_t *p_proc, uint32_t now_ms, flo
             if (p_proc->enter_count >= BUDDY4_HUMP_CONFIRM)
             {
                 p_state->hump_state        = BUDDY4_CLIMBING;
-                p_state->hump_peak_deg_x10 = (int16_t)pitch;
+                p_state->hump_peak_deg_x10 = (int16_t)tilt;
                 p_state->height_valid      = 0u;
                 p_proc->started_ms         = now_ms;
-                p_proc->exit_count         = 0u;
+                p_proc->enter_count        = 0u;   /* now: readings without a rise */
+                p_proc->exit_count         = 0u;   /* now: level readings          */
             }
         }
         else
@@ -375,72 +417,76 @@ static void buddy4_process_hump(buddy4_processor_t *p_proc, uint32_t now_ms, flo
     {
         p_proc->peak_elevation = p_proc->elevation;
     }
-    if (pitch > (float)p_state->hump_peak_deg_x10)
+    if (tilt > (float)p_state->hump_peak_deg_x10)
     {
-        p_state->hump_peak_deg_x10 = (int16_t)pitch;
+        p_state->hump_peak_deg_x10 = (int16_t)tilt;
+    }
+    if (fabsf(p_proc->filtered_roll - p_proc->flat_roll) > p_proc->peak_roll)
+    {
+        p_proc->peak_roll = fabsf(p_proc->filtered_roll - p_proc->flat_roll);
     }
 
     if ((now_ms - p_proc->started_ms) > BUDDY4_HUMP_TIMEOUT_MS)
     {
         buddy4_abort_hump(p_proc);
     }
-    else if ((BUDDY4_CLIMBING == p_state->hump_state) && (pitch < (float)BUDDY4_HUMP_TOP_X10))
+    else if (tilt > (float)BUDDY4_HUMP_LEVEL_X10)
     {
-        p_state->hump_state = BUDDY4_TOP;
-        p_proc->exit_count  = 0u;
-    }
-    else if (BUDDY4_TOP == p_state->hump_state)
-    {
-        if (pitch <= (float)BUDDY4_HUMP_DESCEND_X10)
+        /* Still leaning: show where on the hump the wheel is. */
+        p_proc->exit_count = 0u;
+        if (tilt < (float)(p_state->hump_peak_deg_x10 - BUDDY4_HUMP_FALL_X10))
         {
-            p_proc->exit_count++;
-            if (p_proc->exit_count >= BUDDY4_HUMP_CONFIRM)
-            {
-                p_state->hump_state = BUDDY4_DESCENDING;
-                p_proc->exit_count  = 0u;
-            }
+            p_state->hump_state = BUDDY4_DESCENDING;
+        }
+        else if (rising)
+        {
+            p_state->hump_state = BUDDY4_CLIMBING;
+            p_proc->enter_count = 0u;
+        }
+        else if (p_proc->enter_count < BUDDY4_HUMP_CONFIRM)
+        {
+            p_proc->enter_count++;
         }
         else
         {
-            p_proc->exit_count = 0u;
-        }
-    }
-    else if (BUDDY4_DESCENDING == p_state->hump_state)
-    {
-        if (fabsf(pitch) <= (float)BUDDY4_HUMP_LEVEL_X10)
-        {
-            p_proc->exit_count++;
-            if (p_proc->exit_count >= BUDDY4_HUMP_CONFIRM)
-            {
-                bool height_ok = p_proc->event_height_valid && (p_proc->peak_elevation >= 0.0f) &&
-                                 (p_proc->peak_elevation <= 65535.0f);
-
-                p_state->hump_sequence++;
-                if (p_state->hump_count < BUDDY4_HUMP_COUNT_MAX)
-                {
-                    p_state->hump_count++;
-                }
-                if (p_state->hump_peak_deg_x10 > p_state->highest_peak_deg_x10)
-                {
-                    p_state->highest_peak_deg_x10 = p_state->hump_peak_deg_x10;
-                }
-                p_state->height_valid   = height_ok ? 1u : 0u;
-                p_state->hump_height_mm = height_ok ? (uint16_t)(p_proc->peak_elevation + 0.5f) : 0u;
-                if (height_ok && (p_state->hump_height_mm > p_state->highest_hump_mm))
-                {
-                    p_state->highest_hump_mm = p_state->hump_height_mm;
-                }
-                buddy4_abort_hump(p_proc);
-            }
-        }
-        else
-        {
-            p_proc->exit_count = 0u;
+            p_state->hump_state = BUDDY4_TOP;
         }
     }
     else
     {
-        /* climbing, still above the top threshold */
+        p_state->hump_state = BUDDY4_DESCENDING;
+        p_proc->exit_count++;
+        if (p_proc->exit_count >= BUDDY4_HUMP_SETTLE)
+        {
+            bool  height_ok = p_proc->event_height_valid && (p_proc->peak_elevation >= 0.0f) &&
+                              (p_proc->peak_elevation <= 65535.0f);
+            float height_mm = p_proc->peak_elevation;
+
+            /* No two-wheel estimate (needs calibration and odometry): use
+             * the one-wheel lean, which the track hump produces. */
+            if (!height_ok && (p_proc->peak_roll >= (float)BUDDY4_HUMP_MIN_ROLL_X10))
+            {
+                height_mm = BUDDY4_TRACK_WIDTH_MM * sinf(p_proc->peak_roll / BUDDY4_DEG10);
+                height_ok = true;
+            }
+
+            p_state->hump_sequence++;
+            if (p_state->hump_count < BUDDY4_HUMP_COUNT_MAX)
+            {
+                p_state->hump_count++;
+            }
+            if (p_state->hump_peak_deg_x10 > p_state->highest_peak_deg_x10)
+            {
+                p_state->highest_peak_deg_x10 = p_state->hump_peak_deg_x10;
+            }
+            p_state->height_valid   = height_ok ? 1u : 0u;
+            p_state->hump_height_mm = height_ok ? (uint16_t)(height_mm + 0.5f) : 0u;
+            if (height_ok && (p_state->hump_height_mm > p_state->highest_hump_mm))
+            {
+                p_state->highest_hump_mm = p_state->hump_height_mm;
+            }
+            buddy4_abort_hump(p_proc);
+        }
     }
 }
 
@@ -515,6 +561,7 @@ void buddy4_process(buddy4_processor_t *p_proc, uint32_t now_ms,
     if (!p_proc->filter_ready || gap)
     {
         buddy4_abort_hump(p_proc);
+        p_proc->flat_ready    = false;   /* attitude unknown: start again */
         p_proc->last_distance = distance_mm;
     }
     else if (new_pitch)

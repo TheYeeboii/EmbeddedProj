@@ -106,22 +106,34 @@ where Buddy 5 turns; mounting errors and motor fields remain physical concerns.
 
 ## Hump detection and height
 
-The four states are flat, climbing, top, descending. Entry requires three
-filtered readings at or above +6 degrees. Climbing becomes top below +3 degrees;
-three readings at or below -6 degrees confirm descending. Three readings within
-±3 degrees complete the hump. A 15-second timeout cancels incomplete events.
-These initial thresholds require track tuning. An isolated ascent/ramp does not
-count as a completed hump. Detection describes the observed tilt sequence;
-manually tilting the sensor can also produce that sequence.
+The track hump sits under **one wheel**. With one wheel up the body leans
+sideways and slightly nose-down (measured on the track: pitch -3 degrees, roll
++5.4 degrees, about 6 degrees in total); the lean holds while the wheel is on
+top and goes back to level after it. The pitch never swings positive then
+negative, so detection uses the **total tilt** from the flat attitude,
+`sqrt(dpitch^2 + droll^2)`, not the sign of the pitch.
+
+The flat attitude follows the floor and the sensor mounting while the rover is
+level (time constant about 2 s), so zero offsets are not needed to detect a
+hump and a slowly sloping floor is not one. Entry requires three filtered
+readings at or above 5 degrees of tilt, and not while turning at 25 degrees/s
+or more (a pivot turn leans the body outwards). After entry the state shows
+climbing while the tilt rises, top when it holds, and descending once it is
+2 degrees below the peak. The hump completes after eight readings (400 ms)
+within 2.5 degrees of flat; this is long enough that a two-wheel crossing, which
+is level for a moment on the crest, still counts once. A 15-second timeout
+cancels a hump that never comes back to level, such as a rover stuck on it.
+These first thresholds come from one track hump and need tuning from logs.
+Manually tilting the rover can also produce a hump.
 
 `hump_count` saturates at seven for the 3-bit representation. `hump_sequence`
 increments on every completed hump, so telemetry consumers can detect further
-events. Peak pitch and the last completed height are retained; `highest_hump_mm`
+events. The peak tilt and the last completed height are retained; `highest_hump_mm`
 retains the largest valid height estimate since initialization/calibration reset.
-`highest_peak_deg_x10` is the steepest peak pitch of any **completed** hump. It
+`highest_peak_deg_x10` is the largest peak tilt of any **completed** hump. It
 answers "highest hump peak experienced during the run" even before height is
-calibrated, and unlike `max_pitch_deg_x10` it ignores lifting or tilting the
-rover by hand (that never completes the climb/top/descend sequence).
+calibrated, and unlike `max_pitch_deg_x10` it ignores a climb that never comes
+back to level.
 
 Height uses average wheel travel and pitch:
 
@@ -134,8 +146,17 @@ Negative/reset distance, steps above 100 mm per sample, reverse/pivot/stopped
 samples, or absent calibration invalidate the event's height. Buddy 2 signs
 distance from commanded direction; wheel slip, coasting, external pushes,
 wheelbase/chassis geometry and filter lag still affect accuracy. Starting the
-integration at the +6-degree threshold can underestimate a gradual approach.
-The estimator is intended for slow, forward traversal of known test humps.
+integration at the entry threshold can underestimate a gradual approach.
+This estimator assumes both wheels climb the hump and needs calibration.
+
+For the one-wheel track hump the raised wheel lifts its side of the rover, so
+the height comes from the largest roll change during the hump:
+`height = track_width * sin(droll)`, with Buddy 2's 150 mm track width. On the
+measured hump that is 150 mm * sin(5.4 deg), about 14 mm. It needs no odometry
+and no zero offsets (the flat attitude is the reference), so it is valid
+without calibration. It is used whenever the two-wheel estimate is not valid
+and the roll changed by at least 1 degree. A jolt or the rover tipping while
+stuck on the hump raises the peak roll and so overstates the height.
 
 ## Motion events, impacts and turn rate
 
@@ -191,7 +212,7 @@ returns false and sets the overflow bit if any field required saturation.
 | 8 | 12 | Heading in tenths, 0–3599 |
 | 20 | 11 | Signed pitch in tenths, -900–900 |
 | 31 | 12 | Signed roll in tenths, -1800–1800 |
-| 43 | 11 | Signed hump peak pitch in tenths |
+| 43 | 11 | Hump peak tilt in tenths (signed field) |
 | 54 | 2 | Hump state |
 | 56 | 3 | Saturating hump count |
 | 59 | 8 | Last height, saturated at 255 mm |
@@ -234,7 +255,7 @@ width in `imu_packed`.
 | Measurement (arm-none-eabi-gcc, Cortex-M0+) | Before | After |
 |---|---:|---|
 | `buddy4_imu_state_t` (copied on every `buddy4_get_state()`) | 60 bytes | 36 bytes |
-| `buddy4_processor_t` (IMU task only) | 168 bytes | 184 bytes (new speed/turn windows) |
+| `buddy4_processor_t` (IMU task only) | 168 bytes | 200 bytes (speed/turn windows, flat attitude and peak roll for humps) |
 | Wi-Fi build `.bss` (whole firmware) | 49 980 bytes | 49 972 bytes |
 | USB build `.text` (whole firmware) | 63 244 bytes | 64 292 bytes (new features) |
 | Buddy 4 packet | 9 bytes | 9 bytes (motion class uses the 3 spare bits) |
