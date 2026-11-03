@@ -1,91 +1,54 @@
-# Buddy 3 Line and Barcode Setup
+# Buddy 3 line and barcode setup
 
-## Focused USB console logging
+## GP21 steering tests
 
-Build from `firmware/build_make` with `BUDDY3_DEBUG=1` to suppress periodic
-status/encoder summaries, console JSON, successful sonar ping messages and the
-avoidance telemetry summary. Buddy 3 `[sensor]`/`[line]` messages, controller
-events, startup information, errors and safety messages remain visible.
-MQTT publication and sensor/control tasks continue normally.
+The default is stage 1: gentle correction, 35% base and 6 percentage-point
+inner-wheel slowdown. GP21 starts/stops it; runs end after 15 seconds.
+Use [STEERING_TESTS.md](STEERING_TESTS.md) for staged bench/track tests.
+Sensor ADC mapping remains left=1, right=0, barcode=2; verify physical wiring.
 
-Buddy 3 also prints a numerical snapshot approximately once per second from
-the telemetry task (not the steering loop):
+Both front sensors normally see white when straddling the line. Stages 1..3
+do not automatically spin after a white timeout. Both-black is ambiguous:
+the previous correction is held briefly, then stops after 150 ms.
+Stage 0 selects the old steering algorithm, not the new reader integration.
 
-```text
-[buddy3] raw L=150 R=180 side=130 | norm L=36 R=43 side=31 | ADC L=1 R=0 side=2
-```
+## Sensor calibration and logging
 
-Values above are illustrative. L/R follow the rover's configured left/right
-mapping; the ADC labels identify which sensor calibration entry to adjust.
-Keep the rover stationary with line following off to collect floor and black
-readings at the normal mounting height. Raw values are 0..4095; normalized
-values are 0..1000. A one-second snapshot is for calibration, not measurement
-of steering latency or fast barcode transitions.
+Build with BUDDY3_DEBUG=1 to reduce routine telemetry printing and show a
+numerical sensor snapshot about once per second. Sensor values are normalized
+to 0..1000. Read floor and black at the actual mounting height and adjust the
+per-sensor endpoints/inversion in buddy3_ir.c. A 1-second debug snapshot cannot
+capture barcode transitions.
 
-```sh
-make CONSOLE=usb_cdc PICO_SDK_PATH="$PICO_SDK_PATH" BUDDY3_DEBUG=1 -j8
-```
+The two front sensors steer; the side sensor is independent and reads barcodes.
+Their use of the same 10 ms task does not mean each task tick is a barcode bit.
 
-Reflash the generated UF2 to use this mode. Rebuild with `BUDDY3_DEBUG=0`
-(the default) to restore normal output. Changing this option invalidates the
-build profile so old objects are rebuilt. Keep any Wi-Fi build options you
-normally use. Reduced printing is a diagnostic aid, not proof that logging
-caused a steering delay. Sonar faults can still produce repeated messages.
+## Barcode reader and movement
 
-## Line following
+See [BARCODE_DISTANCE.md](BARCODE_DISTANCE.md) for the decoder format,
+distance/offset calibration, and encoder prerequisites.
+See [BARCODE_ACTIONS.md](BARCODE_ACTIONS.md) for read-only and movement tests.
 
-Buddy 3 samples the left, center, and right IR sensors every 10 ms. The left and center sensors are used for line detection and position estimation; the right sensor is reserved for barcode reading, matching the hardware layout. It normalizes readings to `0..1000`, detects two-sensor junctions, and applies proportional/derivative steering correction through Buddy 2 signed motor control.
+The software currently supports the project's custom fixed-cell format:
+0xA5 followed by command 1 (left), 2 (right), or 3 (straight), MSB first.
+A two-cell white lead-in precedes each frame. This is not Code 39/EAN/QR.
+The physical track's printed barcode format is not yet confirmed.
 
-Enable it from the dashboard or MQTT:
+Samples are assigned by measured sensor travel, with small-turn compensation
+for the side sensor's lateral offset. Large turns, reverse motion, coarse
+position jumps, stalled frames and recovery invalidate the read. Calibration
+must provide sufficient resolution: at least four wheel encoder edges per cell.
 
-```json
-{"cmd":"line_follow"}
-```
+Current hardware configuration mirrors the right encoder into the left, and
+cell width is unmeasured. Reading therefore stays disabled until those are
+resolved. Read-only mode is the default once calibration is valid.
 
-Stop it with:
+With barcode_mode 2 explicitly enabled, a valid read acts immediately:
+pause tracking, turn left/right 90 degrees or move straight 300 mm, then resume
+tracking. A rejected move or 8-second motion timeout stops without resuming.
+GP21/stop can cancel a move. The reader resets at each handoff so a stale
+frame cannot retrigger. These motion distances/angles require track validation.
 
-```json
-{"cmd":"line_stop"}
-```
-
-The default calibration matches the current module response: the normal floor produces low raw values and is not inverted. Set `line_is_dark` to `true` only if your measured black-line response is lower than the floor response.
-
-## IR calibration
-
-Record raw readings with the sensors over the floor and over the line. Set each sensor's `minimum` and `maximum` in `buddy3_ir.c`, then verify that the line produces normalized values above the line threshold. Tune `proportional_gain`, `derivative_gain`, and `base_pwm` at low speed first.
-
-## Barcode protocol
-
-The current decoder uses a compact timing-independent digital frame sampled by the right barcode sensor:
-
-```text
-8-bit start 0xA5, followed by 8-bit command
-```
-
-Commands are:
-
-- `1`: turn left
-- `2`: turn right
-- `3`: go straight
-
-The barcode must produce one stable binary sample per 10 ms. If the physical barcode uses variable-width bars, the decoder must be extended with measured bar-width timing before relying on it.
-
-Decoded commands are translated into Buddy 2 navigation actions: 90-degree left/right turns or a 300 mm straight move. Validate these values on the actual track.
-
-
-## micro T-Kernel notes
-
-- Code: `firmware/app_program/buddy3_ir.c`. `buddy3_update()` runs every 10 ms in the `line` task, woken by a cyclic handler.
-- Start/stop line following with the **GP21** button, or with `line_follow` / `line_stop` from the dashboard.
-- Settings: Kp 9, Kd 2.5, base 12000 (about 37 % duty, since 32767 now means 100 %). The old base of 12000 gave only about 18 % duty, which was too weak to move the car.
-- If the line is not under the sensors, the console prints `[line] no line under the sensors ...` once and waits.
-- After a barcode action (turn or 300 mm straight) the controller resumes line following automatically (`robot_controller.c`).
-
-## Sensor layout (as built)
-
-- ADC0 and ADC1 are the two **front** sensors on the black bracket. ADC2 is on the white arm beside the car and reads the **barcodes**.
-- The track line is **18 mm** wide, narrower than the gap between the front sensors, so normally **both front sensors see floor** (the line is between them). The black start area makes all three read black.
-- Steering compares the two front sensors: only the left one on black means steer left, only the right one means steer right. Both on black is a crossing line or the start box, so drive straight.
-- Safety stops: no front sensor touches the line for 6 s, or all three on black for 3 s (lifted, or a dark desk).
-- While line following, the console prints a `[run]` line at every sensor change with the steering decision. Compare it with what the car actually did.
-- Current setting: `BUDDY3_FRONT_LEFT 0`, `BUDDY3_FRONT_RIGHT 1`. If `[run]` says "steer LEFT" and the car turns right, swap them.
+For button-only operation after validating the physical format and calibration,
+set the measured defaults in buddy3_barcode.h and the default mode in
+robot_barcode_action.h. GP21 still controls starting and stopping.

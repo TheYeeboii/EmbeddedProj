@@ -38,12 +38,15 @@ starts a new run. Every experimental run ends after 15 seconds. stop or
 line_stop also stops it. GP21 still toggles line following.
 JSON equivalent: {"cmd":"line_stage","stage":2}.
 
-Stages 1..3 ignore barcode-triggered navigation, but continue sampling sensors
-and decoding barcodes. Existing ultrasonic avoidance remains enabled: use clear
+Stages 1..3 default to observing barcodes without movement. The separate
+barcode_mode 2 command enables immediate actions only after reader calibration;
+see BARCODE_DISTANCE.md and BARCODE_ACTIONS.md.
+Existing ultrasonic avoidance remains enabled: use clear
 space, keep hands away from the ultrasonic beam, and distinguish [avoid] logs
 from [steer] logs. On-board safety is not proof that a test is physically safe.
 
-Stage 0 explicitly restores the original algorithm and barcode navigation.
+Stage 0 explicitly restores the original steering algorithm.
+The new distance reader requires stage 1..3; stage 0 does not enable it.
 It retains the original both-white search timeout. Do not select stage 0
 until the isolated stages have been checked.
 
@@ -113,8 +116,9 @@ heading alignment or distinguish a junction from a wide line.
 
 The timing values in app_program/buddy3_steering.h are initial test settings,
 not calibrated physical angles. Do not treat a successful software test as a
-successful track test. This change does not implement junction classification
-or a distance-based barcode decoder. Stage 0 is the old integration behaviour.
+successful track test. The steering controller does not classify junctions.
+The separate distance decoder and movement modes are documented in
+BARCODE_DISTANCE.md and BARCODE_ACTIONS.md. Stage 0 selects legacy steering.
 
 A barcode strip along a straight can be used in stage 1 to check that steering
 does not unexpectedly spin the rover, but barcode correctness is a separate
