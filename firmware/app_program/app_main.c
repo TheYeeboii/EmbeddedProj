@@ -322,6 +322,10 @@ static void telemetry_task(INT stacd, void *p_exinf)
 #endif
 
         /* Human-readable status for the USB console. */
+#if BUDDY3_DEBUG
+        /* Print at the telemetry rate, never in the 10 ms steering task. */
+        buddy3_print_debug();
+#endif
         if (!BUDDY3_DEBUG && (0u == (tick % APP_STATUS_EVERY_N)))
         {
             app_print_status();
