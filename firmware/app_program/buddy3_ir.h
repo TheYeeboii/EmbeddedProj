@@ -83,7 +83,7 @@ void buddy3_start_line_follow(void);
 void buddy3_stop_line_follow(void);
 bool buddy3_line_following(void);
 /* 0 = original integration, 1 = micro, 2 = corner, 3 = bounded recovery.
- * Change only while stopped. Stages 1..3 are limited to 15-second runs. */
+ * Change only while stopped. Runs continue until stopped or a fault occurs. */
 void buddy3_set_test_stage(uint8_t stage);
 uint8_t buddy3_test_stage(void);
 

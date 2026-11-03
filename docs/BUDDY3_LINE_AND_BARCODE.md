@@ -2,8 +2,8 @@
 
 ## GP21 steering tests
 
-The default is stage 1: gentle correction, 35% base and 6 percentage-point
-inner-wheel slowdown. GP21 starts/stops it; runs end after 15 seconds.
+The default is stage 1: gentle correction, 35% base and 14 percentage-point
+inner-wheel slowdown. GP21 starts/stops it; there is no fixed duration cutoff.
 Use [STEERING_TESTS.md](STEERING_TESTS.md) for staged bench/track tests.
 Sensor ADC mapping remains left=1, right=0, barcode=2; verify physical wiring.
 

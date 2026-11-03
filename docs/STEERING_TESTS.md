@@ -20,22 +20,22 @@ on other computers (this Makefile does not handle spaces in SDK paths).
 ## Controls
 
 For stage 1, no serial commands are required: after flashing, press GP21.
-The boot defaults are stage 1, 35% base PWM and a 6 percentage-point
+The boot defaults are stage 1, 35% base PWM and a 14 percentage-point
 correction. Press GP21 again to stop; a new press after stopping starts a
-fresh run. The 15-second test limit still applies.
+fresh run. There is no fixed run-duration cutoff; GP21/stop ends a run.
 
 In the USB serial monitor, send each command with Enter:
 
 ```text
 line_stage 1
-line_speed 35 6
+line_speed 35 14
 line_follow
 stop
 ```
 
 line_stage stops all motion before selecting a stage. line_follow explicitly
-starts a new run. Every experimental run ends after 15 seconds. stop or
-line_stop also stops it. GP21 still toggles line following.
+starts a new run. Runs continue until stopped or a fault occurs. stop or
+line_stop stops it; GP21 toggles line following.
 JSON equivalent: {"cmd":"line_stage","stage":2}.
 
 Stages 1..3 default to observing barcodes without movement. The separate
@@ -52,7 +52,7 @@ until the isolated stages have been checked.
 
 ## 1. Verify mapping with wheels lifted
 
-Send line_stage 1, line_speed 35 6, then line_follow.
+Send line_stage 1, line_speed 35 14, then line_follow.
 Use black tape under one FRONT sensor at a time; covering a reflective sensor
 with a hand is not necessarily equivalent to a black track.
 
@@ -76,18 +76,21 @@ when centred. Start on a short straight, then a gentle curve; repeat on thin
 and thick tape. Confirm corrections are small and symmetric without hunting.
 Change only one setting at a time.
 
-line_speed 35 6 requests base 35% and correction 6 percentage points:
-straight 35/35; left correction 29/35; right correction 35/29.
-The experimental controller only slows the inner wheel and caps correction
-at 20% of base. If it cannot turn at all, verify traction/trim before changing
-timings. Both-white cannot distinguish centred from off-track, so supervise
-the short run; the 15-second cap is not a track-edge detector.
+line_speed 35 14 requests base 35% and correction 14 percentage points:
+straight 35/35; left correction 21/35; right correction 35/21.
+These are API commands BEFORE Buddy 2's global speed limit and trim.
+The controller only slows the inner wheel; correction can reach base PWM,
+stopping that wheel, but never reverses it or boosts the outer wheel.
+The previous 20%-of-base correction cap has been removed.
+If it cannot turn at all, verify traction/trim before changing timings.
+Both-white cannot distinguish centred from off-track; GP21/stop is the manual
+stop, and corner/recovery/both-black timeout stops remain enabled.
 
 Record thin/thick line width, sensor gap, base/correction and observed result.
 
 ## 3. Tight-turn escalation, without recovery
 
-Send stop, line_stage 2, line_speed 35 6, line_follow.
+Send stop, line_stage 2, line_speed 35 14, line_follow.
 First check with wheels lifted: hold left black for 300 ms.
 Expect micro then corner, with left wheel stopped and right at base.
 Mirror for right. A continuously held corner stops after 1800 ms.
@@ -99,7 +102,7 @@ This is a sustained-correction heuristic, not proof of a 90-degree corner.
 
 ## 4. Bounded recovery
 
-Send stop, line_stage 3, line_speed 35 6, line_follow.
+Send stop, line_stage 3, line_speed 35 14, line_follow.
 After a sustained correction enters corner mode and loses black, it continues
 a one-wheel turn toward that remembered side for at most 1200 ms.
 It must see black again and then both-white for 100 ms before returning to

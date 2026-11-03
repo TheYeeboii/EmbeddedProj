@@ -26,11 +26,11 @@ front sensors have reacquired the intended line.
    reporting are preserved. An unmeasured cell width still disables decoding.
 2. Configure the measured cell width/offset while stopped. Default mode is
    observe (1). Press GP21 and verify correct decoded commands at multiple
-   speeds; no barcode move is performed. Steering tests still stop after 15 s.
+   speeds; no barcode move is performed. GP21/stop ends the tracking run.
 3. Only after correct reads, stop and select barcode_mode 2. Press GP21.
    A valid frame pauses line following, immediately starts one move, and resumes
-   following only after that move reports completion. Each resumed tracking
-   segment starts a fresh 15-second test window. A fresh two-cell quiet
+   following only after that move reports completion. Tracking has no fixed
+   run-duration cutoff. A fresh two-cell quiet
    lead-in is required before another barcode.
 4. Test left, right and straight separately. Confirm GP21/stop can cancel each
    action and a missing completion causes a stop within 8 seconds. Buddy 2's
