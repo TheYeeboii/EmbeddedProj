@@ -19,6 +19,7 @@
 #include "pin_config.h"
 #include "robot_hal.h"
 #include "buddy3_steering.h"
+#include "buddy3_barcode.h"
 
 #define BUDDY3_LINE_THRESHOLD       (350u)
 #define BUDDY3_JUNCTION_THRESHOLD   (800u)
@@ -135,9 +136,12 @@ static volatile bool     g_line_seen_event    = false;
 static uint32_t          g_last_update_ms     = 0u;
 static int16_t           g_previous_position  = 0;
 static uint32_t          g_line_lost_since_ms = 0u;
-static uint8_t           g_barcode_shift      = 0u;
-static uint8_t           g_barcode_bits       = 0u;
-static bool              g_barcode_frame      = false;
+static buddy3_barcode_decoder_t g_barcode_decoder;
+static buddy3_barcode_config_t g_barcode_config = { BUDDY3_BARCODE_CELL_MM };
+static float g_barcode_offset = BUDDY3_BARCODE_OFFSET_LEFT_MM;
+static bool g_barcode_calibrated = false;
+static bool g_barcode_odometry_valid = false;
+static float g_barcode_last_left, g_barcode_last_right, g_barcode_yaw;
 static uint8_t           g_pending_barcode    = 0u;
 static bool              g_barcode_ready      = false;
 static bool              g_reported_lost      = false;
@@ -229,37 +233,45 @@ static void buddy3_search_begin_step(uint8_t step, int8_t direction, uint32_t no
     g_search_step_deg = buddy3_encoder_angle_deg();
 }
 
-/* Called every sample with the barcode sensor value.  Looks for the start
- * byte 0xA5, then collects the next 8 bits as the command. */
-static void buddy3_decode_barcode(uint16_t sensor_value)
+/* Sampling remains 10 ms; bit boundaries are measured in encoder distance. */
+static void buddy3_decode_barcode(uint16_t sensor_value, uint32_t now_ms)
 {
-    uint8_t bit = (sensor_value >= BUDDY3_LINE_THRESHOLD) ? 1u : 0u;
-
-    g_barcode_shift = (uint8_t)((uint8_t)(g_barcode_shift << 1u) | bit);
-    if (!g_barcode_frame)
-    {
-        if (BUDDY3_BARCODE_START == g_barcode_shift)
-        {
-            g_barcode_frame = true;
-            g_barcode_bits  = 0u;
-            g_barcode_shift = 0u;
-        }
-        return;
+    buddy2_motion_state_t motion = {0};
+    buddy2_calibration_t geometry;
+    float dl, dr, travel, yaw;
+    uint8_t command;
+    UINT interrupt_state;
+    bool permitted = g_line_following && g_barcode_calibrated &&
+                     (g_test_last_phase == B3_TRACK || g_test_last_phase == B3_MICRO);
+    buddy2_get_motion_state(&motion);
+    buddy2_get_calibration(&geometry);
+    if (!g_barcode_odometry_valid) {
+        g_barcode_last_left = motion.left_distance_mm;
+        g_barcode_last_right = motion.right_distance_mm;
+        g_barcode_odometry_valid = true;
     }
-
-    g_barcode_bits++;
-    if (BUDDY3_BARCODE_BITS == g_barcode_bits)
-    {
-        if ((BUDDY3_BARCODE_LEFT == g_barcode_shift) ||
-            (BUDDY3_BARCODE_RIGHT == g_barcode_shift) ||
-            (BUDDY3_BARCODE_STRAIGHT == g_barcode_shift))
-        {
-            g_pending_barcode = g_barcode_shift;
-            g_barcode_ready   = true;
+    dl = motion.left_distance_mm - g_barcode_last_left;
+    dr = motion.right_distance_mm - g_barcode_last_right;
+    g_barcode_last_left = motion.left_distance_mm;
+    g_barcode_last_right = motion.right_distance_mm;
+    yaw = geometry.track_width_mm > 0.0f ? (dr - dl) / geometry.track_width_mm : 0.0f;
+    if (!g_barcode_decoder.active) g_barcode_yaw = 0.0f;
+    g_barcode_yaw += yaw;
+    /* Large turns, reverse and recovery invalidate a longitudinal barcode. */
+    if (dl < 0.0f || dr < 0.0f ||
+        g_barcode_yaw > 0.1745f || g_barcode_yaw < -0.1745f) permitted = false;
+    travel = buddy3_barcode_travel(dl, dr, geometry.track_width_mm, g_barcode_offset);
+    command = buddy3_barcode_step(&g_barcode_decoder, &g_barcode_config,
+              sensor_value >= BUDDY3_EDGE_THRESHOLD, travel, now_ms, permitted);
+    if (command != 0u) {
+        DI(interrupt_state);
+        /* Keep the first unread event; do not overwrite it with a later frame. */
+        if (!g_barcode_ready) {
+            g_pending_barcode = command;
+            g_barcode_ready = true;
         }
-        g_barcode_frame = false;
-        g_barcode_bits  = 0u;
-        g_barcode_shift = 0u;
+        EI(interrupt_state);
+        tm_printf((UB *)"[barcode] decoded command=%u (distance frame)\n", (UINT)command);
     }
 }
 
@@ -276,6 +288,8 @@ void buddy3_init(void)
     g_last_update_ms   = 0u;
     g_line_following   = false;
     g_line_seen_event  = false;
+    (void)buddy3_configure_barcode((uint16_t)BUDDY3_BARCODE_CELL_MM,
+                                  (int16_t)BUDDY3_BARCODE_OFFSET_LEFT_MM);
 }
 
 void buddy3_set_calibration(const buddy3_calibration_t *p_calibration)
@@ -400,7 +414,7 @@ void buddy3_update(uint32_t now_ms)
 #endif
 
     /* The outrigger sensor (ADC2) reads the barcodes beside the track. */
-    buddy3_decode_barcode(next.sensors[2].normalized);
+    buddy3_decode_barcode(next.sensors[2].normalized, now_ms);
     next.barcode_ready   = g_barcode_ready;
     next.barcode_command = g_pending_barcode;
 
@@ -771,6 +785,10 @@ void buddy3_update(uint32_t now_ms)
 
 void buddy3_start_line_follow(void)
 {
+    buddy3_barcode_reset(&g_barcode_decoder);
+    g_barcode_odometry_valid = false;
+    g_barcode_ready = false;
+    g_state.barcode_ready = false;
     buddy3_steering_reset(&g_test_steering);
     g_test_start_pending = true;
     g_test_last_phase = 255u;
@@ -787,6 +805,9 @@ void buddy3_start_line_follow(void)
 void buddy3_stop_line_follow(void)
 {
     g_line_following = false;
+    buddy3_barcode_reset(&g_barcode_decoder);
+    g_barcode_ready = false;
+    g_state.barcode_ready = false;
     buddy2_stop();
 }
 
@@ -903,4 +924,48 @@ bool buddy3_take_barcode(uint8_t *p_command)
     EI(interrupt_state);
 
     return taken;
+}
+
+bool buddy3_configure_barcode(uint16_t cell_mm, int16_t offset_left_mm)
+{
+    buddy2_calibration_t geometry;
+    float left_tick, right_tick, minimum_cell;
+    if (g_line_following) return false;
+    g_barcode_calibrated = false;
+    buddy3_barcode_reset(&g_barcode_decoder);
+    g_barcode_ready = false;
+    g_state.barcode_ready = false;
+    g_barcode_odometry_valid = false;
+    if (cell_mm == 0u) {
+        tm_printf((UB *)"[barcode] disabled: measure cell width and configure first\n");
+        return false;
+    }
+#if ENCODER_LEFT_MIRROR_RIGHT
+    tm_printf((UB *)"[barcode] disabled: left encoder mirrors right; repair/calibrate both encoders\n");
+    return false;
+#endif
+    buddy2_get_calibration(&geometry);
+    if (!(geometry.wheel_diameter_mm > 0.0f) || !(geometry.track_width_mm > 0.0f) ||
+        !(geometry.left_ticks_per_wheel_rev > 0.0f) ||
+        !(geometry.right_ticks_per_wheel_rev > 0.0f)) return false;
+    left_tick = 3.14159265f * geometry.wheel_diameter_mm / geometry.left_ticks_per_wheel_rev;
+    right_tick = 3.14159265f * geometry.wheel_diameter_mm / geometry.right_ticks_per_wheel_rev;
+    minimum_cell = 4.0f * (left_tick > right_tick ? left_tick : right_tick);
+    if ((float)cell_mm < minimum_cell || cell_mm > 1000u ||
+        offset_left_mm < -500 || offset_left_mm > 500) {
+        tm_printf((UB *)"[barcode] rejected: cell needs >=%u mm at current encoder resolution; offset -500..500\n",
+                  (UINT)(minimum_cell + 0.999f));
+        return false;
+    }
+    g_barcode_config.cell_mm = (float)cell_mm;
+    g_barcode_offset = (float)offset_left_mm;
+    g_barcode_calibrated = true;
+    tm_printf((UB *)"[barcode] configured cell=%u mm offset-left=%d mm\n",
+              (UINT)cell_mm, (INT)offset_left_mm);
+    return true;
+}
+
+bool buddy3_barcode_calibrated(void)
+{
+    return g_barcode_calibrated;
 }
