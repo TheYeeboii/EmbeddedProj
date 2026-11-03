@@ -6,6 +6,7 @@
 #include "../firmware/app_program/robot_controller.c"
 
 static bool following, motion, accept_move=true, calibrated=true, button_high=true;
+static bool encoder_fault;
 static uint8_t stage=1, event;
 static unsigned starts, stops, lefts, rights, forwards;
 int tm_printf(const unsigned char *fmt, ...) { (void)fmt; return 0; }
@@ -13,6 +14,9 @@ void hal_gpio_input_pullup(uint32_t pin) { (void)pin; }
 bool hal_gpio_read(uint32_t pin) { (void)pin; return button_high; }
 void buddy2_stop(void) { motion=false; ++stops; }
 bool buddy2_motion_active(void) { return motion; }
+void buddy2_get_motion_state(buddy2_motion_state_t *s) {
+    buddy2_motion_state_t empty={0}; *s=empty; s->left_encoder_fault=encoder_fault;
+}
 void buddy2_set_motor_pwm(int16_t l,int16_t r) { (void)l; (void)r; }
 bool buddy2_set_trim(uint8_t l,uint8_t r) { (void)l; (void)r; return true; }
 bool buddy2_set_speed_limit(uint8_t p) { (void)p; return true; }
@@ -34,7 +38,7 @@ static void reset(void) {
     robot_stop_all(); robot_controller_init();
     g_barcode_mode=1; stage=1; calibrated=true; accept_move=true;
     button_high=true; g_line_button_count=0; g_line_button_was=false;
-    starts=stops=lefts=rights=forwards=0; event=0;
+    starts=stops=lefts=rights=forwards=0; event=0; encoder_fault=false;
 }
 static void command(const char *c,uint32_t n) { robot_controller_handle_command(c,n); }
 int main(void) {
@@ -78,6 +82,14 @@ int main(void) {
     assert(robot_controller_begin_obstacle_avoidance());
     motion=false; robot_controller_step(30);
     assert(!following && !g_barcode_action.active);
-    puts("PASS: actual controller observe/execute commands, GP21 start/cancel, left/right/straight, resume, rejection, timeout, stop, calibration gates and obstacle handoff");
+    reset(); command("barcode_mode 2",0); command("line_follow",0);
+    event=1; robot_controller_step(10);
+    encoder_fault=true; motion=false; robot_controller_step(30);
+    assert(!following && starts==1 && !g_barcode_action.active);
+    assert(!strcmp(robot_controller_mode_name(),"idle"));
+    reset(); command("barcode_mode 2",0); command("line_follow",0);
+    encoder_fault=true; event=2; robot_controller_step(10);
+    assert(rights==0);
+    puts("PASS: controller barcode handoff, GP21 cancellation, timeout, encoder-fault stop without resume, calibration gates");
     return 0;
 }

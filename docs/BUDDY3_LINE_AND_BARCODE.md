@@ -39,9 +39,11 @@ for the side sensor's lateral offset. Large turns, reverse motion, coarse
 position jumps, stalled frames and recovery invalidate the read. Calibration
 must provide sufficient resolution: at least four wheel encoder edges per cell.
 
-Current hardware configuration mirrors the right encoder into the left, and
-cell width is unmeasured. Reading therefore stays disabled until those are
-resolved. Read-only mode is the default once calibration is valid.
+Main's Buddy 2 update reads independent encoders at 387 edges/revolution and
+reports encoder faults. These changes are preserved; faults invalidate reads
+and prevent automatic resume of fault-stopped barcode moves.
+Cell width is still unmeasured, so reading stays disabled until configured.
+Read-only mode is the default once calibration is valid.
 
 With barcode_mode 2 explicitly enabled, a valid read acts immediately:
 pause tracking, turn left/right 90 degrees or move straight 300 mm, then resume

@@ -20,10 +20,10 @@ front sensors have reacquired the intended line.
 
 ## Test one stage at a time
 
-1. Read docs/BARCODE_DISTANCE.md. Repair the independent left encoder,
+1. Read docs/BARCODE_DISTANCE.md. Verify both independent encoders,
    calibrate wheel travel, measure cell width and side offset, and confirm the
-   physical barcode format first. With the current mirror-right fallback and
-   unmeasured cell width, distance decoding is intentionally disabled.
+   physical barcode format first. Main's new 387-edge calibration and fault
+   reporting are preserved. An unmeasured cell width still disables decoding.
 2. Configure the measured cell width/offset while stopped. Default mode is
    observe (1). Press GP21 and verify correct decoded commands at multiple
    speeds; no barcode move is performed. Steering tests still stop after 15 s.
@@ -33,7 +33,8 @@ front sensors have reacquired the intended line.
    segment starts a fresh 15-second test window. A fresh two-cell quiet
    lead-in is required before another barcode.
 4. Test left, right and straight separately. Confirm GP21/stop can cancel each
-   action and a jam or missing completion causes a stop within 8 seconds.
+   action and a missing completion causes a stop within 8 seconds. Buddy 2's
+   encoder-fault flags also cancel a barcode move without resuming tracking.
    A rejected motion request stops the rover rather than resuming blindly.
 
 Commands (sent while stopped):
