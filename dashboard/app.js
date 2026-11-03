@@ -98,18 +98,20 @@ function refreshRobotLink() {
 function showTelemetry(data) {
   // Buddy 4 reports independently; preserve the other sensor tiles.
   if (Object.prototype.hasOwnProperty.call(data, 'hump_state')) {
-    setText('imu-health', data.imu_fault ? 'Reading unavailable' : (data.imu_calibrated ? 'Calibrated' : 'Needs calibration'));
+    const health = data.imu_fault ? 'Reading unavailable' : (data.imu_calibrated ? 'Calibrated' : 'Needs calibration');
+    setText('imu-health', `${health} · ${data.imu_interval_ms} ms`);
     setText('imu-roll', fmt(data.roll_x10 / 10));
     setText('hump-state', ['Flat', 'Climbing', 'Top', 'Descending'][data.hump_state] ?? 'Unknown');
     setText('hump-count', data.hump_seq);
-    setText('hump-peak', fmt(data.hump_peak_x10 / 10));
-    setText('hump-highest-peak', data.hump_count > 0 ? fmt(data.highest_peak_x10 / 10) : '--');
-    setText('imu-motion', MOTION_NAMES[data.motion] ?? '--');
-    setText('imu-turn-rate', fmt(data.turn_rate_x10 / 10));
+    // hump_peak_x10 also tracks climbs that never complete, so show it only
+    // during a hump; once flat, show the steepest completed hump.
+    setText('hump-peak', data.hump_state !== 0 ? `${fmt(data.hump_peak_x10 / 10)} this hump`
+      : (data.hump_seq > 0 ? `${fmt(data.highest_peak_x10 / 10)} steepest` : '--'));
+    setText('hump-height', data.height_valid ? `${data.hump_height_mm} mm last · ${data.highest_hump_mm} mm highest`
+      : (data.highest_hump_mm > 0 ? `${data.highest_hump_mm} mm highest`
+        : (data.imu_calibrated ? 'No valid estimate' : 'Not calibrated')));
+    setText('imu-motion', `${MOTION_NAMES[data.motion] ?? '--'} (${fmt(data.turn_rate_x10 / 10)}°/s)`);
     setText('imu-impacts', fmt(data.impacts));
-    setText('hump-height', data.height_valid ? `${data.hump_height_mm} mm (estimate)` : 'Not validated');
-    setText('hump-highest', data.highest_hump_mm > 0 ? `${data.highest_hump_mm} mm (estimate)` : '--');
-    setText('imu-interval', `${data.imu_interval_ms} ms`);
     return;
   }
 
