@@ -65,8 +65,8 @@ typedef struct
 
 typedef struct
 {
-    /* Sensor axes must be mounted X forward (negative X nose-up), Y left,
-     * Z up as in the original driver.  Offsets are measured, never
+    /* Rover axes, after buddy4_imu.c rotates the mounted sensor: X along
+     * the rover (negative X nose-up), Y across it, Z up.  Offsets are measured, never
      * auto-zeroed on boot because boot may occur on a slope. */
     float   accel_bias_mg[3];
     float   mag_bias[3];
