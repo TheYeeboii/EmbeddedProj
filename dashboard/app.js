@@ -102,19 +102,23 @@ function refreshRobotLink() {
 function showTelemetry(data) {
   // Buddy 4 reports independently; preserve the other sensor tiles.
   if (Object.prototype.hasOwnProperty.call(data, 'hump_state')) {
-    const health = data.imu_fault ? 'Reading unavailable' : (data.imu_calibrated ? 'Calibrated' : 'Needs calibration');
-    setText('imu-health', `${health} · ${data.imu_interval_ms} ms`);
+    if (data.imu_fault) setBadge('imu-health', 'Reading unavailable', 'destructive');
+    else if (data.imu_calibrated) setBadge('imu-health', 'Calibrated', 'success');
+    else setBadge('imu-health', 'Needs calibration', 'warning');
+    setText('imu-interval', `${data.imu_interval_ms} ms`);
     setText('imu-roll', fmt(data.roll_x10 / 10));
     setText('hump-state', ['Flat', 'Climbing', 'Top', 'Descending'][data.hump_state] ?? 'Unknown');
-    setText('hump-count', data.hump_seq);
+    setText('hump-count', `${data.hump_seq} hump${data.hump_seq === 1 ? '' : 's'} completed`);
     // hump_peak_x10 also tracks climbs that never complete, so show it only
     // during a hump; once flat, show the steepest completed hump.
-    setText('hump-peak', data.hump_state !== 0 ? `${fmt(data.hump_peak_x10 / 10)} this hump`
-      : (data.hump_seq > 0 ? `${fmt(data.highest_peak_x10 / 10)} steepest` : '--'));
-    setText('hump-height', data.height_valid ? `${data.hump_height_mm} mm last · ${data.highest_hump_mm} mm highest`
-      : (data.highest_hump_mm > 0 ? `${data.highest_hump_mm} mm highest`
-        : (data.imu_calibrated ? 'No valid estimate' : 'Not calibrated')));
-    setText('imu-motion', `${MOTION_NAMES[data.motion] ?? '--'} (${fmt(data.turn_rate_x10 / 10)}°/s)`);
+    const inHump = data.hump_state !== 0;
+    setText('hump-peak', inHump ? fmt(data.hump_peak_x10 / 10) : (data.hump_seq > 0 ? fmt(data.highest_peak_x10 / 10) : '--'));
+    setText('hump-peak-note', inHump ? 'this hump' : (data.hump_seq > 0 ? 'steepest' : 'no hump yet'));
+    setText('hump-height', data.height_valid ? fmt(data.hump_height_mm) : (data.highest_hump_mm > 0 ? fmt(data.highest_hump_mm) : '--'));
+    setText('hump-height-note', data.height_valid ? `last · highest ${data.highest_hump_mm} mm`
+      : (data.highest_hump_mm > 0 ? 'highest' : (data.imu_calibrated ? 'no valid estimate' : 'not calibrated')));
+    setText('imu-motion', MOTION_NAMES[data.motion] ?? '--');
+    setText('imu-turn-rate', fmt(data.turn_rate_x10 / 10));
     setText('imu-impacts', fmt(data.impacts));
     return;
   }
