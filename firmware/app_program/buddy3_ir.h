@@ -85,6 +85,8 @@ bool buddy3_line_following(void);
 
 // IR struct utility
 void buddy3_get_state(buddy3_ir_state_t *p_state);
+/** Print a numerical sensor snapshot when BUDDY3_DEBUG=1; call from telemetry. */
+void buddy3_print_debug(void);
 
 /** Clear the latched front-line observation used by Buddy 5's final return. */
 void buddy3_clear_line_seen_event(void);

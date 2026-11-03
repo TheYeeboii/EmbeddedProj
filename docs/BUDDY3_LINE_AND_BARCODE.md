@@ -8,6 +8,20 @@ avoidance telemetry summary. Buddy 3 `[sensor]`/`[line]` messages, controller
 events, startup information, errors and safety messages remain visible.
 MQTT publication and sensor/control tasks continue normally.
 
+Buddy 3 also prints a numerical snapshot approximately once per second from
+the telemetry task (not the steering loop):
+
+```text
+[buddy3] raw L=150 R=180 side=130 | norm L=36 R=43 side=31 | ADC L=1 R=0 side=2
+```
+
+Values above are illustrative. L/R follow the rover's configured left/right
+mapping; the ADC labels identify which sensor calibration entry to adjust.
+Keep the rover stationary with line following off to collect floor and black
+readings at the normal mounting height. Raw values are 0..4095; normalized
+values are 0..1000. A one-second snapshot is for calibration, not measurement
+of steering latency or fast barcode transitions.
+
 ```sh
 make CONSOLE=usb_cdc PICO_SDK_PATH="$PICO_SDK_PATH" BUDDY3_DEBUG=1 -j8
 ```

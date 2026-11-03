@@ -15,6 +15,7 @@
 
 #include "buddy2_motion.h"
 #include "buddy3_ir.h"
+#include "robot_debug.h"
 #include "pin_config.h"
 #include "robot_hal.h"
 
@@ -768,6 +769,24 @@ void buddy3_get_state(buddy3_ir_state_t *p_state)
         p_state->barcode_command = g_state.barcode_command;
         EI(interrupt_state);
     }
+}
+
+void buddy3_print_debug(void)
+{
+#if BUDDY3_DEBUG
+    buddy3_ir_state_t state;
+
+    /* The getter releases its interrupt lock before any console output. */
+    buddy3_get_state(&state);
+    tm_printf((UB *)"[buddy3] raw L=%u R=%u side=%u | norm L=%u R=%u side=%u | ADC L=%u R=%u side=2\n",
+              (UINT)state.raw[BUDDY3_FRONT_LEFT],
+              (UINT)state.raw[BUDDY3_FRONT_RIGHT],
+              (UINT)state.raw[2],
+              (UINT)state.normalized[BUDDY3_FRONT_LEFT],
+              (UINT)state.normalized[BUDDY3_FRONT_RIGHT],
+              (UINT)state.normalized[2],
+              (UINT)BUDDY3_FRONT_LEFT, (UINT)BUDDY3_FRONT_RIGHT);
+#endif
 }
 
 void buddy3_clear_line_seen_event(void)
