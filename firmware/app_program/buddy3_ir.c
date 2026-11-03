@@ -98,16 +98,16 @@
 /* Sensor order: front left, front right, side barcode. */
 static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 {
-    { 0u, 4095u, false },
-    { 0u, 4095u, false },
-    { 0u, 4095u, false }
+    { 2900u, 3200u, false }, // right sensor
+    { 1000u, 2000u, false }, // left sensor
+    { 2000u, 2700u, false } // side sensor
 };
 
 static line_follow_configs_t g_steering_configs =
 {
-    9.0f,
-    2.5f,
-    11469
+    9.0f, // proportional gain: 9.0f = 9000 / 1000
+    2.5f, // derivative gain: 2.5f = 2500 / 1000
+    11469 // base PWM: 11469 = 35 % duty
 };
 
 /* Internal snapshot groups each sensor's raw and normalized readings together. */
