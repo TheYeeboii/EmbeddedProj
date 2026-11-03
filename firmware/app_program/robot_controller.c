@@ -7,7 +7,8 @@
  *   - "stop" now also stops line following and any distance/turn move.
  *   - Raw drive commands stop line following (otherwise the line follower
  *     would overwrite them 10 ms later).
- *   - After a barcode action the robot resumes line following.
+ *   - Barcodes default to observe-only; execute mode acts immediately,
+ *     resumes tracking on completion, and stops on rejection/timeout.
  *
  * PWM UNITS: the dashboard still sends the old 0..65535 scale.  Since the
  * PWM fix, the motion library uses 0..32767 = 0..100 %, so dashboard values
@@ -23,6 +24,7 @@
 #include "pin_config.h"
 #include "robot_controller.h"
 #include "robot_hal.h"
+#include "robot_barcode_action.h"
 
 #define ROBOT_LEGACY_TO_PWM(v)        ((int16_t)((uint32_t)(v) / 2u))
 #define ROBOT_LEGACY_MAX              (65535)
@@ -63,6 +65,8 @@ static bool         g_drive_is_forward  = false;
 static bool         g_motion_is_forward = false;
 static bool         g_line_button_was   = false;
 static uint32_t     g_line_button_count = 0u;
+static uint8_t g_barcode_mode = ROBOT_BARCODE_DEFAULT_MODE;
+static robot_barcode_action_t g_barcode_action;
 
 /* ------------------------------------------------------------------ *
  *  Tiny text helpers (no libc)
@@ -240,6 +244,7 @@ static uint32_t robot_clamp_legacy(int32_t value)
 
 static void robot_stop_all(void)
 {
+    robot_barcode_action_cancel(&g_barcode_action);
     buddy3_stop_line_follow();
     buddy2_stop();
     g_drive_left  = 0u;
@@ -254,6 +259,7 @@ static void robot_stop_all(void)
 /* Raw motor command.  Signs: +1 forward, -1 reverse. */
 static void robot_drive(uint32_t left, uint32_t right, int32_t sign, uint32_t now_ms)
 {
+    robot_barcode_action_cancel(&g_barcode_action);
     buddy3_stop_line_follow();
     buddy2_stop();
     g_drive_left    = left;
@@ -319,6 +325,8 @@ static void robot_set_line_speed(int32_t base_pct, int32_t turn_pct)
 
 static void robot_start_line(void)
 {
+    robot_barcode_action_cancel(&g_barcode_action);
+    g_resume_line = false;
     buddy2_stop();
     g_drive_left  = 0u;
     g_drive_right = 0u;
@@ -347,6 +355,20 @@ static void robot_set_line_stage(int32_t stage)
     robot_stop_all();
     buddy3_set_test_stage((uint8_t)stage);
     tm_printf((UB *)"[cmd] line_stage %d selected; send line_follow to start\n", (INT)stage);
+}
+
+static void robot_set_barcode_mode(int32_t mode)
+{
+    if (mode < 0 || mode > 2 || g_mode != ROBOT_MODE_IDLE) {
+        tm_printf((UB *)"[barcode] stop first; mode must be 0=off, 1=observe, 2=execute\n");
+        return;
+    }
+    if (mode == 2 && (!buddy3_barcode_calibrated() || buddy3_test_stage() == 0u)) {
+        tm_printf((UB *)"[barcode] execute rejected: configure distance reader and select stage 1..3\n");
+        return;
+    }
+    g_barcode_mode = (uint8_t)mode;
+    tm_printf((UB *)"[barcode] mode=%d (0 off, 1 observe, 2 immediate actions)\n", (INT)mode);
 }
 
 static bool robot_simple_command(const char *p_name, uint32_t now_ms)
@@ -452,6 +474,11 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
+        if (robot_str_equal(name, "barcode_mode"))
+        {
+            if (robot_json_int(p_command, "mode", &amount)) robot_set_barcode_mode(amount);
+            return;
+        }
         if (robot_str_equal(name, "barcode_config"))
         {
             if (robot_json_int(p_command, "cell_mm", &left) &&
@@ -516,6 +543,11 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
+        if (robot_str_equal(name, "barcode_mode"))
+        {
+            if (robot_parse_int(p_rest, &amount, &p_rest)) robot_set_barcode_mode(amount);
+            return;
+        }
         if (robot_str_equal(name, "barcode_config"))
         {
             if (robot_parse_int(p_rest, &left, &p_rest) &&
@@ -548,40 +580,49 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
 void robot_controller_step(uint32_t now_ms)
 {
     uint8_t barcode = 0u;
+    uint8_t barcode_action;
     bool    button_now;
     bool    moving = buddy2_motion_active();
 
-    /* 1. Barcode seen while following the line: do what it says. */
-    if (buddy3_take_barcode(&barcode) && buddy3_line_following() &&
-        buddy3_test_stage() == 0u)
-    {
-        buddy3_stop_line_follow();
-        g_motion_is_forward = false;
-        if (BUDDY3_BARCODE_LEFT == barcode)
-        {
-            tm_printf((UB *)"[barcode] turn left\n");
-            (void)buddy2_turn_left(ROBOT_BARCODE_TURN_DEG, ROBOT_LEGACY_TO_PWM(ROBOT_BARCODE_PWM));
+    /* Decode does not directly own motors. Observe first; mode 2 hands off
+     * immediately, as required by the track, not at a later junction. */
+    if (buddy3_take_barcode(&barcode)) {
+        bool allowed = g_mode == ROBOT_MODE_LINE && buddy3_line_following() &&
+                       buddy3_barcode_calibrated() && buddy3_test_stage() != 0u;
+        barcode_action = robot_barcode_action_request(&g_barcode_action, barcode,
+                           g_barcode_mode, allowed, now_ms);
+        if (barcode_action == RB_OBSERVED) {
+            tm_printf((UB *)"[barcode] observed %u; movement disabled\n", (UINT)barcode);
+        } else if (barcode_action >= RB_LEFT && barcode_action <= RB_STRAIGHT) {
+            bool accepted;
+            buddy3_stop_line_follow();
+            buddy2_stop();
+            g_motion_is_forward = barcode_action == RB_STRAIGHT;
+            if (barcode_action == RB_LEFT)
+                accepted = buddy2_turn_left(ROBOT_BARCODE_TURN_DEG, ROBOT_LEGACY_TO_PWM(ROBOT_BARCODE_PWM));
+            else if (barcode_action == RB_RIGHT)
+                accepted = buddy2_turn_right(ROBOT_BARCODE_TURN_DEG, ROBOT_LEGACY_TO_PWM(ROBOT_BARCODE_PWM));
+            else
+                accepted = buddy2_move_forward(ROBOT_BARCODE_STRAIGHT_MM, ROBOT_LEGACY_TO_PWM(ROBOT_BARCODE_PWM));
+            if (!accepted) {
+                robot_stop_all();
+                tm_printf((UB *)"[barcode] motion rejected; stopped\n");
+            } else {
+                g_resume_line = true;
+                g_mode = ROBOT_MODE_MOTION;
+                moving = true;
+                tm_printf((UB *)"[barcode] executing %u immediately\n", (UINT)barcode);
+            }
         }
-        else if (BUDDY3_BARCODE_RIGHT == barcode)
-        {
-            tm_printf((UB *)"[barcode] turn right\n");
-            (void)buddy2_turn_right(ROBOT_BARCODE_TURN_DEG, ROBOT_LEGACY_TO_PWM(ROBOT_BARCODE_PWM));
-        }
-        else
-        {
-            tm_printf((UB *)"[barcode] go straight\n");
-            (void)buddy2_move_forward(ROBOT_BARCODE_STRAIGHT_MM, ROBOT_LEGACY_TO_PWM(ROBOT_BARCODE_PWM));
-            g_motion_is_forward = true;
-        }
-        g_resume_line = true;
-        g_mode        = ROBOT_MODE_MOTION;
-        moving        = true;
     }
 
-    /* 2. Barcode action finished: back to following the line. */
-    if (g_resume_line && !moving)
-    {
-        g_resume_line = false;
+    barcode_action = robot_barcode_action_poll(&g_barcode_action, moving, now_ms);
+    if (barcode_action == RB_STOP) {
+        robot_stop_all();
+        moving = false;
+        tm_printf((UB *)"[barcode] motion exceeded 8 seconds; stopped\n");
+    } else if (barcode_action == RB_RESUME && g_resume_line) {
+        tm_printf((UB *)"[barcode] motion complete; resume tracking\n");
         robot_start_line();
     }
     else if ((ROBOT_MODE_MOTION == g_mode) && !moving && !g_resume_line)
@@ -611,7 +652,7 @@ void robot_controller_step(uint32_t now_ms)
     button_now = (g_line_button_count >= ROBOT_BUTTON_DEBOUNCE_STEPS);
     if (button_now && !g_line_button_was)
     {
-        if (buddy3_line_following())
+        if (buddy3_line_following() || g_mode == ROBOT_MODE_MOTION || g_mode == ROBOT_MODE_AVOID)
         {
             robot_stop_line();
         }
@@ -654,7 +695,7 @@ bool robot_controller_obstacle_watch_enabled(void)
      * the forward-facing ultrasonic sensor reports an actual close echo, so
      * an idle rover never starts an avoidance move. */
     return ((ROBOT_MODE_DRIVE == g_mode) && g_drive_is_forward) ||
-           (ROBOT_MODE_LINE == g_mode) ||
+           ((ROBOT_MODE_LINE == g_mode) && buddy3_line_following()) ||
            ((ROBOT_MODE_MOTION == g_mode) && g_motion_is_forward);
 }
 
@@ -670,6 +711,7 @@ bool robot_controller_begin_obstacle_avoidance(void)
     g_avoid_resume_line = (ROBOT_MODE_LINE == g_mode);
 
     /* This also stops line following so it cannot overwrite a turn command. */
+    robot_barcode_action_cancel(&g_barcode_action);
     buddy3_stop_line_follow();
     buddy2_stop();
     g_drive_left  = 0u;
