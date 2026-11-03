@@ -255,10 +255,17 @@ static void app_print_status(void)
         buddy2_motion_state_t motion;
 
         buddy2_get_motion_state(&motion);
-        tm_printf((UB *)"[encoders] left GP%u = %d ticks | right GP%u = %d ticks | build %s %s\n",
+        tm_printf((UB *)"[encoders] left GP%u = %d ticks %s | right GP%u = %d ticks %s | build %s %s\n",
                   (UINT)ENCODER_LEFT_A, (INT)motion.left_ticks,
+                  motion.left_encoder_fault ? "NO TICKS!" : "ok",
                   (UINT)ENCODER_RIGHT_A, (INT)motion.right_ticks,
+                  motion.right_encoder_fault ? "NO TICKS!" : "ok",
                   __DATE__, __TIME__);
+        if (motion.left_encoder_fault || motion.right_encoder_fault)
+        {
+            tm_printf((UB *)"[encoders] FAULT: a wheel is powered but its encoder gives no ticks "
+                            "(check its wiring, or the wheel is blocked)\n");
+        }
     }
 }
 

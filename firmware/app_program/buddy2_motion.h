@@ -60,6 +60,11 @@ typedef struct
     float    left_distance_mm;
     float    right_distance_mm;
     uint32_t timestamp_ms;
+    /** true = this wheel was powered for BUDDY2_ENCODER_FAULT_MS but its
+     *  encoder gave no ticks (encoder/wiring fault, or the wheel is
+     *  blocked).  Clears by itself as soon as ticks arrive again. */
+    bool     left_encoder_fault;
+    bool     right_encoder_fault;
 } buddy2_motion_state_t;
 
 /**

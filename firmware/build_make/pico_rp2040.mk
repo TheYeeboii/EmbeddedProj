@@ -291,7 +291,7 @@ $(error BUDDY3_DEBUG must be 0 or 1)
 endif
 CFLAGS += -DBUDDY3_DEBUG=$(BUDDY3_DEBUG)
 
-PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-bulk$(WIFI_TCPBULK)-buddy3debug$(BUDDY3_DEBUG)
+PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-bulk$(WIFI_TCPBULK)-mqtt$(WIFI_MQTT)-buddy3debug$(BUDDY3_DEBUG)
 PROFILE_FILE := .build_profile
 
 ifneq ($(strip $(shell cat $(PROFILE_FILE) 2>/dev/null)),$(PROFILE_ID))
