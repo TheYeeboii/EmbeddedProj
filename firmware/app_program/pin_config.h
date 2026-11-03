@@ -38,18 +38,6 @@
 #define ENCODER_LEFT_A        (2u)   /* Grove 2: GP2 = left phase A (pin 02) */
 #define ENCODER_RIGHT_A       (17u)  /* Grove 4: GP17 = right phase A        */
 
-/* Diagnostic only - keep 0.  1 = left encoder pin pulled DOWN instead of up:
- * its GP LED then stays ON if the encoder actively drives high, OFF if it is
- * not driving at all.  Counting needs 0 (pull-up): these encoders pull
- * their output low. */
-#define ENCODER_LEFT_PULLDOWN_TEST  (0)
-
-/* Workaround (26 Oct): the left encoder gives no edges on GP2.  1 = the
- * motion code uses the RIGHT encoder's count for both wheels (signed by each
- * wheel's commanded direction), so distance moves, turns, avoidance and the
- * IMU hump check still work - but drift between the wheels is not seen.
- * Set back to 0 once the left encoder counts. */
-#define ENCODER_LEFT_MIRROR_RIGHT   (1)
 
 /* Servo for the ultrasonic scanner (Robo Pico servo port GP15) */
 #define SERVO_PWM_PIN         (15u)  /* GP15 */

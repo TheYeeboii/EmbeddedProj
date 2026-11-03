@@ -44,7 +44,9 @@
 /* Default geometry - REPLACE with measured values (BUDDY2_CALIBRATION.md). */
 #define BUDDY2_DEFAULT_WHEEL_DIAMETER_MM (65.0f)
 #define BUDDY2_DEFAULT_TRACK_WIDTH_MM    (150.0f)
-#define BUDDY2_DEFAULT_TICKS_PER_REV     (20.0f)
+/* 387 rising edges per wheel turn: measured on the left wheel (Oct).
+ * Same encoder model on both sides - re-measure the right wheel. */
+#define BUDDY2_DEFAULT_TICKS_PER_REV     (387.0f)
 #define BUDDY2_DEFAULT_PWM_DEADBAND      (0u)
 
 #define BUDDY2_MAX_SPEED_MM_S            (320.0f)
@@ -56,6 +58,13 @@
 #define BUDDY2_KI                        (0.02f)
 #define BUDDY2_KD                        (0.005f)
 #define BUDDY2_PID_INTEGRAL_LIMIT        (1000.0f)
+
+/* Encoder check: a wheel driven at >= BUDDY2_ENCODER_CHECK_MIN_PWM (API
+ * units, after trim and speed limit) that gives no tick for
+ * BUDDY2_ENCODER_FAULT_MS is flagged as faulty.  Below that PWM the wheel
+ * may legitimately not turn, so it is not checked. */
+#define BUDDY2_ENCODER_CHECK_MIN_PWM     (3000)
+#define BUDDY2_ENCODER_FAULT_MS          (800u)
 
 /* ------------------------------------------------------------------ *
  *  State
@@ -86,6 +95,12 @@ static uint8_t  g_speed_pct       = BUDDY2_SPEED_DEFAULT;
 static uint32_t g_last_update_ms = 0u;
 static int8_t   g_left_direction  = 1;
 static int8_t   g_right_direction = 1;
+/* PWM actually sent to each motor (API units), for the encoder check. */
+static int16_t  g_left_applied_pwm  = 0;
+static int16_t  g_right_applied_pwm = 0;
+/* How long each wheel has been driven without a tick. */
+static uint32_t g_left_no_tick_ms   = 0u;
+static uint32_t g_right_no_tick_ms  = 0u;
 static bool     g_initialized     = false;
 static ID       g_mutex_id        = 0;
 
@@ -224,6 +239,8 @@ static void buddy2_set_motor_pwm_locked(int16_t left_pwm, int16_t right_pwm)
         g_right_direction = (right_command < 0) ? -1 : 1;
     }
 
+    g_left_applied_pwm  = left_command;
+    g_right_applied_pwm = right_command;
     buddy2_apply_one(MOTOR_LEFT_PWM_A,  MOTOR_LEFT_PWM_B,  left_command);
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, right_command);
 }
@@ -231,27 +248,17 @@ static void buddy2_set_motor_pwm_locked(int16_t left_pwm, int16_t right_pwm)
 /* Caller must hold the mutex. */
 static void buddy2_stop_locked(void)
 {
-    g_motion.active = false;
+    g_motion.active     = false;
+    g_left_applied_pwm  = 0;
+    g_right_applied_pwm = 0;
     buddy2_apply_one(MOTOR_LEFT_PWM_A,  MOTOR_LEFT_PWM_B,  0);
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, 0);
 }
 
 static void buddy2_encoder_pin_init(uint32_t pin)
 {
-#if ENCODER_LEFT_PULLDOWN_TEST
-    /* Diagnostic only (pin_config.h): pull the left encoder pin DOWN to see
-     * whether the encoder actively drives its output. */
-    if (ENCODER_LEFT_A == pin)
-    {
-        hal_gpio_input_pulldown(pin);
-    }
-    else
-    {
-        hal_gpio_input_pullup(pin);
-    }
-#else
+    /* The encoders pull their output low, so the pin needs a pull-up. */
     hal_gpio_input_pullup(pin);
-#endif
     (void)gpio_irq_register(pin, HAL_GPIO_EDGE_RISE, buddy2_encoder_callback);
 }
 
@@ -474,6 +481,41 @@ bool buddy2_motion_active(void)
     return active;
 }
 
+/*
+ * Encoder check for one wheel.  Caller must hold the mutex.
+ * Returns true if the wheel has JUST become faulty (this call).
+ */
+static bool buddy2_check_encoder(int16_t applied_pwm, int32_t tick_delta,
+                                 uint32_t elapsed_ms, uint32_t *p_no_tick_ms,
+                                 bool *p_fault)
+{
+    int32_t magnitude = (applied_pwm < 0) ? -(int32_t)applied_pwm : (int32_t)applied_pwm;
+
+    if (0 != tick_delta)
+    {
+        *p_no_tick_ms = 0u;
+        *p_fault      = false;
+        return false;
+    }
+    if (magnitude < BUDDY2_ENCODER_CHECK_MIN_PWM)
+    {
+        /* Too little power to expect movement: restart the timer, keep the
+         * last verdict. */
+        *p_no_tick_ms = 0u;
+        return false;
+    }
+    if (*p_no_tick_ms < BUDDY2_ENCODER_FAULT_MS)
+    {
+        *p_no_tick_ms += elapsed_ms;
+        if ((*p_no_tick_ms >= BUDDY2_ENCODER_FAULT_MS) && !*p_fault)
+        {
+            *p_fault = true;
+            return true;
+        }
+    }
+    return false;
+}
+
 void buddy2_update(uint32_t now_ms)
 {
     uint32_t elapsed_ms;
@@ -497,23 +539,15 @@ void buddy2_update(uint32_t now_ms)
     dt = (float)elapsed_ms / 1000.0f;
     g_last_update_ms = now_ms;
 
-    /* 32-bit reads are atomic on the Cortex-M0+, so no interrupt lock. */
-    right_ticks = g_right_ticks;
-#if ENCODER_LEFT_MIRROR_RIGHT
-    /* Workaround (pin_config.h): left encoder dead, use the right count. */
-    left_ticks  = right_ticks;
-#else
+    /* 32-bit reads are atomic on the Cortex-M0+, so no interrupt lock.
+     * Each wheel uses its OWN encoder; a dead one is reported below. */
     left_ticks  = g_left_ticks;
-#endif
+    right_ticks = g_right_ticks;
 
     {
         int32_t left_delta   = left_ticks  - g_state.left_ticks;
         int32_t right_delta  = right_ticks - g_state.right_ticks;
-#if ENCODER_LEFT_MIRROR_RIGHT
-        float   left_mm_tick  = buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev);
-#else
         float   left_mm_tick  = buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev);
-#endif
         float   right_mm_tick = buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev);
         float   left_distance  = (float)left_delta  * left_mm_tick  * (float)g_left_direction;
         float   right_distance = (float)right_delta * right_mm_tick * (float)g_right_direction;
@@ -525,6 +559,21 @@ void buddy2_update(uint32_t now_ms)
         g_state.left_ticks         = left_ticks;
         g_state.right_ticks        = right_ticks;
         g_state.timestamp_ms       = now_ms;
+
+        {
+            bool left_new  = buddy2_check_encoder(g_left_applied_pwm, left_delta, elapsed_ms,
+                                                  &g_left_no_tick_ms, &g_state.left_encoder_fault);
+            bool right_new = buddy2_check_encoder(g_right_applied_pwm, right_delta, elapsed_ms,
+                                                  &g_right_no_tick_ms, &g_state.right_encoder_fault);
+
+            /* A distance/turn move cannot finish correctly without both
+             * encoders (its PID would drive the silent wheel flat out), so
+             * stop it.  Raw drive and line following only report it. */
+            if ((left_new || right_new) && g_motion.active)
+            {
+                buddy2_stop_locked();
+            }
+        }
     }
 
     if (g_motion.active)

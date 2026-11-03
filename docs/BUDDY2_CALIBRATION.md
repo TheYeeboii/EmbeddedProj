@@ -10,12 +10,14 @@ The current defaults are starting values only:
 |---|---:|---|
 | Wheel diameter | 65.0 mm | Measure loaded wheel diameter |
 | Track width | 150.0 mm | Measure center-to-center wheel spacing |
-| Left ticks/revolution | 20 | Count one wheel revolution |
-| Right ticks/revolution | 20 | Count one wheel revolution |
+| Left ticks/revolution | 387 (measured) | Count one wheel revolution |
+| Right ticks/revolution | 387 (assumed, same encoder) | Count one wheel revolution |
 | PWM limit | 32767 | Signed API limit; increase only if the API type is widened |
 | PWM deadband | 0 | Minimum PWM that reliably moves each wheel |
 
 The current hardware exposes one encoder channel per wheel. Direction is inferred from the commanded motor direction. Add encoder B channels for direction-independent quadrature feedback.
+
+Each wheel uses its own encoder. If a wheel is driven (PWM >= 3000) for 0.8 s without a tick, its encoder is flagged (`left_encoder_fault` / `right_encoder_fault`), the console `[encoders]` line shows `NO TICKS!`, and any active distance or turn move is stopped.
 
 ## Calibration procedure
 
