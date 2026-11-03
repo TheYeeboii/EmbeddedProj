@@ -54,6 +54,19 @@ static int16_t buddy4_le16(const uint8_t *p_bytes)
     return (int16_t)(((uint16_t)p_bytes[1] << 8) | (uint16_t)p_bytes[0]);
 }
 
+/* The LSM303 is mounted turned 90 degrees: tilting the nose moves the
+ * sensor's Y axis and tilting sideways moves X (checked by tilting the
+ * rover).  Rotate both sensors into the axes the processing expects, X
+ * along the rover (negative = nose up) and Y across it.  A rotation, not a
+ * plain swap, so the compass still turns the same way. */
+static void buddy4_to_rover_axes(int16_t axes[3])
+{
+    int16_t sensor_x = axes[0];
+
+    axes[0] = axes[1];
+    axes[1] = (int16_t)-sensor_x;
+}
+
 static bool buddy4_write_reg(uint8_t address, uint8_t reg, uint8_t value)
 {
     uint8_t buffer[2];
@@ -123,9 +136,8 @@ void buddy4_update(uint32_t now_ms)
     }
 
     /* Re-send the configuration every second, not only after a failed read:
-     * a power dip can reset the LSM303 to its sleep defaults while reads
-     * still succeed, which froze the heading at its last value.  Stats are
-     * kept. */
+     * the compass was seen stuck in its sleep default (even from boot) while
+     * reads still succeeded, which froze the heading.  Stats are kept. */
     if ((now_ms - g_config_ms) >= BUDDY4_CONFIG_MS)
     {
         g_config_ms        = now_ms;
@@ -140,6 +152,7 @@ void buddy4_update(uint32_t now_ms)
         mag[0] = buddy4_be16(&buffer[0]);
         mag[2] = buddy4_be16(&buffer[2]);
         mag[1] = buddy4_be16(&buffer[4]);
+        buddy4_to_rover_axes(mag);   /* overflow -4096 stays out of range */
     }
     else
     {
@@ -156,6 +169,7 @@ void buddy4_update(uint32_t now_ms)
             /* 12-bit left-justified, 1 mg per count at +/-2 g. */
             accel[index] = (int16_t)(buddy4_le16(&buffer[2u * index]) / 16);
         }
+        buddy4_to_rover_axes(accel);
     }
     else
     {
