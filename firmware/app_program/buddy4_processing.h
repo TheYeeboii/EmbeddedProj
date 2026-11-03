@@ -43,7 +43,7 @@ typedef struct
     int16_t  pitch_deg_x10;         /* -900..900, nose up positive       */
     int16_t  roll_deg_x10;          /* -1800..1800                       */
     int16_t  max_pitch_deg_x10;     /* largest pitch since boot          */
-    int16_t  hump_peak_deg_x10;     /* peak pitch of the last hump       */
+    int16_t  hump_peak_deg_x10;     /* peak tilt (pitch and roll) of the last hump */
     int16_t  highest_peak_deg_x10;  /* largest peak of completed humps   */
     int16_t  turn_rate_dps_x10;     /* compass yaw rate, + = heading up  */
     uint16_t hump_height_mm;
@@ -92,6 +92,9 @@ typedef struct
     float    last_distance;         /* odometry at the last good pitch    */
     float    sample_distance;       /* odometry at the previous sample    */
     float    last_pitch;
+    float    flat_pitch;            /* attitude on level ground, for humps */
+    float    flat_roll;
+    float    last_tilt;             /* total tilt at the previous reading */
     float    window_distance;       /* odometry at the speed window start */
     float    window_pivot;          /* pivot travel at the window start   */
     float    window_speed_mm_s;     /* forward speed, last full window    */
@@ -110,6 +113,7 @@ typedef struct
     uint8_t  rejected_in_row;
     bool     started;
     bool     filter_ready;
+    bool     flat_ready;
     bool     event_height_valid;
     bool     window_open;
     bool     speed_known;
