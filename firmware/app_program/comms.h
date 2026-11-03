@@ -25,7 +25,8 @@
 #define COMMS_TOPIC_DEBUG       (1u)   /* rover/debug     */
 #define COMMS_TOPIC_HEARTBEAT   (2u)   /* rover/heartbeat */
 #define COMMS_TOPIC_STATUS      (3u)   /* rover/status (retained) */
-#define COMMS_TOPIC_COUNT       (4u)
+#define COMMS_TOPIC_ACTIONS     (4u)   /* rover/actions (non-retained) */
+#define COMMS_TOPIC_COUNT       (5u)
 
 #define COMMS_PAYLOAD_MAX       (512u) /* longest outgoing JSON, incl. NUL; keep >= ROBOT_TELEMETRY_BUFFER_SIZE */
 #define COMMS_COMMAND_MAX       (128u) /* longest incoming command, incl. NUL */

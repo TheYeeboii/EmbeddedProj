@@ -7,6 +7,10 @@ telemetry over Wi-Fi (MQTT) to a browser dashboard.
 
 ## Repository layout
 
+Steering decisions now appear in the dashboard's **Steering actions** log via
+`rover/actions`. See [MQTT_ACTION_LOG.md](docs/MQTT_ACTION_LOG.md) for the event
+format, Wi-Fi build requirements and verification steps.
+
 | Folder | What it is |
 |---|---|
 | `firmware/` | The course template ([sirfonzie/mtk3smp-rp2040](https://github.com/sirfonzie/mtk3smp-rp2040)) with our robot code in `firmware/app_program/`. Everything that runs on the Pico. |
