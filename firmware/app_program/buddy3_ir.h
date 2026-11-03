@@ -82,6 +82,10 @@ void buddy3_update(uint32_t now_ms);
 void buddy3_start_line_follow(void);
 void buddy3_stop_line_follow(void);
 bool buddy3_line_following(void);
+/* 0 = original integration, 1 = micro, 2 = corner, 3 = bounded recovery.
+ * Change only while stopped. Stages 1..3 are limited to 15-second runs. */
+void buddy3_set_test_stage(uint8_t stage);
+uint8_t buddy3_test_stage(void);
 
 // IR struct utility
 void buddy3_get_state(buddy3_ir_state_t *p_state);

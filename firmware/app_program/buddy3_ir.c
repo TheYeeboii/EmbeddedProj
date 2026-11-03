@@ -18,6 +18,7 @@
 #include "robot_debug.h"
 #include "pin_config.h"
 #include "robot_hal.h"
+#include "buddy3_steering.h"
 
 #define BUDDY3_LINE_THRESHOLD       (350u)
 #define BUDDY3_JUNCTION_THRESHOLD   (800u)
@@ -105,7 +106,7 @@ static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 
 static line_follow_configs_t g_steering_configs =
 {
-    9.0f, // proportional gain: 9.0f = 9000 / 1000
+    (6.0f * (float)BUDDY2_PWM_MAX) / 100000.0f, // default: 6 percentage-point correction
     2.5f, // derivative gain: 2.5f = 2500 / 1000
     11469 // base PWM: 11469 = 35 % duty
 };
@@ -123,6 +124,11 @@ typedef struct
 
 static ir_processing_state_t g_state;
 static volatile bool     g_line_following     = false;
+static uint8_t g_test_stage = 1u;
+static buddy3_steering_t g_test_steering;
+static uint32_t g_test_started_ms;
+static bool g_test_start_pending;
+static uint8_t g_test_last_phase = 255u;
 /* Records brief front-line observations while normal following is paused for
  * Buddy 5 avoidance.  The final return phase consumes this event. */
 static volatile bool     g_line_seen_event    = false;
@@ -416,7 +422,7 @@ void buddy3_update(uint32_t now_ms)
 #if BUDDY3_SEARCH_ENABLE
         /* Forward only: during a search, black seen while the car points
          * back the way it came is the old line - ignore it and keep turning. */
-        if ((0u != side) && g_line_following &&
+        if ((g_test_stage == 0u) && (0u != side) && g_line_following &&
             (BUDDY3_SEARCH_IDLE != g_search_step) && (BUDDY3_SEARCH_GAVE_UP != g_search_step))
         {
             float offset = buddy3_encoder_angle_deg() - g_search_origin_deg;
@@ -521,6 +527,44 @@ void buddy3_update(uint32_t now_ms)
     {
         g_all_black_since_ms = 0u;
         g_reported_black     = false;
+    }
+
+    if (g_test_stage != 0u)
+    {
+        buddy3_steering_output_t output;
+        static const char *const phases[] = {
+            "straight", "micro", "corner", "seek", "align", "both-black", "stopped"
+        };
+        if (g_test_start_pending)
+        {
+            g_test_started_ms = now_ms;
+            g_test_start_pending = false;
+        }
+        if ((now_ms - g_test_started_ms) >= 15000u)
+        {
+            buddy3_stop_line_follow();
+            tm_printf((UB *)"[steer] 15-second test finished; stopped\n");
+            return;
+        }
+        output = buddy3_steering_step(&g_test_steering, g_test_stage,
+                    g_last_touch_side, now_ms, g_steering_configs.base_pwm,
+                    buddy3_clamp_pwm(g_steering_configs.proportional_gain * 1000.0f));
+        if (output.phase != g_test_last_phase)
+        {
+            tm_printf((UB *)"[steer] stage=%u %s L=%d R=%d\n",
+                      (UINT)g_test_stage, phases[output.phase],
+                      (INT)output.left, (INT)output.right);
+            g_test_last_phase = output.phase;
+        }
+        if (output.phase == B3_STOP)
+        {
+            buddy3_stop_line_follow();
+        }
+        else
+        {
+            buddy2_set_motor_pwm(output.left, output.right);
+        }
+        return;
     }
 
 #if BUDDY3_SEARCH_ENABLE
@@ -727,6 +771,9 @@ void buddy3_update(uint32_t now_ms)
 
 void buddy3_start_line_follow(void)
 {
+    buddy3_steering_reset(&g_test_steering);
+    g_test_start_pending = true;
+    g_test_last_phase = 255u;
     g_reported_lost      = false;
     g_seen_since_start   = false;
     g_start_pending      = true;
@@ -746,6 +793,19 @@ void buddy3_stop_line_follow(void)
 bool buddy3_line_following(void)
 {
     return g_line_following;
+}
+
+void buddy3_set_test_stage(uint8_t stage)
+{
+    if (!g_line_following && stage <= 3u)
+    {
+        g_test_stage = stage;
+    }
+}
+
+uint8_t buddy3_test_stage(void)
+{
+    return g_test_stage;
 }
 
 void buddy3_get_state(buddy3_ir_state_t *p_state)
