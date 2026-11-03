@@ -97,6 +97,10 @@ void buddy3_clear_line_seen_event(void);
 /** Return and clear whether either front sensor has seen black since the last clear. */
 bool buddy3_take_line_seen_event(void);
 bool buddy3_take_barcode(uint8_t *p_command);
+/* Configure only while stopped. Rejects uncalibrated/low-resolution odometry.
+ * Cell is fixed bit width, not total stripe width; lateral offset: left +. */
+bool buddy3_configure_barcode(uint16_t cell_mm, int16_t offset_left_mm);
+bool buddy3_barcode_calibrated(void);
 /** true = that sensor sees black: front-left, front-right, side (barcode). */
 void buddy3_get_colors(bool *p_left_black, bool *p_right_black, bool *p_side_black);
 

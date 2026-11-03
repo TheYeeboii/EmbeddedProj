@@ -452,6 +452,14 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
+        if (robot_str_equal(name, "barcode_config"))
+        {
+            if (robot_json_int(p_command, "cell_mm", &left) &&
+                robot_json_int(p_command, "offset_left_mm", &right) &&
+                left >= 0 && left <= 1000 && right >= -500 && right <= 500)
+                (void)buddy3_configure_barcode((uint16_t)left, (int16_t)right);
+            return;
+        }
         if (robot_str_equal(name, "line_stage"))
         {
             if (robot_json_int(p_command, "stage", &amount))
@@ -506,6 +514,14 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             {
                 robot_set_speed_limit(amount);
             }
+            return;
+        }
+        if (robot_str_equal(name, "barcode_config"))
+        {
+            if (robot_parse_int(p_rest, &left, &p_rest) &&
+                robot_parse_int(p_rest, &right, &p_rest) &&
+                left >= 0 && left <= 1000 && right >= -500 && right <= 500)
+                (void)buddy3_configure_barcode((uint16_t)left, (int16_t)right);
             return;
         }
         if (robot_str_equal(name, "line_stage"))
