@@ -20,15 +20,15 @@ on other computers (this Makefile does not handle spaces in SDK paths).
 ## Controls
 
 For stage 1, no serial commands are required: after flashing, press GP21.
-The boot defaults are stage 1, 35% base PWM and a 6 percentage-point
-correction. Press GP21 again to stop; a new press after stopping starts a
+The boot defaults are stage 1, 35% base PWM and 27 percentage-point curve
+power. Press GP21 again to stop; a new press after stopping starts a
 fresh run. The 15-second test limit still applies.
 
 In the USB serial monitor, send each command with Enter:
 
 ```text
 line_stage 1
-line_speed 35 6
+line_speed 35 27
 line_follow
 stop
 ```
@@ -52,12 +52,12 @@ until the isolated stages have been checked.
 
 ## 1. Verify mapping with wheels lifted
 
-Send line_stage 1, line_speed 35 6, then line_follow.
+Send line_stage 1, line_speed 35 27, then line_follow.
 Use black tape under one FRONT sensor at a time; covering a reflective sensor
 with a hand is not necessarily equivalent to a black track.
 
 - Physical left black/right white: [steer] micro L less than R.
-  The physical left wheel must slow down; right keeps its base speed.
+  The physical left wheel must slow down while the right wheel speeds up.
 - Physical right black/left white: mirror of the above.
 - Both white: equal wheel commands; no search even after 1 second.
 - Left-only immediately followed by both-black: keep the gentle left
@@ -76,18 +76,18 @@ when centred. Start on a short straight, then a gentle curve; repeat on thin
 and thick tape. Confirm corrections are small and symmetric without hunting.
 Change only one setting at a time.
 
-line_speed 35 6 requests base 35% and correction 6 percentage points:
-straight 35/35; left correction 29/35; right correction 35/29.
-The experimental controller only slows the inner wheel and caps correction
-at 20% of base. If it cannot turn at all, verify traction/trim before changing
-timings. Both-white cannot distinguish centred from off-track, so supervise
+line_speed 35 27 requests base 35% and curve power 27 percentage points:
+straight 35/35; left correction 8/62; right correction 62/8. The controller
+keeps both wheels moving forward and limits the inner wheel to zero if needed.
+If it cannot turn at all, verify traction/trim before changing timings.
+Both-white cannot distinguish centred from off-track, so supervise
 the short run; the 15-second cap is not a track-edge detector.
 
 Record thin/thick line width, sensor gap, base/correction and observed result.
 
 ## 3. Tight-turn escalation, without recovery
 
-Send stop, line_stage 2, line_speed 35 6, line_follow.
+Send stop, line_stage 2, line_speed 35 27, line_follow.
 First check with wheels lifted: hold left black for 300 ms.
 Expect micro then corner, with left wheel stopped and right at base.
 Mirror for right. A continuously held corner stops after 1800 ms.
@@ -99,7 +99,7 @@ This is a sustained-correction heuristic, not proof of a 90-degree corner.
 
 ## 4. Bounded recovery
 
-Send stop, line_stage 3, line_speed 35 6, line_follow.
+Send stop, line_stage 3, line_speed 35 27, line_follow.
 After a sustained correction enters corner mode and loses black, it continues
 a one-wheel turn toward that remembered side for at most 1200 ms.
 It must see black again and then both-white for 100 ms before returning to

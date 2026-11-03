@@ -1,5 +1,7 @@
 #include "buddy3_steering.h"
 
+#include <limits.h>
+
 void buddy3_steering_reset(buddy3_steering_t *s)
 {
     buddy3_steering_t empty = {0};
@@ -11,11 +13,15 @@ buddy3_steering_output_t buddy3_steering_step(buddy3_steering_t *s,
 {
     buddy3_steering_output_t out = {base, base, B3_TRACK};
     int16_t inner;
-    /* Gentle correction only slows the inner wheel; never boosts speed. */
-    int16_t delta = base / 5;
+    int16_t outer;
+
+    /* Keep both wheels moving forward, while applying the requested wheel
+       differential immediately.  The old base/5 cap meant the default
+       stage-1 controller ignored most of the configured curve power. */
     if (correction < 0) correction = 0;
-    if (correction < delta) delta = correction;
-    inner = base - delta;
+    if (correction > base) correction = base;
+    inner = base - correction;
+    outer = (correction > (INT16_MAX - base)) ? INT16_MAX : base + correction;
     if (side != s->side) { s->side = side; s->side_since = now; }
     if (s->stopped) goto stopped;
 
@@ -26,8 +32,8 @@ buddy3_steering_output_t buddy3_steering_step(buddy3_steering_t *s,
         if ((now - s->black_since) >= B3_BOTH_BLACK_MS) goto stopped;
         out.phase = B3_AMBIGUOUS;
         if (s->direction == 0u) { out.left = 0; out.right = 0; }
-        else if (s->direction == 1u) out.left = inner;
-        else out.right = inner;
+        else if (s->direction == 1u) { out.left = inner; out.right = outer; }
+        else { out.left = outer; out.right = inner; }
         return out;
     }
     s->black_pending = false;
@@ -67,10 +73,11 @@ buddy3_steering_output_t buddy3_steering_step(buddy3_steering_t *s,
             if (!s->corner_active) { s->corner_since = now; s->corner_active = true; }
             if ((now - s->corner_since) >= B3_CORNER_MAX_MS) goto stopped;
             inner = 0;
+            outer = base;
             out.phase = B3_CORNER;
         }
-        if (side == 1u) out.left = inner;
-        else out.right = inner;
+        if (side == 1u) { out.left = inner; out.right = outer; }
+        else { out.left = outer; out.right = inner; }
     } else if (s->corner_active) {
         if (stage < 3u) goto stopped;
         s->recovering = true;
