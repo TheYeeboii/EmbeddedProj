@@ -3,7 +3,8 @@ const topics = {
   heartbeat: 'rover/heartbeat',
   status: 'rover/status',
   commands: 'rover/commands',
-  debug: 'rover/debug'
+  debug: 'rover/debug',
+  actions: 'rover/actions'
 };
 
 const brokerHost = new URLSearchParams(window.location.search).get('broker') || '192.168.137.1';
@@ -33,6 +34,7 @@ const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto',
 const connection = $('#connection');
 const commandResult = $('#command-result');
 const serialLog = $('#serial-log');
+const actionLog = new window.RoverActionLog($('#action-log'), $('#steering-action'));
 
 let client = null;
 let serialPaused = false;
@@ -79,10 +81,12 @@ function markSeen() {
 
 function refreshRobotLink() {
   if (robotOffline) {
+    actionLog.unavailable();
     setBadge('robot-link', 'Offline', 'destructive');
   } else if (!lastSeen) {
     setBadge('robot-link', 'Unknown', 'muted');
   } else if (Date.now() - lastSeen > STALE_AFTER_MS) {
+    actionLog.unavailable();
     setBadge('robot-link', 'Stale', 'warning');
   } else {
     setBadge('robot-link', 'Online', 'success');
@@ -484,6 +488,7 @@ $('#line-stop-command').addEventListener('click', () => sendCommand('line_stop')
 /* ---------- serial controls ---------- */
 
 $('#clear-serial').addEventListener('click', () => {
+  actionLog.clear();
   serialLog.replaceChildren();
   const empty = document.createElement('span');
   empty.className = 'console-empty';
@@ -539,15 +544,22 @@ if (!window.mqtt) {
 
   client.on('connect', () => {
     setConnection('online', 'Connected');
-    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status]);
+    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status, topics.actions]);
   });
   client.on('reconnect', () => setConnection('pending', 'Reconnecting…'));
-  client.on('close', () => { stopHold(false); setConnection('offline', 'Disconnected'); });
+  client.on('close', () => {
+    stopHold(false);
+    actionLog.unavailable();
+    setConnection('offline', 'Disconnected');
+  });
   client.on('error', () => setConnection('offline', 'Broker error'));
   client.on('message', (topic, raw) => {
     let data;
     try { data = JSON.parse(raw.toString()); } catch { return; }
     if (topic === topics.telemetry) showTelemetry(data);
+    else if (topic === topics.actions) {
+      if (actionLog.handle(data, serialPaused)) markSeen();
+    }
     else if (topic === topics.debug) showDebug(data);
     else if (topic === topics.heartbeat) markSeen();
     else if (topic === topics.status) {

@@ -36,6 +36,7 @@
 #include "robot_debug.h"
 #include "robot_hal.h"
 #include "robot_telemetry.h"
+#include "robot_action_log.h"
 #include "usb_console_compat.h"
 
 /* ------------------------------------------------------------------ *
@@ -173,6 +174,7 @@ static void controller_task(INT stacd, void *p_exinf)
             robot_controller_handle_command(command, app_now_ms());
         }
         robot_controller_step(app_now_ms());
+        robot_action_publish(app_now_ms());
     }
 }
 

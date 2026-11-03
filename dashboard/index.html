@@ -179,6 +179,12 @@
               </button>
             </div>
           </header>
+          <div class="action-caption small">
+            <span id="action-title">Steering actions</span>
+            <span id="steering-action" class="badge" data-tone="muted">Waiting for commands…</span>
+          </div>
+          <pre id="action-log" class="console" tabindex="0" aria-labelledby="action-title"><span class="console-empty">Waiting for rover/actions…</span></pre>
+          <p class="muted small">Commanded actions, not measured heading. Pause/Clear applies to both logs.</p>
           <pre id="serial-log" class="console" tabindex="0" aria-label="Line sensor debug stream"><span class="console-empty">Waiting for rover/debug data…</span></pre>
         </section>
       </div>
@@ -322,13 +328,14 @@
     <footer class="footer muted small">
       <span>WebSocket <code id="footer-broker" translate="no">--</code></span>
       <span>Publish <code translate="no">rover/commands</code></span>
-      <span>Subscribe <code translate="no">rover/telemetry</code> <code translate="no">rover/debug</code> <code translate="no">rover/heartbeat</code> <code translate="no">rover/status</code></span>
+      <span>Subscribe <code translate="no">rover/telemetry</code> <code translate="no">rover/debug</code> <code translate="no">rover/actions</code> <code translate="no">rover/heartbeat</code> <code translate="no">rover/status</code></span>
       <span>Use <code translate="no">?broker=HOST</code> to change broker</span>
     </footer>
   </main>
 
   <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-  <script src="app.js?v=11"></script>
+  <script src="action-log.js?v=1"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>
