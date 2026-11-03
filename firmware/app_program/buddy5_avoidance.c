@@ -47,12 +47,6 @@
 #define APP_AVOID_FORWARD_MAX_CORRECTION_PWM    (2500)
 #define APP_AVOID_FORWARD_TIMEOUT_MS            (12000u)
 
-/* Temporary one-encoder distance calibration: left wheel, 387 edges/rev. */
-#define APP_AVOID_LEFT_TICKS_PER_WHEEL_REV (387.0f)
-#define APP_AVOID_WHEEL_DIAMETER_MM         (65.0f)
-#define APP_AVOID_LEFT_MM_PER_TICK \
-    ((3.14159265358979f * APP_AVOID_WHEEL_DIAMETER_MM) / \
-     APP_AVOID_LEFT_TICKS_PER_WHEEL_REV)
 
 #define APP_AVOID_RECOVER_TOLERANCE_X10    (20)
 #define APP_AVOID_RECOVER_TIMEOUT_MS        (5000u)
@@ -642,9 +636,9 @@ void buddy5_avoidance_task(INT stacd, void *p_exinf)
                                   turning_inward ? "turn-in" : "turn-out",
                                   (INT)(heading_change_x10 / 10),
                                   (INT)app_abs_heading_change_x10((int16_t)(heading_change_x10 % 10)));
-                        /* Use the working left encoder to stop after the configured distance.
+                        /* Wheel encoders stop the leg after the configured distance.
                          * Raw PWM plus heading feedback still keeps the rover straight. */
-                        tm_printf((UB *)"[avoid] %s diagonal forward %u mm (left encoder only)\n",
+                        tm_printf((UB *)"[avoid] %s diagonal forward %u mm\n",
                                   turning_inward ? "inward" : "outward",
                                   (UINT)APP_AVOID_FORWARD_DISTANCE_MM);
                         app_start_forward_leg(
@@ -676,7 +670,8 @@ void buddy5_avoidance_task(INT stacd, void *p_exinf)
                 buddy2_motion_state_t forward_motion;
                 uint32_t              front_cm;
                 float                 progress_mm;
-                int32_t               left_tick_delta;
+                float                 left_moved_mm;
+                float                 right_moved_mm;
                 int16_t               heading_error_x10;
                 int32_t               correction_pwm;
                 int16_t               left_pwm;
@@ -731,12 +726,24 @@ void buddy5_avoidance_task(INT stacd, void *p_exinf)
                 }
 
                 buddy2_get_motion_state(&forward_motion);
-                left_tick_delta = forward_motion.left_ticks - forward_start_motion.left_ticks;
-                if (left_tick_delta < 0)
+                /* Progress = average of the wheels whose encoder works
+                 * (Buddy 2 distance, already calibrated per wheel). */
+                left_moved_mm  = forward_motion.left_distance_mm  - forward_start_motion.left_distance_mm;
+                right_moved_mm = forward_motion.right_distance_mm - forward_start_motion.right_distance_mm;
+                left_moved_mm  = (left_moved_mm  < 0.0f) ? -left_moved_mm  : left_moved_mm;
+                right_moved_mm = (right_moved_mm < 0.0f) ? -right_moved_mm : right_moved_mm;
+                if (forward_motion.left_encoder_fault && !forward_motion.right_encoder_fault)
                 {
-                    left_tick_delta = -left_tick_delta;
+                    progress_mm = right_moved_mm;
                 }
-                progress_mm = (float)left_tick_delta * APP_AVOID_LEFT_MM_PER_TICK;
+                else if (forward_motion.right_encoder_fault && !forward_motion.left_encoder_fault)
+                {
+                    progress_mm = left_moved_mm;
+                }
+                else
+                {
+                    progress_mm = (left_moved_mm + right_moved_mm) * 0.5f;
+                }
                 robot_telemetry_set_avoidance_forward_progress(
                     (uint16_t)progress_mm, (uint16_t)forward_target_mm);
                 heading_error_x10 = app_heading_change_x10(forward_start_heading_x10,

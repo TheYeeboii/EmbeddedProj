@@ -55,9 +55,39 @@ telemetry over Wi-Fi (MQTT) to a browser dashboard.
 - **GP21**: start/stop line following.
 - Distance/turn moves have no dashboard control (the Motion panel was removed on 26 Oct). They run only for barcode actions and Buddy 5's obstacle avoidance.
 
-## Build and flash (Windows, using WSL)
+## Getting started (Windows laptop)
 
-**One-time setup** (Ubuntu/WSL terminal):
+What each tool is for:
+
+| Tool | Runs on | Why we need it |
+|---|---|---|
+| **Ubuntu (WSL)** | Windows, as a Linux app | Compiles the code into a `.uf2` file for the Pico. The course template builds with `make` and Linux commands, so it must run in Linux. |
+| **Pico SDK** | inside Ubuntu | Raspberry Pi's library for pins, PWM, ADC, Wi-Fi. |
+| **Mosquitto** | Windows | The MQTT broker (server). The Pico and the dashboard both talk to it. |
+| **Python** | Windows | Serves the dashboard web page. |
+| **PuTTY** (or VS Code Serial Monitor) | Windows | Shows the Pico's console (status lines, errors). |
+
+> The Raspberry Pi Pico VS Code extension's **Compile Project** button does
+> **not** work here: it only builds CMake projects, and this project uses the
+> template's makefiles. VS Code is still fine for editing, and you can open an
+> Ubuntu terminal inside it (**View → Terminal**, the **⌄** next to **+**,
+> pick **Ubuntu (WSL)**).
+
+### 1. One-time setup
+
+**a) Install Ubuntu.** "WSL" is the Windows feature; Ubuntu is the Linux you
+install inside it. In PowerShell:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Restart if asked, then open **Ubuntu** from the Start menu (not "WSL") and
+create a username and password (the password is invisible while typing).
+If a terminal shows `-sh: sudo: not found`, you are in a different Linux, not
+Ubuntu.
+
+**b) Install the compiler and download the Pico SDK.** In Ubuntu:
 
 ```sh
 sudo apt update
@@ -67,46 +97,61 @@ cd ~/pico/pico-sdk
 git submodule update --init lib/tinyusb lib/cyw43-driver lib/lwip
 ```
 
-**Wi-Fi settings:** copy `firmware/config/wifi_credentials.example.h` to
-`firmware/config/wifi_credentials.h` and fill in the hotspot name and password
-(never commit this file). The broker (laptop) IP is in `firmware/config/mqtt_config.h`.
+**c) On Windows,** install [Mosquitto](https://mosquitto.org/download/)
+(default folder), [Python](https://www.python.org/downloads/) and PuTTY.
 
-**Build** (from `firmware/build_make`):
+**d) Wi-Fi details.** Copy `firmware/config/wifi_credentials.example.h` to
+`firmware/config/wifi_credentials.h`, fill in your laptop hotspot's name and
+password, and set `UTK_WIFI_CREDENTIALS_SET` to `1`. This file is ignored by
+Git: **never commit it**.
+
+### 2. Build the `.uf2` (every time the code changes)
+
+In Ubuntu (change `<you>` to your Windows user name; `/mnt/c/` is your C: drive):
 
 ```sh
 cd "/mnt/c/Users/<you>/Desktop/Git Desktop/EmbeddedProj/firmware/build_make"
-
-# Without Wi-Fi
-make CONSOLE=usb_cdc PICO_SDK_PATH=~/pico/pico-sdk -j8
-
-# With Wi-Fi + MQTT (dashboard)
-make CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 WIFI_MQTT=1 \
-     PICO_SDK_PATH=~/pico/pico-sdk -j8
+make CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 WIFI_MQTT=1 PICO_SDK_PATH=~/pico/pico-sdk -j8
 ```
 
-The output is a `.uf2` file in `build_make/`. Hold BOOTSEL, plug in the Pico,
-and copy the file to the `RPI-RP2` drive. Always build with `CONSOLE=usb_cdc`;
-the serial console is the USB port.
+It is done when the prompt comes back with no `Error`. The result is
+`firmware/build_make/mtk3pico_smp0_usb_cdc_wifi_mqtt.uf2`.
 
-## Laptop side: MQTT broker and dashboard
+(Without Wi-Fi, for bench tests: `make CONSOLE=usb_cdc PICO_SDK_PATH=~/pico/pico-sdk -j8`,
+which gives `mtk3pico_smp0_usb_cdc.uf2`.)
 
-Start the broker (Mosquitto) from the repository root:
+### 3. Flash the Pico
 
-```powershell
-& "C:\Program Files\Mosquitto\mosquitto.exe" -c "$PWD\tools\mosquitto-local.conf" -v
-```
+Hold **BOOTSEL**, plug the Pico into USB, and drag the `.uf2` file onto the
+`RPI-RP2` drive. The Pico restarts by itself.
 
-It listens on `192.168.137.1:1883` (robot) and `192.168.137.1:9001`
-(WebSockets, dashboard). It allows anonymous access, so use it only on the
-private hotspot.
+### 4. Start the laptop side (Windows)
 
-Start the dashboard in another terminal and open <http://localhost:8000>:
+1. **Hotspot:** Settings → Network → Mobile hotspot. Set the band to
+   **2.4 GHz** (the Pico W cannot use 5 GHz) and turn it on. The laptop is
+   then `192.168.137.1`, which the firmware and dashboard expect (broker IP
+   is in `firmware/config/mqtt_config.h`).
+2. **Broker:** PowerShell in the `EmbeddedProj` folder:
+   ```powershell
+   & "C:\Program Files\Mosquitto\mosquitto.exe" -c "$PWD\tools\mosquitto-local.conf" -v
+   ```
+   Click **Allow** if the firewall asks. If it cannot use the address, the
+   hotspot is not on yet. It allows anyone on the hotspot to connect, so use
+   it only on your own private hotspot.
+3. **Dashboard:** a second PowerShell in the same folder:
+   ```powershell
+   python -m http.server 8000 --directory dashboard
+   ```
+   Open <http://localhost:8000>. The laptop needs internet (the page loads
+   two scripts online). For a different broker:
+   `http://localhost:8000/?broker=HOST_OR_IP`.
 
-```powershell
-python -m http.server 8000 --directory dashboard
-```
+### 5. Check it works
 
-To use a different broker, open `http://localhost:8000/?broker=HOST_OR_IP`.
+- **Console:** PuTTY → Serial, the Pico's COM port (Device Manager → Ports),
+  speed 115200. You should see Wi-Fi join, then MQTT connect.
+- **Mosquitto window:** a client `buddy1` connects.
+- **Dashboard:** shows online and the numbers update.
 
 ### MQTT topics
 
