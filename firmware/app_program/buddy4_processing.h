@@ -95,6 +95,7 @@ typedef struct
     float    flat_pitch;            /* attitude on level ground, for humps */
     float    flat_roll;
     float    last_tilt;             /* total tilt at the previous reading */
+    float    peak_roll;             /* largest roll change in this hump   */
     float    window_distance;       /* odometry at the speed window start */
     float    window_pivot;          /* pivot travel at the window start   */
     float    window_speed_mm_s;     /* forward speed, last full window    */

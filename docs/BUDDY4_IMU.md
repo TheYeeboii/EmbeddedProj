@@ -147,11 +147,16 @@ samples, or absent calibration invalidate the event's height. Buddy 2 signs
 distance from commanded direction; wheel slip, coasting, external pushes,
 wheelbase/chassis geometry and filter lag still affect accuracy. Starting the
 integration at the entry threshold can underestimate a gradual approach.
-This estimator assumes both wheels climb the hump. For the one-wheel track
-hump it is not valid: the body pitches slightly nose-down while one wheel
-rises. A one-wheel height would come from the roll instead, roughly
-`track_width * sin(droll)` (150 mm * sin(5.4 deg), about 14 mm, on the
-measured hump); that is not implemented yet.
+This estimator assumes both wheels climb the hump and needs calibration.
+
+For the one-wheel track hump the raised wheel lifts its side of the rover, so
+the height comes from the largest roll change during the hump:
+`height = track_width * sin(droll)`, with Buddy 2's 150 mm track width. On the
+measured hump that is 150 mm * sin(5.4 deg), about 14 mm. It needs no odometry
+and no zero offsets (the flat attitude is the reference), so it is valid
+without calibration. It is used whenever the two-wheel estimate is not valid
+and the roll changed by at least 1 degree. A jolt or the rover tipping while
+stuck on the hump raises the peak roll and so overstates the height.
 
 ## Motion events, impacts and turn rate
 
@@ -250,7 +255,7 @@ width in `imu_packed`.
 | Measurement (arm-none-eabi-gcc, Cortex-M0+) | Before | After |
 |---|---:|---|
 | `buddy4_imu_state_t` (copied on every `buddy4_get_state()`) | 60 bytes | 36 bytes |
-| `buddy4_processor_t` (IMU task only) | 168 bytes | 196 bytes (speed/turn windows, flat attitude for humps) |
+| `buddy4_processor_t` (IMU task only) | 168 bytes | 200 bytes (speed/turn windows, flat attitude and peak roll for humps) |
 | Wi-Fi build `.bss` (whole firmware) | 49 980 bytes | 49 972 bytes |
 | USB build `.text` (whole firmware) | 63 244 bytes | 64 292 bytes (new features) |
 | Buddy 4 packet | 9 bytes | 9 bytes (motion class uses the 3 spare bits) |
