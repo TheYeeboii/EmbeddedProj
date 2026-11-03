@@ -29,6 +29,7 @@
 #include "gpio_irq.h"
 #include "pin_config.h"
 #include "robot_hal.h"
+#include "robot_action_log.h"
 
 /* ------------------------------------------------------------------ *
  *  Tunables
@@ -253,6 +254,8 @@ static void buddy2_stop_locked(void)
     g_right_applied_pwm = 0;
     buddy2_apply_one(MOTOR_LEFT_PWM_A,  MOTOR_LEFT_PWM_B,  0);
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, 0);
+    robot_action_record(ROBOT_ACTION_NONE, ROBOT_ACTION_STOP, 0, 0,
+                        (uint32_t)(hal_time_us() / 1000u));
 }
 
 static void buddy2_encoder_pin_init(uint32_t pin)
@@ -316,6 +319,11 @@ void buddy2_set_motor_pwm(int16_t left_pwm, int16_t right_pwm)
     buddy2_set_motor_pwm_locked(
         (int16_t)(((int32_t)left_pwm  * (int32_t)g_left_trim_pct  * (int32_t)g_speed_pct) / 10000),
         (int16_t)(((int32_t)right_pwm * (int32_t)g_right_trim_pct * (int32_t)g_speed_pct) / 10000));
+    /* Observe requested steering before trim; trim alone is not a turn.
+     * Logging only queues transitions and never publishes while locked. */
+    robot_action_record(robot_action_direction_for_pwm(left_pwm, right_pwm),
+                        ROBOT_ACTION_PWM, left_pwm, right_pwm,
+                        (uint32_t)(hal_time_us() / 1000u));
     buddy2_unlock();
 }
 
@@ -438,6 +446,13 @@ static bool buddy2_start_motion(float left_distance_mm,
     buddy2_set_motor_pwm_locked(
         (int16_t)(g_motion.left_direction  * g_motion.max_pwm),
         (int16_t)(g_motion.right_direction * g_motion.max_pwm));
+    /* Record the planned direction, not straight-move PID adjustments. */
+    robot_action_record(left_distance_mm < right_distance_mm ? ROBOT_ACTION_LEFT :
+                        (left_distance_mm > right_distance_mm ? ROBOT_ACTION_RIGHT : ROBOT_ACTION_NONE),
+                        ROBOT_ACTION_MOTION,
+                        (int16_t)(g_motion.left_direction * max_pwm),
+                        (int16_t)(g_motion.right_direction * max_pwm),
+                        (uint32_t)(hal_time_us() / 1000u));
     buddy2_unlock();
 
     return true;

@@ -230,6 +230,11 @@ code, kbd, pre { font-family: var(--font-mono); }
 .console .t { color: var(--muted-foreground); }
 .console .k { color: var(--muted-foreground); }
 .console .y { color: var(--accent); }
+.action-caption { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+#action-log { height: 140px; min-height: 70px; flex: 0 1 140px; margin-bottom: 6px; }
+.console-action[data-action="turn_left"],
+.console-action[data-action="turn_right"] { color: var(--accent); }
+.console-action[data-action="gap"] { color: var(--warning); }
 
 /* Buttons */
 .btn {
