@@ -20,6 +20,7 @@
 #include "robot_hal.h"
 #include "buddy3_steering.h"
 #include "buddy3_barcode.h"
+#include "buddy3_junction.h"
 
 #define BUDDY3_LINE_THRESHOLD       (350u)
 #define BUDDY3_JUNCTION_THRESHOLD   (800u)
@@ -126,6 +127,8 @@ static ir_processing_state_t g_state;
 static volatile bool     g_line_following     = false;
 static uint8_t g_test_stage = 1u;
 static buddy3_steering_t g_test_steering;
+static buddy3_junction_t g_junction;
+static uint8_t g_junction_last_phase = B3J_IDLE;
 static uint8_t g_test_last_phase = 255u;
 /* Records brief front-line observations while normal following is paused for
  * Buddy 5 avoidance.  The final return phase consumes this event. */
@@ -238,7 +241,8 @@ static void buddy3_decode_barcode(uint16_t sensor_value, uint32_t now_ms)
     float dl, dr, travel, yaw;
     uint8_t command;
     UINT interrupt_state;
-    bool permitted = g_line_following && g_barcode_calibrated &&
+    bool permitted = g_line_following && !buddy3_junction_active(&g_junction) &&
+                     g_barcode_calibrated &&
                      (g_test_last_phase == B3_TRACK || g_test_last_phase == B3_MICRO);
     buddy2_get_motion_state(&motion);
     buddy2_get_calibration(&geometry);
@@ -379,9 +383,10 @@ void buddy3_update(uint32_t now_ms)
         int32_t left  = (int32_t)next.sensors[BUDDY3_FRONT_LEFT].normalized;
         int32_t right = (int32_t)next.sensors[BUDDY3_FRONT_RIGHT].normalized;
 
-        next.line_seen     = (left >= BUDDY3_EDGE_THRESHOLD) || (right >= BUDDY3_EDGE_THRESHOLD);
-        next.junction_seen = (left >= BUDDY3_JUNCTION_THRESHOLD) &&
-                             (right >= BUDDY3_JUNCTION_THRESHOLD);
+        next.line_seen     = (left >= (int32_t)BUDDY3_EDGE_THRESHOLD) ||
+                             (right >= (int32_t)BUDDY3_EDGE_THRESHOLD);
+        next.junction_seen = (left >= (int32_t)BUDDY3_JUNCTION_THRESHOLD) &&
+                             (right >= (int32_t)BUDDY3_JUNCTION_THRESHOLD);
         /* Both black = a crossing line (or the car was lifted): go straight. */
         next.line_position = next.junction_seen ? 0 : (int16_t)(right - left);
         g_previous_position = next.line_position;
@@ -464,9 +469,11 @@ void buddy3_update(uint32_t now_ms)
         if (side != g_last_touch_side)
         {
             static const char *const color[] = { "white", "BLACK" };
-            static const char *const steer[] = { "straight", "steer LEFT", "steer RIGHT", "straight (crossing / start box)" };
+            static const char *const steer[] = { "straight", "steer LEFT", "steer RIGHT", "both black (junction check)" };
             const char *p_left  = color[side & 1u];
             const char *p_right = color[(side >> 1) & 1u];
+            const char *decision = buddy3_junction_active(&g_junction) ?
+                                   "junction straight (branch ignored)" : steer[side];
 
             if (g_line_following)
             {
@@ -474,7 +481,7 @@ void buddy3_update(uint32_t now_ms)
                  * Compare with what it really did to check the wiring. */
                 tm_printf((UB *)"[line] %u.%02u s   front L=%s R=%s   -> %s\n",
                           (UINT)(now_ms / 1000u), (UINT)((now_ms % 1000u) / 10u),
-                          p_left, p_right, steer[side]);
+                          p_left, p_right, decision);
             }
             else
             {
@@ -543,10 +550,38 @@ void buddy3_update(uint32_t now_ms)
 
     if (g_test_stage != 0u)
     {
+        buddy2_motion_state_t motion = {0};
+        buddy3_junction_output_t junction;
+        bool was_crossing = buddy3_junction_active(&g_junction);
+        bool entry_allowed = !g_test_steering.corner_active &&
+                             !g_test_steering.recovering && !g_test_steering.stopped;
         buddy3_steering_output_t output;
         static const char *const phases[] = {
             "straight", "micro", "corner", "seek", "align", "both-black", "stopped"
         };
+        buddy2_get_motion_state(&motion);
+        junction = buddy3_junction_step(&g_junction, g_last_touch_side, now_ms,
+                        motion.left_distance_mm, motion.right_distance_mm,
+                        !motion.left_encoder_fault && !motion.right_encoder_fault,
+                        entry_allowed, g_steering_configs.base_pwm);
+        if (junction.phase != g_junction_last_phase) {
+            static const char *const names[] = {"idle", "confirm", "straight", "cleared", "stopped"};
+            tm_printf((UB *)"[junction] %s L=%d R=%d\n",
+                      names[junction.phase], (INT)junction.left, (INT)junction.right);
+            g_junction_last_phase = junction.phase;
+        }
+        if (junction.handled) {
+            /* Discard the old correction: do not turn toward a side branch. */
+            buddy3_steering_reset(&g_test_steering);
+            g_test_last_phase = 255u;
+            if (junction.stopped) buddy3_stop_line_follow();
+            else buddy2_set_motor_pwm(junction.left, junction.right);
+            return;
+        }
+        if (was_crossing) {
+            buddy3_steering_reset(&g_test_steering);
+            g_test_last_phase = 255u;
+        }
         output = buddy3_steering_step(&g_test_steering, g_test_stage,
                     g_last_touch_side, now_ms, g_steering_configs.base_pwm,
                     buddy3_clamp_pwm(g_steering_configs.proportional_gain * 1000.0f));
@@ -772,6 +807,8 @@ void buddy3_update(uint32_t now_ms)
 
 void buddy3_start_line_follow(void)
 {
+    buddy3_junction_reset(&g_junction);
+    g_junction_last_phase = B3J_IDLE;
     buddy3_barcode_reset(&g_barcode_decoder);
     g_barcode_odometry_valid = false;
     g_barcode_ready = false;
@@ -791,6 +828,7 @@ void buddy3_start_line_follow(void)
 void buddy3_stop_line_follow(void)
 {
     g_line_following = false;
+    buddy3_junction_reset(&g_junction);
     buddy3_barcode_reset(&g_barcode_decoder);
     g_barcode_ready = false;
     g_state.barcode_ready = false;
