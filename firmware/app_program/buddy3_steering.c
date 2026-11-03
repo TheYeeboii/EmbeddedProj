@@ -11,8 +11,9 @@ buddy3_steering_output_t buddy3_steering_step(buddy3_steering_t *s,
 {
     buddy3_steering_output_t out = {base, base, B3_TRACK};
     int16_t inner;
-    /* Gentle correction only slows the inner wheel; never boosts speed. */
-    int16_t delta = base / 5;
+    /* Use the requested differential. Cap at base so the inner wheel can
+     * stop for a tight correction but never reverses or boosts outer speed. */
+    int16_t delta = base;
     if (correction < 0) correction = 0;
     if (correction < delta) delta = correction;
     inner = base - delta;

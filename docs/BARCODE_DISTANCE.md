@@ -72,7 +72,7 @@ Each decode logs [barcode] decoded command=N (distance frame). During the
 isolated steering tests, decoded route actions stay disabled until explicitly
 enabled in the movement integration. Keep the side sensor over the barcode
 strip, and test every command separately at two steady speeds, then with
-gentle corrections. The 15-second steering test limit still applies.
+gentle corrections. GP21/stop ends the run; steering fault stops remain active.
 
 ## Host regression test
 

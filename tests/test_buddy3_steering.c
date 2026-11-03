@@ -41,6 +41,22 @@ int main(void) {
     buddy3_steering_reset(&s);
     step(&s,2,1,UINT32_MAX-100);
     o=step(&s,2,1,199); assert(o.phase==B3_CORNER);
-    puts("PASS: mirrored micro steering, no white timeout, ambiguous black stop, corner escalation, recovery alignment, deadlines, timer wrap");
+    /* Requested stronger correction must not hit the old 20%-of-base cap. */
+    buddy3_steering_reset(&s);
+    o=buddy3_steering_step(&s,1,1,0,12000,4800);
+    assert(o.left==7200 && o.right==12000);
+    buddy3_steering_reset(&s);
+    o=buddy3_steering_step(&s,1,2,0,12000,4800);
+    assert(o.right==7200 && o.left==12000);
+    /* Saturation stops the inner wheel without reverse or outer boost. */
+    buddy3_steering_reset(&s);
+    o=buddy3_steering_step(&s,1,1,0,12000,20000);
+    assert(o.left==0 && o.right==12000);
+    buddy3_steering_reset(&s);
+    o=buddy3_steering_step(&s,1,1,0,12000,-2000);
+    assert(o.left==12000 && o.right==12000);
+    o=step(&s,1,0,16000); assert(o.phase==B3_TRACK);
+    o=step(&s,1,0,120000); assert(o.phase==B3_TRACK);
+    puts("PASS: stronger symmetric correction, nonnegative clamp, continuous tracking, corner/recovery/ambiguous stops, timer wrap");
     return 0;
 }

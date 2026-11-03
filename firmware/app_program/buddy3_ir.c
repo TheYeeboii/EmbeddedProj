@@ -93,10 +93,9 @@
  * never runs backwards, so a correction curves instead of pivoting. */
 #define BUDDY3_INNER_MIN_PWM        (0)
 
-/* Units: 32767 = 100 % motor duty.  Base 11469 is 35 % duty - on the
- * car, much less than ~35 % does not overcome friction (the old CMake value
- * was only ~18 %).  Steering gains: a full-scale line offset (1000) gives a
- * 9000 difference between the wheels. */
+/* API PWM: 32767 = full duty before Buddy 2's global speed limit and trim.
+ * Default base is 35%; a one-sided detection requests 14 percentage points
+ * less on the inner wheel. Physical traction must be checked on the car. */
 /* Sensor order: front left, front right, side barcode. */
 static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 {
@@ -107,7 +106,7 @@ static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] =
 
 static line_follow_configs_t g_steering_configs =
 {
-    (6.0f * (float)BUDDY2_PWM_MAX) / 100000.0f, // default: 6 percentage-point correction
+    (14.0f * (float)BUDDY2_PWM_MAX) / 100000.0f, // default: 14 percentage-point correction
     2.5f, // derivative gain: 2.5f = 2500 / 1000
     11469 // base PWM: 11469 = 35 % duty
 };
@@ -127,8 +126,6 @@ static ir_processing_state_t g_state;
 static volatile bool     g_line_following     = false;
 static uint8_t g_test_stage = 1u;
 static buddy3_steering_t g_test_steering;
-static uint32_t g_test_started_ms;
-static bool g_test_start_pending;
 static uint8_t g_test_last_phase = 255u;
 /* Records brief front-line observations while normal following is paused for
  * Buddy 5 avoidance.  The final return phase consumes this event. */
@@ -550,17 +547,6 @@ void buddy3_update(uint32_t now_ms)
         static const char *const phases[] = {
             "straight", "micro", "corner", "seek", "align", "both-black", "stopped"
         };
-        if (g_test_start_pending)
-        {
-            g_test_started_ms = now_ms;
-            g_test_start_pending = false;
-        }
-        if ((now_ms - g_test_started_ms) >= 15000u)
-        {
-            buddy3_stop_line_follow();
-            tm_printf((UB *)"[steer] 15-second test finished; stopped\n");
-            return;
-        }
         output = buddy3_steering_step(&g_test_steering, g_test_stage,
                     g_last_touch_side, now_ms, g_steering_configs.base_pwm,
                     buddy3_clamp_pwm(g_steering_configs.proportional_gain * 1000.0f));
@@ -791,7 +777,6 @@ void buddy3_start_line_follow(void)
     g_barcode_ready = false;
     g_state.barcode_ready = false;
     buddy3_steering_reset(&g_test_steering);
-    g_test_start_pending = true;
     g_test_last_phase = 255u;
     g_reported_lost      = false;
     g_seen_since_start   = false;
