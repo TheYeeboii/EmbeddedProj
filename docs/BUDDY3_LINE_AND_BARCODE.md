@@ -8,8 +8,10 @@ Use [STEERING_TESTS.md](STEERING_TESTS.md) for staged bench/track tests.
 Sensor ADC mapping remains left=1, right=0, barcode=2; verify physical wiring.
 
 Both front sensors normally see white when straddling the line. Stages 1..3
-do not automatically spin after a white timeout. Both-black is ambiguous:
-the previous correction is held briefly, then stops after 150 ms.
+do not automatically spin after a white timeout. During ordinary tracking,
+persistent both-black now commits to bounded, encoder-guided straight crossing.
+See [CROSS_JUNCTIONS.md](CROSS_JUNCTIONS.md) for exit checks and limits.
+Cross versus T-junction classification remains ambiguous with two sensors.
 Stage 0 selects the old steering algorithm, not the new reader integration.
 
 ## Sensor calibration and logging
