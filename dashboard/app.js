@@ -108,15 +108,15 @@ function showTelemetry(data) {
     setText('imu-interval', `${data.imu_interval_ms} ms`);
     setText('imu-roll', fmt(data.roll_x10 / 10));
     setText('hump-state', ['Flat', 'Climbing', 'Top', 'Descending'][data.hump_state] ?? 'Unknown');
-    setText('hump-count', `${data.hump_seq} hump${data.hump_seq === 1 ? '' : 's'} completed`);
+    setText('hump-count', `${data.hump_seq} hump${data.hump_seq === 1 ? '' : 's'}`);
     // hump_peak_x10 also tracks climbs that never complete, so show it only
     // during a hump; once flat, show the steepest completed hump.
     const inHump = data.hump_state !== 0;
     setText('hump-peak', inHump ? fmt(data.hump_peak_x10 / 10) : (data.hump_seq > 0 ? fmt(data.highest_peak_x10 / 10) : '--'));
-    setText('hump-peak-note', inHump ? 'this hump' : (data.hump_seq > 0 ? 'steepest' : 'no hump yet'));
+    setText('hump-peak-note', inHump ? 'this hump' : (data.hump_seq > 0 ? 'steepest' : 'none yet'));
     setText('hump-height', data.height_valid ? fmt(data.hump_height_mm) : (data.highest_hump_mm > 0 ? fmt(data.highest_hump_mm) : '--'));
-    setText('hump-height-note', data.height_valid ? `last · highest ${data.highest_hump_mm} mm`
-      : (data.highest_hump_mm > 0 ? 'highest' : (data.imu_calibrated ? 'no valid estimate' : 'not calibrated')));
+    setText('hump-height-note', data.height_valid ? `max ${data.highest_hump_mm}`
+      : (data.highest_hump_mm > 0 ? 'highest' : 'none yet'));
     setText('imu-motion', MOTION_NAMES[data.motion] ?? '--');
     setText('imu-turn-rate', fmt(data.turn_rate_x10 / 10));
     setText('imu-impacts', fmt(data.impacts));
@@ -134,7 +134,6 @@ function showTelemetry(data) {
   setText('distance', fmt(data.distance_cm));
   setText('heading', fmt(data.heading_deg));
   setText('pitch', fmt(data.pitch_deg));
-  setText('max-pitch', fmt(data.max_pitch_deg));
   setText('left-ticks', fmt(data.left_ticks));
   setText('right-ticks', fmt(data.right_ticks));
   setText('motor-left', fmt(data.motor_left));
