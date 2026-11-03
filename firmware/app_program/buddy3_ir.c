@@ -39,8 +39,8 @@
  */
 #define BUDDY3_LINE_BETWEEN_SENSORS (1)
 /* Confirmed 30 Sep with a hand test: ADC0 = left sensor, ADC1 = center. */
-#define BUDDY3_FRONT_LEFT           (0u)   /* ADC index of the left-front sensor  */
-#define BUDDY3_FRONT_RIGHT          (1u)   /* ADC index of the right-front sensor */
+#define BUDDY3_FRONT_RIGHT           (0u)   /* ADC index of the right-front sensor (from CAR's POV) */
+#define BUDDY3_FRONT_LEFT          (1u)   /* ADC index of the left-front sensor (from CAR's POV) */
 /* All three sensors on black for this long = the car was lifted or put on
  * a dark surface (the side sensor is normally on white): stop. */
 #define BUDDY3_ALL_BLACK_STOP_MS    (3000u)   /* > time to drive off the black start box */
