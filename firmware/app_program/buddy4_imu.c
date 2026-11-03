@@ -33,7 +33,7 @@
 #define LSM303_ACC_OUT_X_L          (0x28u)
 #define LSM303_AUTO_INCREMENT       (0x80u)   /* multi-byte read              */
 
-#define BUDDY4_RETRY_MS             (1000u)
+#define BUDDY4_CONFIG_MS            (1000u)
 #define BUDDY4_REPORT_MS            (1000u)
 
 static buddy4_imu_state_t   g_state;
@@ -42,7 +42,7 @@ static buddy4_calibration_t g_pending_cal;
 static bool                 g_cal_pending      = false;
 static bool                 g_mag_configured   = false;
 static bool                 g_accel_configured = false;
-static uint32_t             g_retry_ms         = 0u;
+static uint32_t             g_config_ms        = 0u;
 
 static int16_t buddy4_be16(const uint8_t *p_bytes)
 {
@@ -52,6 +52,19 @@ static int16_t buddy4_be16(const uint8_t *p_bytes)
 static int16_t buddy4_le16(const uint8_t *p_bytes)
 {
     return (int16_t)(((uint16_t)p_bytes[1] << 8) | (uint16_t)p_bytes[0]);
+}
+
+/* The LSM303 is mounted turned 90 degrees: tilting the nose moves the
+ * sensor's Y axis and tilting sideways moves X (checked by tilting the
+ * rover).  Rotate both sensors into the axes the processing expects, X
+ * along the rover (negative = nose up) and Y across it.  A rotation, not a
+ * plain swap, so the compass still turns the same way. */
+static void buddy4_to_rover_axes(int16_t axes[3])
+{
+    int16_t sensor_x = axes[0];
+
+    axes[0] = axes[1];
+    axes[1] = (int16_t)-sensor_x;
 }
 
 static bool buddy4_write_reg(uint8_t address, uint8_t reg, uint8_t value)
@@ -122,10 +135,12 @@ void buddy4_update(uint32_t now_ms)
         buddy4_processor_init(&g_processor, &cal);
     }
 
-    /* Retry configuration after a disconnected sensor, without resetting stats. */
-    if ((!g_mag_configured || !g_accel_configured) && ((now_ms - g_retry_ms) >= BUDDY4_RETRY_MS))
+    /* Re-send the configuration every second, not only after a failed read:
+     * the compass was seen stuck in its sleep default (even from boot) while
+     * reads still succeeded, which froze the heading.  Stats are kept. */
+    if ((now_ms - g_config_ms) >= BUDDY4_CONFIG_MS)
     {
-        g_retry_ms         = now_ms;
+        g_config_ms        = now_ms;
         g_mag_configured   = buddy4_configure_mag();
         g_accel_configured = buddy4_configure_accel();
     }
@@ -137,6 +152,7 @@ void buddy4_update(uint32_t now_ms)
         mag[0] = buddy4_be16(&buffer[0]);
         mag[2] = buddy4_be16(&buffer[2]);
         mag[1] = buddy4_be16(&buffer[4]);
+        buddy4_to_rover_axes(mag);   /* overflow -4096 stays out of range */
     }
     else
     {
@@ -153,6 +169,7 @@ void buddy4_update(uint32_t now_ms)
             /* 12-bit left-justified, 1 mg per count at +/-2 g. */
             accel[index] = (int16_t)(buddy4_le16(&buffer[2u * index]) / 16);
         }
+        buddy4_to_rover_axes(accel);
     }
     else
     {
