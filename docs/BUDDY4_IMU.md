@@ -5,7 +5,7 @@ Software tests and both firmware builds pass; this is not a claim of completed p
 ## What changed
 
 - `buddy4_imu.c/.h`: LSM303 I2C driver, accelerometer block-data-update enabled
-  (`CTRL_REG4_A = 0x88`), configuration retry after disconnect, queued calibration,
+  (`CTRL_REG4_A = 0x88`), configuration re-sent every second, queued calibration,
   independent IMU task, freshness checks and telemetry.
 - `buddy4_processing.c/.h`: portable processing, calibration offsets/scales,
   median-of-three plus time-aware low-pass tilt filtering, hump lifecycle,
@@ -53,8 +53,14 @@ timestamps cancel an unfinished hump. Up to four implausible accelerometer
 samples in a row (a jolt at the hump edge, motor vibration) are skipped: the
 filter, the hump state and the travel since the last good sample are kept. A
 fifth one in a row (about the 250 ms staleness limit) resets the filter and
-cancels the hump. Before this change one jolt cancelled the hump. Configuration
-is retried every second after an I2C failure.
+cancels the hump. Before this change one jolt cancelled the hump.
+
+Both sensors' configuration is re-sent every second, not only after an I2C
+failure. A power dip (for example when the motors start) can reset the LSM303
+to its sleep defaults while I2C reads still succeed: the compass then returns
+the same value forever and the heading froze, with no fault shown, until the
+Pico was reset. Re-sending costs four short register writes per second and
+brings a reset sensor back within a second.
 
 `mag_ok` / `accel_ok` now mean usable readings under these checks, not just ACKs.
 `imu_fault` is their combined failure flag. Buddy 5 still uses compass validity

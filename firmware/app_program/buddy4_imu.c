@@ -33,7 +33,7 @@
 #define LSM303_ACC_OUT_X_L          (0x28u)
 #define LSM303_AUTO_INCREMENT       (0x80u)   /* multi-byte read              */
 
-#define BUDDY4_RETRY_MS             (1000u)
+#define BUDDY4_CONFIG_MS            (1000u)
 #define BUDDY4_REPORT_MS            (1000u)
 
 static buddy4_imu_state_t   g_state;
@@ -42,7 +42,7 @@ static buddy4_calibration_t g_pending_cal;
 static bool                 g_cal_pending      = false;
 static bool                 g_mag_configured   = false;
 static bool                 g_accel_configured = false;
-static uint32_t             g_retry_ms         = 0u;
+static uint32_t             g_config_ms        = 0u;
 
 static int16_t buddy4_be16(const uint8_t *p_bytes)
 {
@@ -122,10 +122,13 @@ void buddy4_update(uint32_t now_ms)
         buddy4_processor_init(&g_processor, &cal);
     }
 
-    /* Retry configuration after a disconnected sensor, without resetting stats. */
-    if ((!g_mag_configured || !g_accel_configured) && ((now_ms - g_retry_ms) >= BUDDY4_RETRY_MS))
+    /* Re-send the configuration every second, not only after a failed read:
+     * a power dip can reset the LSM303 to its sleep defaults while reads
+     * still succeed, which froze the heading at its last value.  Stats are
+     * kept. */
+    if ((now_ms - g_config_ms) >= BUDDY4_CONFIG_MS)
     {
-        g_retry_ms         = now_ms;
+        g_config_ms        = now_ms;
         g_mag_configured   = buddy4_configure_mag();
         g_accel_configured = buddy4_configure_accel();
     }
