@@ -337,6 +337,18 @@ static void robot_stop_line(void)
 }
 
 /* Commands shared by the JSON and plain-text forms. */
+static void robot_set_line_stage(int32_t stage)
+{
+    if (stage < 0 || stage > 3)
+    {
+        tm_printf((UB *)"[cmd] line_stage must be 0..3\n");
+        return;
+    }
+    robot_stop_all();
+    buddy3_set_test_stage((uint8_t)stage);
+    tm_printf((UB *)"[cmd] line_stage %d selected; send line_follow to start\n", (INT)stage);
+}
+
 static bool robot_simple_command(const char *p_name, uint32_t now_ms)
 {
     if (robot_str_equal(p_name, "stop"))
@@ -440,6 +452,14 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
+        if (robot_str_equal(name, "line_stage"))
+        {
+            if (robot_json_int(p_command, "stage", &amount))
+            {
+                robot_set_line_stage(amount);
+            }
+            return;
+        }
         if (robot_str_equal(name, "line_speed"))
         {
             /* {"cmd":"line_speed","base":37,"turn":27}  (percent) */
@@ -488,6 +508,14 @@ void robot_controller_handle_command(const char *p_command, uint32_t now_ms)
             }
             return;
         }
+        if (robot_str_equal(name, "line_stage"))
+        {
+            if (robot_parse_int(p_rest, &amount, &p_rest))
+            {
+                robot_set_line_stage(amount);
+            }
+            return;
+        }
         if (robot_str_equal(name, "line_speed"))
         {
             if (robot_parse_int(p_rest, &left, &p_rest) &&
@@ -508,7 +536,8 @@ void robot_controller_step(uint32_t now_ms)
     bool    moving = buddy2_motion_active();
 
     /* 1. Barcode seen while following the line: do what it says. */
-    if (buddy3_take_barcode(&barcode) && buddy3_line_following())
+    if (buddy3_take_barcode(&barcode) && buddy3_line_following() &&
+        buddy3_test_stage() == 0u)
     {
         buddy3_stop_line_follow();
         g_motion_is_forward = false;
