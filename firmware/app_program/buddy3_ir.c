@@ -245,6 +245,7 @@ static void buddy3_decode_barcode(uint16_t sensor_value, uint32_t now_ms)
                      (g_test_last_phase == B3_TRACK || g_test_last_phase == B3_MICRO);
     buddy2_get_motion_state(&motion);
     buddy2_get_calibration(&geometry);
+    if (motion.left_encoder_fault || motion.right_encoder_fault) permitted = false;
     if (!g_barcode_odometry_valid) {
         g_barcode_last_left = motion.left_distance_mm;
         g_barcode_last_right = motion.right_distance_mm;
@@ -940,7 +941,7 @@ bool buddy3_configure_barcode(uint16_t cell_mm, int16_t offset_left_mm)
         tm_printf((UB *)"[barcode] disabled: measure cell width and configure first\n");
         return false;
     }
-#if ENCODER_LEFT_MIRROR_RIGHT
+#if defined(ENCODER_LEFT_MIRROR_RIGHT) && ENCODER_LEFT_MIRROR_RIGHT
     tm_printf((UB *)"[barcode] disabled: left encoder mirrors right; repair/calibrate both encoders\n");
     return false;
 #endif

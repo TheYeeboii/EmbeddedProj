@@ -36,14 +36,17 @@ straight section; this is not an absolute position system.
 
 ## Hardware/calibration prerequisite
 
-Current pin_config.h has ENCODER_LEFT_MIRROR_RIGHT=1 because the left encoder
-is faulty. Distance reading is disabled until it is repaired and that fallback
-is removed. One copied encoder cannot measure correction-induced rotation.
+Main's Buddy 2 update now reads each encoder independently and reports
+left/right encoder faults. The reader rejects samples while either fault is
+reported; a barcode move interrupted by a fault stops without resuming tracking.
+The obsolete mirror-right workaround has been removed from pin_config.h.
 
 Wheel diameter, track width and actual rising-edge counts PER WHEEL REVOLUTION
-must be measured in buddy2_motion.c. The current defaults (65 mm diameter,
-20 edges/revolution) correspond to about 10.2 mm per edge. They cannot reliably
-resolve 5-10 mm cells. The reader requires at least four encoder edges per cell;
+must be measured in buddy2_motion.c. Main now supplies 387 edges/revolution,
+measured on the left wheel, and a 65 mm default diameter: about 0.53 mm per edge.
+At that resolution, 5-10 mm cells pass the minimum resolution check, but the
+right wheel calibration and actual frame sampling still need track validation.
+The reader requires at least four encoder edges per cell;
 more may be needed for sensor offset and sampling delays. Do not fake the
 calibration numbers to pass the check. Repair/increase encoder resolution,
 use physically wider cells, or choose a different validated sensing strategy.

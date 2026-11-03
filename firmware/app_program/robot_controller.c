@@ -581,13 +581,22 @@ void robot_controller_step(uint32_t now_ms)
 {
     uint8_t barcode = 0u;
     uint8_t barcode_action;
+    buddy2_motion_state_t motion_state = {0};
     bool    button_now;
     bool    moving = buddy2_motion_active();
+    bool encoder_fault;
+    buddy2_get_motion_state(&motion_state);
+    encoder_fault = motion_state.left_encoder_fault || motion_state.right_encoder_fault;
+    if (g_barcode_action.active && encoder_fault) {
+        robot_stop_all();
+        moving = false;
+        tm_printf((UB *)"[barcode] encoder fault interrupted motion; stopped, no resume\n");
+    }
 
     /* Decode does not directly own motors. Observe first; mode 2 hands off
      * immediately, as required by the track, not at a later junction. */
     if (buddy3_take_barcode(&barcode)) {
-        bool allowed = g_mode == ROBOT_MODE_LINE && buddy3_line_following() &&
+        bool allowed = !encoder_fault && g_mode == ROBOT_MODE_LINE && buddy3_line_following() &&
                        buddy3_barcode_calibrated() && buddy3_test_stage() != 0u;
         barcode_action = robot_barcode_action_request(&g_barcode_action, barcode,
                            g_barcode_mode, allowed, now_ms);
