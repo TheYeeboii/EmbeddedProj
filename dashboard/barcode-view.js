@@ -36,9 +36,13 @@
     }
     unavailable(){this.history.unavailable();this.renderLive();}
     renderLive(){
+      const r=this.history.readiness;
+      this.find('readiness').textContent=r?
+        `Side-sensor snapshot: raw ${r[0]}, normalized ${r[1]}/1000, ${r[2]?'black':'white'}. White lead-in observed: ${mm(r[3])} mm. Sensor travel this observation: ${mm(r[4])} mm; allowed ≤${mm(r[5])} mm. Oversized steps rejected: ${r[7]} (last ${mm(r[6])} mm).`:
+        'Pre-scan sensor/encoder readings are unavailable in this firmware. Rebuild the current barcode branch to report why capture is waiting.';
       const state=this.history.state,blocked=this.history.last?.blocked??0;
       this.find('status').textContent=state===null?'Reader state unavailable / buffered history':
-        state===6?(blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
+        state===6?(blocked&32?'Suspended: sampling too coarse — slow down':blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
           blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21 to start':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
     }
     frames(){return this.frozen||this.history.frames;}
@@ -63,7 +67,7 @@
       this.find('outcome').textContent=end?
         (end.reason===1?`Firmware decoded ${String.fromCharCode(end.symbol)} (${end.reversed?'reverse':'forward'}) — observe only`:`Rejected: ${reasons[end.reason]}${end.reason===2?` / ${formats[end.format]}`:''}`):
         (f.progress?states[f.progress.state]:'Capturing candidate; no validated letter yet');
-      if(end?.blocked)this.find('outcome').textContent+=' · '+[[1,'tracking stopped/unconfigured'],[2,'encoder fault'],[4,'excessive heading change'],[8,'reverse wheel travel'],[16,'junction/recovery phase']].filter(([bit])=>end.blocked&bit).map(([,label])=>label).join(', ');
+      if(end?.blocked)this.find('outcome').textContent+=' · '+[[1,'tracking stopped/unconfigured'],[2,'encoder fault'],[4,'excessive heading change'],[8,'reverse wheel travel'],[16,'junction/recovery phase'],[32,'sample spacing too large']].filter(([bit])=>end.blocked&bit).map(([,label])=>label).join(', ');
       if(incomplete)this.find('outcome').textContent+=' · diagnostic evidence incomplete';
       const cal=f.meta?.config;
       this.find('summary').textContent=`${edges}/${end?.count??29} completed elements received · ${samples}/${end?.samples??512} raw samples · boot ${f.boot}, scan ${f.id}, rover ${f.updated} ms; queue age ${f.lag_ms} ms.\n`+

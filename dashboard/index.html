@@ -244,12 +244,13 @@
               <label>Minimum supported element (mm)<input data-barcode-config="minimum" class="input num" type="number" min="1" max="1000" step="1" value="3" required></label>
               <label>Sensor offset from wheel midpoint (mm)<input data-barcode-config="offset" class="input num" type="number" min="-500" max="500" step="1" placeholder="Measure first: left +, right −" required></label>
             </div>
-            <p class="muted small">Measure sideways from the midpoint between the wheels to the sensing spot, not from the body's edge. Left is positive; right is negative. The minimum is a resolution bound, not an exact printed bar width.</p>
+            <p class="muted small">Measure sideways from the midpoint between the wheels to the sensing spot, not from the body's edge. Left is positive; right is negative. The minimum is a resolution bound, not an exact printed bar width. For an initial straight, slow test, offset 0 temporarily disables steering compensation.</p>
             <button data-barcode-config="apply" class="btn btn-outline btn-sm" type="submit" disabled>Apply reader settings</button>
             <p data-barcode-config="status" class="muted small" role="status">Waiting for fresh rover telemetry. Settings can only be applied while stopped.</p>
             <p class="muted small">Settings are RAM-only and reset on reboot. Applying settings does not start the motors; barcode actions remain disabled.</p>
           </form>
 
+          <p data-barcode="readiness" class="muted small trace-notice" role="status"></p>
           <p data-barcode="notice" class="muted small trace-notice"></p>
           <label class="barcode-field">Inspect scan <select data-barcode="scan" disabled></select></label>
           <p data-barcode="outcome" class="barcode-outcome" role="status"></p>
@@ -467,8 +468,8 @@
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
   <script src="action-log.js?v=2"></script>
   <script src="steering-view.js?v=2"></script>
-  <script src="barcode-model.js?v=1"></script>
-  <script src="barcode-view.js?v=2"></script>
+  <script src="barcode-model.js?v=2"></script>
+  <script src="barcode-view.js?v=3"></script>
   <script src="barcode-config.js?v=1"></script>
   <script src="app.js?v=24"></script>
 </body>

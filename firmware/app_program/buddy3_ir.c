@@ -310,7 +310,7 @@ static void buddy3_apply_straight_heading_hold(buddy3_steering_output_t *p_outpu
 /* Sampling remains 10 ms; bit boundaries are measured in encoder distance. */
 static void buddy3_decode_barcode(uint16_t sensor_value, uint16_t raw, uint32_t now_ms)
 {
-    buddy2_motion_state_t motion = {0};
+    buddy2_encoder_position_t motion = {0};
     buddy2_calibration_t geometry;
     float dl, dr, travel, yaw;
     buddy3_barcode_event_t event;
@@ -322,7 +322,7 @@ static void buddy3_decode_barcode(uint16_t sensor_value, uint16_t raw, uint32_t 
     bool permitted = g_line_following && !buddy3_junction_active(&g_junction) &&
                      g_barcode_calibrated &&
                      (g_test_last_phase == B3_TRACK || g_test_last_phase == B3_MICRO);
-    buddy2_get_motion_state(&motion);
+    buddy2_get_encoder_position(&motion);
     buddy2_get_calibration(&geometry);
     if (motion.left_encoder_fault || motion.right_encoder_fault) permitted = false;
     if (!g_barcode_odometry_valid) {
@@ -349,10 +349,12 @@ static void buddy3_decode_barcode(uint16_t sensor_value, uint16_t raw, uint32_t 
     observation.left_x10 = robot_barcode_scaled(motion.left_distance_mm,10);
     observation.right_x10 = robot_barcode_scaled(motion.right_distance_mm,10);
     observation.black = g_barcode_black;
+    observation.travel_x100 = robot_barcode_scaled(travel,100);
     if (!g_line_following || !g_barcode_calibrated) observation.blocked |= 1;
     if (motion.left_encoder_fault || motion.right_encoder_fault) observation.blocked |= 2;
     if (g_barcode_yaw > 0.1745f || g_barcode_yaw < -0.1745f) observation.blocked |= 4;
-    if (dl < 0 || dr < 0) observation.blocked |= 8;
+    if (dl < 0 || dr < 0 || travel < 0) observation.blocked |= 8;
+    if (permitted && travel > g_barcode_config.min_element_mm * 0.25f) observation.blocked |= 32;
     if (buddy3_junction_active(&g_junction) ||
         (g_test_last_phase != B3_TRACK && g_test_last_phase != B3_MICRO)) observation.blocked |= 16;
     if (travel > 0) unfinished += travel;

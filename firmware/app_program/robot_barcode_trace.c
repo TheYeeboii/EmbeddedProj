@@ -24,6 +24,9 @@ static int32_t configuration[11];
 static uint32_t scan_sequence, packet_sequence, dropped_scans, last_state;
 static bool enabled, have_state;
 static uint8_t reader_state, reader_blocked;
+static int32_t readiness[7];
+static uint32_t rejected_steps, last_gap_ms;
+static bool have_gap;
 
 int32_t robot_barcode_scaled(float value, float scale)
 {
@@ -48,6 +51,7 @@ void robot_barcode_trace_configure(const int32_t config[11])
     DI(lock);
     for (i = 0; i < 11; ++i) configuration[i] = config[i];
     enabled = true; reader_state = 1; reader_blocked = 1;
+    rejected_steps = 0; have_gap = false; readiness[6] = 0;
     EI(lock);
 }
 void robot_barcode_trace_cancel(uint32_t now)
@@ -72,8 +76,20 @@ void robot_barcode_trace_observe(const buddy3_barcode_decoder_t *s,
     robot_barcode_frame_t *f;
     unsigned i;
     DI(lock);
+    readiness[0] = o->raw; readiness[1] = o->normalized; readiness[2] = o->black;
+    readiness[3] = robot_barcode_scaled(s->active ? s->leading_quiet : s->white_distance,100);
+    readiness[4] = o->travel_x100; readiness[5] = configuration[5] / 4;
+    if (o->blocked & 32u) {
+        ++rejected_steps; last_gap_ms = o->ts_ms; have_gap = true;
+        readiness[6] = o->travel_x100;
+    }
+    if (!enabled || (o->blocked & 1u)) have_gap = false;
     reader_blocked = o->blocked;
-    reader_state = !enabled ? 0 : o->blocked ? 6 : s->active ? (s->count == 29 ? 3 : 2) : 1;
+    /* A 1 Hz dashboard snapshot must not alias away a reset every other IR
+     * sample. Retain a recent pre-capture spacing failure for one second. */
+    if (!s->active && !reader_blocked && have_gap && o->ts_ms - last_gap_ms < 1000u)
+        reader_blocked |= 32u;
+    reader_state = !enabled ? 0 : reader_blocked ? 6 : s->active ? (s->count == 29 ? 3 : 2) : 1;
     if (!was_active && s->active) {
         unsigned slot = 0;
         for (i = 0; i < BARCODE_TRACE_FRAMES; ++i)
@@ -152,6 +168,8 @@ bool robot_barcode_packet_peek(robot_barcode_packet_t *p, uint32_t now)
         if (have_state && now - last_state < 1000u) { EI(lock); return false; }
         p->type = BC_PACKET_STATE; p->state = reader_state; p->ts_ms = now; p->blocked = reader_blocked;
         for (i = 0; i < 11; ++i) p->config[i] = configuration[i];
+        for (i = 0; i < 7; ++i) p->readiness[i] = readiness[i];
+        p->rejected_steps = rejected_steps;
         EI(lock); return true;
     }
     {

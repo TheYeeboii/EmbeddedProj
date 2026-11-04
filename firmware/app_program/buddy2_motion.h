@@ -85,6 +85,13 @@ void buddy2_stop_observed(const struct robot_steering_input *input);
 void buddy2_set_motor_pwm(int16_t left_pwm, int16_t right_pwm);
 void buddy2_stop(void);
 void buddy2_get_motion_state(buddy2_motion_state_t *p_state);
+typedef struct {
+    float left_distance_mm, right_distance_mm;
+    bool left_encoder_fault, right_encoder_fault;
+} buddy2_encoder_position_t;
+/* Task-only, non-mutating position snapshot including ticks since the last
+ * 20 ms control update. Fault flags remain the last control-loop verdict. */
+void buddy2_get_encoder_position(buddy2_encoder_position_t *position);
 void buddy2_reset_encoders(void);
 
 bool buddy2_move_forward(float distance_mm, int16_t max_pwm);

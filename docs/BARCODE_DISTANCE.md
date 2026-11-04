@@ -25,6 +25,16 @@ false reads but cannot prove every optically corrupted letter is correct.
 
 ## Acquisition
 
+Barcode capture reads a fresh wheel-position snapshot, including encoder ticks
+since Buddy 2's last 20 ms control update. IR runs every 10 ms. Using only the
+cached control-loop positions produced artificial zero/two-tick jumps: with
+65 mm wheels, 387 ticks/revolution and minimum=3 mm, a 1.06 mm jump exceeded
+the 0.75 mm sampling bound and silently reset white lead-in accumulation.
+The cadence regression reproduces that failure and decodes F using fresh
+positions. Motor-loop timing, PID, trim and accumulated odometry are unchanged.
+Fault flags still come from the control loop. Genuine excessive travel between
+IR observations is still rejected rather than inventing missing elements.
+
 `buddy3_barcode.c` captures black/white transition widths from encoder travel,
 with midpoint edge estimates and bounded arrays of 29 widths and timestamps.
 `buddy3_ir.c` supplies normalized side-sensor readings with 400/600 hysteresis,
@@ -51,6 +61,13 @@ edge over 10 metres aborts capture. Acceptance requires the entire closing
 marker and trailing quiet zone. A second read needs another complete frame.
 
 ## Calibration and configuration
+
+The lateral offset compensates steering; it is not a Code 39 parameter. For
+an initial straight, slow test, zero may be used temporarily to disable that
+compensation. Once basic reading works, measure and configure the real offset
+before testing steering corrections. Moving paper under a stationary rover
+cannot decode a barcode with this encoder-distance reader. The pre-scan raw/
+normalized display can still be used that way to check optical separation.
 
 Measure wheel diameter, wheel track and encoder edges per wheel revolution.
 Current defaults of 65 mm and 387 edges/revolution imply about 0.53 mm per edge.

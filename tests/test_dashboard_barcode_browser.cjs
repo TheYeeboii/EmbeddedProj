@@ -22,9 +22,13 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
  await page.locator('[data-barcode-config="offset"]').fill('100'); // Synthetic test measurement only.
  await page.locator('[data-barcode-config="apply"]').click();
  assert.deepEqual(await page.evaluate(()=>window.sentCommands.map(x=>x.body)),[{cmd:'barcode_config',min_element_mm:3,offset_left_mm:100},{cmd:'barcode_mode',mode:1}]);
- await page.evaluate(()=>window.mockHandlers.message('rover/barcode',JSON.stringify({v:1,type:'barcode_state',boot:99,seq:2,scan:0,ts_ms:10,lag_ms:0,dropped:0,state:6,count:0,samples:0,sample_drops:0,partial:0,blocked:1,config:[2000,2500,0,400,600,300,1000,1500,650,3870,3870]})));
+ await page.evaluate(()=>window.mockHandlers.message('rover/barcode',JSON.stringify({v:1,type:'barcode_state',boot:99,seq:2,scan:0,ts_ms:10,lag_ms:0,dropped:0,state:6,count:0,samples:0,sample_drops:0,partial:0,blocked:1,config:[2000,2500,0,400,600,300,1000,1500,650,3870,3870],readiness:[2000,0,0,3000,53,75,106,1]})));
  assert.match(await page.locator('[data-barcode-config="status"]').textContent(),/confirmed/);
  assert.match(await page.locator('[data-barcode="status"]').textContent(),/press GP21/);
+ assert.match(await page.locator('[data-barcode="readiness"]').textContent(),/raw 2000/);
+ await page.evaluate(()=>window.mockHandlers.message('rover/barcode',JSON.stringify({v:1,type:'barcode_state',boot:99,seq:3,scan:0,ts_ms:20,lag_ms:0,dropped:0,state:6,count:0,samples:0,sample_drops:0,partial:0,blocked:32,readiness:[2000,0,0,0,106,75,106,2]})));
+ assert.match(await page.locator('[data-barcode="status"]').textContent(),/sampling too coarse/);
+ assert.match(await page.locator('[data-barcode="readiness"]').textContent(),/1.06 mm/);
  await page.evaluate(()=>window.mockHandlers.message('rover/telemetry',JSON.stringify({mode:'line',state:'online',ts_ms:20})));
  assert(await page.locator('[data-barcode-config="apply"]').isDisabled());
  await page.reload({waitUntil:'networkidle'});

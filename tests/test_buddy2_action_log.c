@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include "buddy3_barcode.h"
 #include "../firmware/app_program/robot_action_log.c"
 #include "../firmware/app_program/buddy2_motion.c"
 
@@ -61,6 +62,37 @@ int main(void) {
     assert(g_state.left_encoder_fault||g_state.right_encoder_fault);
     assert(robot_action_peek(&e)&&e.action==ROBOT_ACTION_STOP_LEFT);
     assert(g_left_applied_pwm==0&&g_right_applied_pwm==0);
+    /* Reproduce the actual 20 ms motor / 10 ms IR cadence. Cached odometry
+     * jumps by two ticks and cannot even accumulate the white lead-in with
+     * minimum=3 mm. Fresh snapshots recover each real intervening tick. */
+    buddy2_stop(); buddy2_reset_encoders();
+    buddy2_set_motor_pwm(10000,10000);
+    buddy3_barcode_decoder_t cached={0}, fresh={0};
+    buddy3_barcode_config_t config={3};
+    float previous_cached=0, previous_fresh=0;
+    unsigned cached_reads=0, fresh_reads=0;
+    const char *groups[]={"010010100","001011000","010010100"};
+    float boundaries[30];boundaries[0]=60;
+    for(unsigned i=0;i<29;++i)boundaries[i+1]=boundaries[i]+((i==9||i==19)?4:groups[i/10][i%10]=='1'?12:4);
+    for(unsigned tick=1;tick<=650;++tick) {
+        uint32_t now=1000+tick*10;fake_us=(uint64_t)now*1000;
+        ++g_left_ticks;++g_right_ticks;
+        if(tick%2==0)buddy2_update(now);
+        buddy2_motion_state_t old;
+        buddy2_encoder_position_t position={0};
+        buddy2_get_motion_state(&old);buddy2_get_encoder_position(&position);
+        assert(old.left_ticks==g_state.left_ticks); // Snapshot does not advance control state.
+        assert(position.left_distance_mm>=old.left_distance_mm);
+        if(tick%2)assert(position.left_distance_mm>old.left_distance_mm);
+        bool black=false;
+        for(unsigned i=0;i<29;++i)if(position.left_distance_mm>=boundaries[i]&&position.left_distance_mm<boundaries[i+1])black=i%2==0;
+        buddy3_barcode_event_t event;
+        if(buddy3_barcode_step(&cached,&config,black,old.left_distance_mm-previous_cached,now,true,&event)&&event.kind==B3BC_VALID)++cached_reads;
+        if(buddy3_barcode_step(&fresh,&config,black,position.left_distance_mm-previous_fresh,now,true,&event)&&event.kind==B3BC_VALID){assert(event.decoded.symbol=='F');++fresh_reads;}
+        previous_cached=old.left_distance_mm;previous_fresh=position.left_distance_mm;
+    }
+    assert(cached_reads==0 && fresh_reads==1);
+    puts("PASS: real 20ms/10ms encoder cadence: cached reader fails; fresh snapshot decodes F without changing motor control");
     puts("PASS: real Buddy 2 hooks capture accepted steering, preserve trim/calibration, ignore straight PID, and log completion/fault stops");
     return 0;
 }

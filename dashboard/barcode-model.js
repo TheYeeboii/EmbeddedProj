@@ -16,7 +16,10 @@
       integer(d.config[2],0,1)&&integer(d.config[3],0,1000)&&integer(d.config[4],0,1000)&&d.config[3]<d.config[4]&&d.config[5]>0&&signed(d.leading)&&d.leading>=0;
     if(d.type==='barcode_edges'||d.type==='barcode_samples') return Array.isArray(d.rows)&&d.rows.length>0&&d.rows.length<=4&&
       d.rows.every(d.type==='barcode_edges'?edge:sample)&&new Set(d.rows.map(r=>r[0])).size===d.rows.length;
-    if(!integer(d.state,0,6)||!integer(d.count,0,29)||!integer(d.samples,0,512)||!u32(d.sample_drops)||!signed(d.partial)||!integer(d.blocked,0,31)) return false;
+    if(!integer(d.state,0,6)||!integer(d.count,0,29)||!integer(d.samples,0,512)||!u32(d.sample_drops)||!signed(d.partial)||!integer(d.blocked,0,63)) return false;
+    if(d.type==='barcode_state'&&d.readiness!==undefined&&(!array(d.readiness,8)||
+       !integer(d.readiness[0],0,4095)||!integer(d.readiness[1],0,1000)||!integer(d.readiness[2],0,1)||
+       !d.readiness.slice(3,7).every(signed)||!u32(d.readiness[7])))return false;
     if(d.type==='barcode_state'&&d.config!==undefined&&(!array(d.config,11)||!d.config.every(signed)||
        (d.state!==0&&(d.config[5]<=0||d.config[3]>=d.config[4]))))return false;
     if(d.type==='barcode_end') return integer(d.reason,1,7)&&integer(d.format,0,5)&&integer(d.reversed,0,1)&&
@@ -44,13 +47,14 @@
     return {narrow:sorted.slice(0,6).reduce((a,b)=>a+b,0)/6,wide:sorted.slice(6).reduce((a,b)=>a+b,0)/3};
   }
   class BarcodeHistory {
-    constructor() { this.frames=[];this.last=null;this.retired=[];this.pendingGap=false;this.state=0;this.receivedAt=0;this.evicted=0; }
+    constructor() { this.frames=[];this.last=null;this.retired=[];this.pendingGap=false;this.state=0;this.receivedAt=0;this.evicted=0;this.readiness=null; }
     unavailable(){this.pendingGap=true;this.state=null;}
     accept(input,now=Date.now()) {
       if(!valid(input))return false;
       const d=clone(input);let gap=this.pendingGap||(!this.last&&d.dropped>0);
       if(this.last&&this.last.boot!==d.boot) {
         if(this.retired.includes(d.boot))return false;
+        this.readiness=null;
         this.retired.push(this.last.boot);this.retired=this.retired.slice(-8);gap=true;
         this.frames.filter(f=>!f.end).forEach(f=>f.gap=true);
       } else if(this.last) {
@@ -60,7 +64,7 @@
       }
       if(gap)this.frames.filter(f=>!f.end).forEach(f=>f.gap=true);
       this.pendingGap=false;this.last=d;this.receivedAt=now;
-      if(d.type==='barcode_state'){this.state=d.lag_ms>500?null:d.state;return true;}
+      if(d.type==='barcode_state'){this.state=d.lag_ms>500?null:d.state;if(d.readiness)this.readiness=d.readiness;return true;}
       let f=this.frames.find(f=>f.boot===d.boot&&f.id===d.scan);
       if(!f){f=newFrame(d);this.frames.push(f);if(this.frames.length>20){this.frames.shift();++this.evicted;}}
       if(gap)f.gap=true;
