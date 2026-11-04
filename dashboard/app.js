@@ -518,6 +518,7 @@ $('#trim-reset').addEventListener('click', () => {
 
 $('#line-follow-command').addEventListener('click', () => sendCommand('line_follow'));
 $('#line-stop-command').addEventListener('click', () => sendCommand('line_stop'));
+$('#imu-reset').addEventListener('click', () => sendCommand('imu_reset'));
 
 /* ---------- serial controls ---------- */
 

@@ -21,6 +21,7 @@
 
 #include "buddy2_motion.h"
 #include "buddy3_ir.h"
+#include "buddy4_imu.h"
 #include "buddy5_ultrasonic.h"
 #include "pin_config.h"
 #include "robot_controller.h"
@@ -427,6 +428,11 @@ static bool robot_simple_command(const char *p_name, uint32_t now_ms)
     else if (robot_str_equal(p_name, "line_stop"))
     {
         robot_stop_line();
+    }
+    else if (robot_str_equal(p_name, "imu_reset"))
+    {
+        buddy4_reset_run();
+        tm_printf((UB *)"[cmd] imu_reset\n");
     }
     else
     {
