@@ -92,10 +92,11 @@ a capture or format reason. The one-event handoff preserves the first unread
 event and reports subsequent drops. Stop/start clears pending reads. Mode 0
 consumes without printing; mode 1 observes. Neither changes motor ownership.
 
-The dashboard's existing barcode snapshot displays ASCII letters instead of
-numeric direction labels. It is transient; durable MQTT barcode events/history,
-raw left/right encoder trace export and physical qualification remain separate
-work in issues #12, #15 and #16. USB logs are currently the reliable result view.
+The dashboard's barcode scan-evidence panel now preserves growing/completed/
+rejected scans with measured widths, raw signals, per-wheel references and
+JSON export/replay. See [BARCODE_SCAN_DIAGNOSTICS.md](BARCODE_SCAN_DIAGNOSTICS.md)
+for transport bounds, incomplete-data behavior and the physical test procedure.
+Physical qualification and real IR traces remain outstanding in #12/#16.
 
 ## Software verification
 

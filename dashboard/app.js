@@ -5,7 +5,8 @@ const topics = {
   commands: 'rover/commands',
   debug: 'rover/debug',
   actions: 'rover/actions',
-  steering: 'rover/steering'
+  steering: 'rover/steering',
+  barcode: 'rover/barcode'
 };
 
 const brokerHost = new URLSearchParams(window.location.search).get('broker') || '192.168.137.1';
@@ -36,6 +37,7 @@ const commandResult = $('#command-result');
 const serialLog = $('#serial-log');
 const actionLog = new window.RoverActionLog($('#action-log'), $('#steering-action'));
 const steeringView = new window.RoverSteeringView($('#steering-visual'));
+const barcodeView = new window.RoverBarcodeView($('#barcode-visual'));
 
 let client = null;
 let serialPaused = false;
@@ -84,12 +86,14 @@ function refreshRobotLink() {
   if (robotOffline) {
     actionLog.unavailable();
     steeringView.unavailable();
+    barcodeView.unavailable();
     setBadge('robot-link', 'Offline', 'destructive');
   } else if (!lastSeen) {
     setBadge('robot-link', 'Unknown', 'muted');
   } else if (Date.now() - lastSeen > STALE_AFTER_MS) {
     actionLog.unavailable();
     steeringView.unavailable();
+    barcodeView.unavailable();
     setBadge('robot-link', 'Stale', 'warning');
   } else {
     setBadge('robot-link', 'Online', 'success');
@@ -583,13 +587,14 @@ if (!window.mqtt) {
 
   client.on('connect', () => {
     setConnection('online', 'Connected');
-    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status, topics.actions, topics.steering]);
+    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status, topics.actions, topics.steering, topics.barcode]);
   });
   client.on('reconnect', () => setConnection('pending', 'Reconnecting…'));
   client.on('close', () => {
     stopHold(false);
     actionLog.unavailable();
     steeringView.unavailable();
+    barcodeView.unavailable();
     setConnection('offline', 'Disconnected');
   });
   client.on('error', () => setConnection('offline', 'Broker error'));
@@ -602,6 +607,9 @@ if (!window.mqtt) {
     }
     else if (topic === topics.steering) {
       if (steeringView.handle(data)) markSeen();
+    }
+    else if (topic === topics.barcode) {
+      if (barcodeView.handle(data)) markSeen();
     }
     else if (topic === topics.debug) showDebug(data);
     else if (topic === topics.heartbeat) markSeen();
