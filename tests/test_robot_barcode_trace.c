@@ -56,7 +56,7 @@ static void replay(bool reverse,bool interrupt)
         bool permitted=!(interrupt&&pos>11);
         buddy3_barcode_event_t event;
         bool emitted=buddy3_barcode_step(&s,&cfg,black,tick?0.0625f:0,tick*10,permitted,&event);
-        robot_barcode_observation_t o={tick*10,(int32_t)(pos*10),(int32_t)(pos*10),black?2500:2000,black?1000:0,black,permitted?0:2};
+        robot_barcode_observation_t o={tick*10,(int32_t)(pos*10),(int32_t)(pos*10),black?2500:2000,black?1000:0,black,permitted?0:2,6};
         robot_barcode_trace_observe(&s,&o,before,partial,emitted?&event:NULL);
         if(emitted){
             if(interrupt){assert(event.kind==B3BC_INTERRUPTED);aborted=true;}
@@ -81,7 +81,7 @@ int main(int argc,char **argv)
     /* The abort is preserved even though the core reset its own arrays. */
     reset();
     buddy3_barcode_decoder_t s={0};s.active=true;s.leading_quiet=5;s.count=1;s.widths[0]=1;s.edge_ms[0]=20;s.position=1.5f;s.edge_position=1;
-    robot_barcode_observation_t o={20,10,10,2500,1000,1,0};
+    robot_barcode_observation_t o={20,10,10,2500,1000,1,0,0};
     robot_barcode_trace_observe(&s,&o,false,0,NULL);
     buddy3_barcode_reset(&s);buddy3_barcode_event_t failure={0};failure.kind=B3BC_STALL;
     o.ts_ms=1600;robot_barcode_trace_observe(&s,&o,true,0.5f,&failure);
@@ -99,6 +99,17 @@ int main(int argc,char **argv)
     assert(robot_barcode_packet_peek(&packet,6000));
     for(unsigned i=0;i<3;++i){o.ts_ms+=100;robot_barcode_trace_observe(&s,&o,false,0,NULL);robot_barcode_trace_cancel(o.ts_ms);}
     robot_barcode_packet_ack(&packet);assert(dropped_scans>=2);
+    /* An oversized step before a frame stays visible across the next zero
+     * tick; a 1 Hz status snapshot must not hide the rejection. */
+    reset();buddy3_barcode_reset(&s);o.ts_ms=100;o.blocked=32;o.travel_x100=100;
+    robot_barcode_trace_observe(&s,&o,false,0,NULL);
+    o.ts_ms=110;o.blocked=0;o.travel_x100=0;
+    robot_barcode_trace_observe(&s,&o,false,0,NULL);
+    assert(robot_barcode_packet_peek(&packet,110));
+    assert(packet.state==6 && (packet.blocked&32) && packet.rejected_steps==1);
+    assert(packet.readiness[6]==100 && packet.readiness[0]==o.raw);
+    o.ts_ms=1200;robot_barcode_trace_observe(&s,&o,false,0,NULL);
+    assert(robot_barcode_packet_peek(&packet,1200) && packet.state==1);
     /* All packet kinds serialize safely at the largest numeric bounds. */
     reset();robot_barcode_frame_t *f=&frames[0];f->occupied=true;f->id=UINT32_MAX;f->started_ms=f->updated_ms=UINT32_MAX;
     f->leading_x100=INT32_MAX;for(unsigned i=0;i<11;++i)f->config[i]=INT32_MAX;
@@ -112,7 +123,10 @@ int main(int argc,char **argv)
     f->done=true;f->state=5;f->reason=B3BC_FORMAT;f->format=CODE39_BAD_WIDTH;f->partial_x100=f->trailing_x100=f->narrow_x100=f->ratio_x100=f->max_gap_x100=INT32_MAX;f->sample_drops=UINT32_MAX;dropped_scans=UINT32_MAX;
     robot_barcode_publish(UINT32_MAX);
     for(unsigned i=0;i<11;++i)configuration[i]=INT32_MAX;
-    have_state=false;packet_sequence=UINT32_MAX-1;reader_state=6;reader_blocked=31;
+    have_state=false;packet_sequence=UINT32_MAX-1;reader_state=6;reader_blocked=63;
+    readiness[0]=4095;readiness[1]=1000;readiness[2]=1;
+    for(unsigned i=3;i<7;++i)readiness[i]=INT32_MAX;
+    rejected_steps=UINT32_MAX;
     robot_barcode_publish(UINT32_MAX);
     printf("PASS: barcode capture-to-MQTT replay, forward/reverse F, aborted evidence, raw bounds, pressure/retry, stale ack; max payload %u bytes\n",largest);
 }

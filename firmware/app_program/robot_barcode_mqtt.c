@@ -58,7 +58,14 @@ void robot_barcode_publish(uint32_t now)
                 (UINT)p.reason, (UINT)p.format, (UINT)p.symbol, (UINT)p.reversed,
                 (INT)p.leading, (INT)p.trailing, (INT)p.narrow, (INT)p.ratio, (INT)p.max_gap);
         }
-        if (p.type == BC_PACKET_STATE) length += barcode_append_config(payload+length,&p);
+        if (p.type == BC_PACKET_STATE) {
+            length += barcode_append_config(payload+length,&p);
+            length += tm_sprintf((UB *)payload+length, (UB *)
+                ",\"readiness\":[%d,%d,%d,%d,%d,%d,%d,%u]",
+                (INT)p.readiness[0], (INT)p.readiness[1], (INT)p.readiness[2],
+                (INT)p.readiness[3], (INT)p.readiness[4], (INT)p.readiness[5],
+                (INT)p.readiness[6], (UINT)p.rejected_steps);
+        }
         (void)tm_sprintf((UB *)payload+length,(UB *)"}");
         if (!comms_publish(COMMS_TOPIC_BARCODE, payload)) return;
         robot_barcode_packet_ack(&p);

@@ -12,6 +12,7 @@ typedef struct {
     int32_t left_x10, right_x10;
     uint16_t raw, normalized;
     uint8_t black, blocked;
+    int32_t travel_x100;
 } robot_barcode_observation_t;
 typedef struct {
     uint32_t ts_ms;
@@ -25,9 +26,10 @@ typedef struct {
 } robot_barcode_edge_t;
 enum { BC_PACKET_START, BC_PACKET_EDGES, BC_PACKET_SAMPLES, BC_PACKET_PROGRESS, BC_PACKET_END, BC_PACKET_STATE };
 typedef struct {
-    uint32_t scan, seq, ts_ms, dropped, sample_drops;
+    uint32_t scan, seq, ts_ms, dropped, sample_drops, rejected_steps;
     uint16_t offset, total_samples;
     uint8_t type, count, state, reason, format, symbol, reversed, blocked, total_edges;
+    int32_t readiness[7];
     int32_t config[11], leading, trailing, partial, narrow, ratio, max_gap;
     robot_barcode_edge_t edges[BARCODE_TRACE_BATCH];
     robot_barcode_sample_t samples[BARCODE_TRACE_BATCH];

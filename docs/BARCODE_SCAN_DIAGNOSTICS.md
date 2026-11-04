@@ -49,7 +49,9 @@ and must be reapplied after reboot (or set as measured firmware defaults).
 ## Resource and transport bounds
 
 The diagnostic recorder is separate from the hardware-independent Code 39
-parser. The parser's acceptance/reset logic is unchanged. The adapter copies
+parser. The parser's acceptance/reset logic is unchanged. Capture now uses a fresh
+non-mutating encoder-position snapshot rather than the 20 ms cached motor
+state; see the cadence regression in BARCODE_DISTANCE.md. The adapter copies
 new authoritative edges after each step and retains them before an abort can
 discard the evidence. GP21/stop/reconfiguration explicitly finalizes active
 traces before reset. Raw observations continue while stationary without adding
@@ -107,7 +109,16 @@ States: 0 disabled, 1 leading quiet, 2 capture, 3 trailing quiet, 4 accepted,
 5 rejected/interrupted, 6 suspended. Result reasons follow
 `buddy3_barcode_event_kind_t`; format reasons follow `code39_status_t`.
 Blocked bits: 1 stopped/unconfigured, 2 encoder fault, 4 excessive heading
-change, 8 reverse wheel travel, 16 junction/recovery/unsupported phase.
+change, 8 reverse wheel/sensor travel, 16 junction/recovery/unsupported phase,
+32 excessive sampling distance. A pre-capture spacing rejection is retained
+in status for one second so a following zero-tick sample cannot hide it.
+
+Idle snapshots optionally include `readiness`: side raw, normalized, hysteresis
+black flag, observed white lead-in (0.01 mm), current sensor travel (0.01 mm),
+allowed travel (0.01 mm), last rejected oversized step (0.01 mm), and cumulative
+oversized-step count. These observations are shown before a scan starts.
+Older firmware simply reports that pre-scan evidence is unavailable.
+
 
 Packet sizes are tested at numeric bounds and stay below the existing 512-byte
 mailbox limit. No broker authentication/configuration changes are included.

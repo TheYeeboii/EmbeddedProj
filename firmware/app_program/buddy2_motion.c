@@ -449,6 +449,26 @@ void buddy2_reset_encoders(void)
     buddy2_unlock();
 }
 
+void buddy2_get_encoder_position(buddy2_encoder_position_t *position)
+{
+    UINT state;
+    int32_t left, right, dl, dr;
+    if (!position || !g_initialized) return;
+    buddy2_lock();
+    DI(state);
+    left = g_left_ticks; right = g_right_ticks;
+    EI(state);
+    dl = (int32_t)((uint32_t)left - (uint32_t)g_state.left_ticks);
+    dr = (int32_t)((uint32_t)right - (uint32_t)g_state.right_ticks);
+    position->left_distance_mm = g_state.left_distance_mm +
+        (float)dl * buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev) * g_left_direction;
+    position->right_distance_mm = g_state.right_distance_mm +
+        (float)dr * buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev) * g_right_direction;
+    position->left_encoder_fault = g_state.left_encoder_fault;
+    position->right_encoder_fault = g_state.right_encoder_fault;
+    buddy2_unlock();
+}
+
 void buddy2_get_motion_state(buddy2_motion_state_t *p_state)
 {
     if ((NULL == p_state) || !g_initialized)

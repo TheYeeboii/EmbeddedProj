@@ -11,6 +11,12 @@ void hal_adc_init(void) {}
 void hal_adc_pin_init(uint32_t pin) { (void)pin; }
 uint16_t hal_adc_read(uint32_t channel) { return adc[channel]; }
 void buddy2_get_motion_state(buddy2_motion_state_t *s) { *s=fake_motion; }
+void buddy2_get_encoder_position(buddy2_encoder_position_t *s) {
+    s->left_distance_mm=fake_motion.left_distance_mm;
+    s->right_distance_mm=fake_motion.right_distance_mm;
+    s->left_encoder_fault=fake_motion.left_encoder_fault;
+    s->right_encoder_fault=fake_motion.right_encoder_fault;
+}
 void buddy2_get_calibration(buddy2_calibration_t *c) {
     buddy2_calibration_t geometry={65,150,387,387,32767,0}; *c=geometry;
 }
