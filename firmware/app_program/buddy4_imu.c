@@ -40,6 +40,8 @@ static buddy4_imu_state_t   g_state;
 static buddy4_processor_t   g_processor;
 static buddy4_calibration_t g_pending_cal;
 static bool                 g_cal_pending      = false;
+static bool                 g_reset_pending    = false;
+static bool                 g_stats_cleared    = false;   /* IMU task only */
 static bool                 g_mag_configured   = false;
 static bool                 g_accel_configured = false;
 static uint32_t             g_config_ms        = 0u;
@@ -120,19 +122,34 @@ void buddy4_update(uint32_t now_ms)
     bool                  odometry_fresh;
     bool                  forward;
     bool                  apply_cal;
+    bool                  apply_reset;
     buddy2_motion_state_t motion;
     buddy4_calibration_t  cal;
     UINT                  interrupt_state;
     uint32_t              index;
 
     DI(interrupt_state);
-    apply_cal     = g_cal_pending;
-    cal           = g_pending_cal;
-    g_cal_pending = false;
+    apply_cal       = g_cal_pending;
+    apply_reset     = g_reset_pending;
+    cal             = g_pending_cal;
+    g_cal_pending   = false;
+    g_reset_pending = false;
     EI(interrupt_state);
     if (apply_cal)
     {
         buddy4_processor_init(&g_processor, &cal);
+        g_stats_cleared = true;
+    }
+    else if (apply_reset)
+    {
+        /* New run: same calibration, everything else from scratch. */
+        cal = g_processor.calibration;
+        buddy4_processor_init(&g_processor, &cal);
+        g_stats_cleared = true;
+    }
+    else
+    {
+        /* nothing queued */
     }
 
     /* Re-send the configuration every second, not only after a failed read:
@@ -244,6 +261,15 @@ bool buddy4_set_calibration(const buddy4_calibration_t *p_cal)
     return true;
 }
 
+void buddy4_reset_run(void)
+{
+    UINT interrupt_state;
+
+    DI(interrupt_state);
+    g_reset_pending = true;
+    EI(interrupt_state);
+}
+
 /* Publish the IMU/hump report: periodically, and at once after an event. */
 static void buddy4_report(const buddy4_imu_state_t *p_state)
 {
@@ -296,6 +322,16 @@ void buddy4_task(int32_t stacd, void *p_exinf)
 
         buddy4_update(start_ms);
         buddy4_get_state(&state);
+        if (g_stats_cleared)
+        {
+            /* Counters went back to 0: not a new hump or impact.  Report
+             * at once so the dashboard clears. */
+            g_stats_cleared = false;
+            reported_hump   = state.hump_sequence;
+            reported_impact = state.impact_count;
+            last_report_ms  = start_ms - BUDDY4_REPORT_MS;
+            tm_printf((UB *)"[imu] run reset: humps, peaks and impacts cleared\n");
+        }
         if ((state.hump_sequence != reported_hump) || (state.impact_count != reported_impact) ||
             ((start_ms - last_report_ms) >= BUDDY4_REPORT_MS))
         {
