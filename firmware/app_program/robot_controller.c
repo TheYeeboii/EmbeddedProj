@@ -25,6 +25,7 @@
 #include "buddy5_ultrasonic.h"
 #include "pin_config.h"
 #include "robot_controller.h"
+#include "robot_steering_trace.h"
 #include "robot_hal.h"
 #include "robot_barcode_action.h"
 
@@ -270,6 +271,7 @@ static void robot_drive(uint32_t left, uint32_t right, int32_t sign, uint32_t no
     /* A manual sonar test may have left the scanner looking sideways. Any
      * drive command must restore the forward view before motion begins. */
     buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
+    robot_steering_owner(TRACE_MANUAL);
     g_drive_left    = left;
     g_drive_right   = right;
     g_last_drive_ms = now_ms;
@@ -361,6 +363,7 @@ static void robot_start_line(void)
     g_avoid_resume_line = false;
     buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
     buddy3_start_line_follow();
+    robot_steering_owner(TRACE_TRACKING);
     g_mode = ROBOT_MODE_LINE;
     tm_printf((UB *)"[cmd] line following ON\n");
 }
@@ -653,6 +656,7 @@ void robot_controller_step(uint32_t now_ms)
             tm_printf((UB *)"[barcode] observed %u; movement disabled\n", (UINT)barcode);
         } else if (barcode_action >= RB_LEFT && barcode_action <= RB_STRAIGHT) {
             bool accepted;
+            robot_steering_owner(TRACE_MOTION);
             buddy3_stop_line_follow();
             buddy2_stop();
             g_motion_is_forward = barcode_action == RB_STRAIGHT;
@@ -777,6 +781,7 @@ bool robot_controller_begin_obstacle_avoidance(void)
     g_resume_line = false;
     g_drive_is_forward  = false;
     g_motion_is_forward = false;
+    robot_steering_owner(TRACE_AVOIDANCE);
     g_mode        = ROBOT_MODE_AVOID;
     return true;
 }

@@ -19,6 +19,7 @@
 #include "pin_config.h"
 #include "robot_hal.h"
 #include "buddy3_steering.h"
+#include "robot_steering_trace.h"
 #include "buddy3_barcode.h"
 #include "buddy3_junction.h"
 
@@ -412,6 +413,40 @@ void buddy3_get_calibration(buddy3_calibration_t *p_calibration)
     }
 }
 
+static uint8_t g_trace_phase = TRACE_LEGACY;
+static void buddy3_stop_with_input(const robot_steering_input_t *input);
+static robot_steering_input_t buddy3_trace_input(void)
+{
+    robot_steering_input_t input = {0};
+    UINT state;
+    unsigned i;
+    DI(state);
+    input.ts_ms = g_last_update_ms;
+    input.phase = g_trace_phase;
+    input.threshold = BUDDY3_EDGE_THRESHOLD;
+    for (i = 0; i < 2; ++i) {
+        unsigned sensor = i == 0 ? BUDDY3_FRONT_LEFT : BUDDY3_FRONT_RIGHT;
+        input.raw[i] = g_state.sensors[sensor].raw;
+        input.norm[i] = g_state.sensors[sensor].normalized;
+        input.calibration[i * 2] = g_sensor_configs[sensor].minimum;
+        input.calibration[i * 2 + 1] = g_sensor_configs[sensor].maximum;
+        if (g_sensor_configs[sensor].line_is_dark) input.dark |= (uint8_t)(1u << i);
+    }
+    EI(state);
+    return input;
+}
+static void buddy3_drive_observed(int16_t left, int16_t right)
+{
+    robot_steering_input_t input = buddy3_trace_input();
+    buddy2_set_motor_pwm_observed(left, right, &input);
+}
+static void buddy3_stop_observed(bool disable)
+{
+    robot_steering_input_t input = buddy3_trace_input();
+    if (disable) buddy3_stop_with_input(&input);
+    else buddy2_stop_observed(&input);
+}
+
 void buddy3_update(uint32_t now_ms)
 {
     ir_processing_state_t next;
@@ -428,6 +463,7 @@ void buddy3_update(uint32_t now_ms)
         return;
     }
     g_last_update_ms = now_ms;
+    g_trace_phase = TRACE_LEGACY;
 
     /* Read the sensors first (slow part, no lock held). */
     raw[0] = hal_adc_read(IR_ADC_CHANNEL_LEFT);
@@ -605,7 +641,8 @@ void buddy3_update(uint32_t now_ms)
         }
         if ((now_ms - g_all_black_since_ms) > BUDDY3_ALL_BLACK_STOP_MS)
         {
-            buddy2_stop();
+            g_trace_phase = TRACE_DARK;
+            buddy3_stop_observed(false);
             if (!g_reported_black)
             {
                 tm_printf((UB *)"[line] all sensors black - lifted or dark surface? stopped\n");
@@ -645,13 +682,14 @@ void buddy3_update(uint32_t now_ms)
             g_junction_last_phase = junction.phase;
         }
         if (junction.handled) {
+            g_trace_phase = junction.stopped ? TRACE_STOP : TRACE_CROSS;
             /* Discard the old correction: do not turn toward a side branch. */
             buddy3_steering_reset(&g_test_steering);
             g_test_last_phase = 255u;
             /* Junction crossing owns its own encoder heading reference. */
             g_straight_hold_active = false;
-            if (junction.stopped) buddy3_stop_line_follow();
-            else buddy2_set_motor_pwm(junction.left, junction.right);
+            if (junction.stopped) buddy3_stop_observed(true);
+            else buddy3_drive_observed(junction.left, junction.right);
             return;
         }
         if (was_crossing) {
@@ -669,13 +707,14 @@ void buddy3_update(uint32_t now_ms)
                       (INT)output.left, (INT)output.right);
             g_test_last_phase = output.phase;
         }
+        g_trace_phase = output.phase;
         if (output.phase == B3_STOP)
         {
-            buddy3_stop_line_follow();
+            buddy3_stop_observed(true);
         }
         else
         {
-            buddy2_set_motor_pwm(output.left, output.right);
+            buddy3_drive_observed(output.left, output.right);
         }
         return;
     }
@@ -685,7 +724,7 @@ void buddy3_update(uint32_t now_ms)
      * following stays on) until a front sensor sees black again. */
     if (BUDDY3_SEARCH_GAVE_UP == g_search_step)
     {
-        buddy2_stop();
+        buddy3_stop_observed(false);
         if (!g_reported_lost)
         {
             tm_printf((UB *)"[line] full spin found no line ahead (dead end?) - stopped\n");
@@ -696,7 +735,7 @@ void buddy3_update(uint32_t now_ms)
 #else
     if ((now_ms - g_last_touch_ms) > BUDDY3_LOST_STOP_MS)
     {
-        buddy2_stop();
+        buddy3_stop_observed(false);
         if (!g_reported_lost)
         {
             tm_printf((UB *)"[line] no line seen for %u ms - stopped\n",
@@ -712,7 +751,7 @@ void buddy3_update(uint32_t now_ms)
     if (!next.line_seen && (!g_seen_since_start ||
         ((now_ms - g_line_lost_since_ms) > BUDDY3_LINE_LOST_STOP_MS)))
     {
-        buddy2_stop();
+        buddy3_stop_observed(false);
         if (!g_reported_lost)
         {
             tm_printf((UB *)"[line] no line under the sensors (L=%u C=%u raw) - waiting\n",
@@ -867,7 +906,8 @@ void buddy3_update(uint32_t now_ms)
         {
             /* straight */
         }
-        buddy2_set_motor_pwm(buddy3_clamp_pwm((float)left_pwm),
+        if (g_search_step != BUDDY3_SEARCH_IDLE) g_trace_phase = TRACE_SEEK;
+        buddy3_drive_observed(buddy3_clamp_pwm((float)left_pwm),
                              buddy3_clamp_pwm((float)right_pwm));
     }
 #else
@@ -876,7 +916,7 @@ void buddy3_update(uint32_t now_ms)
         float correction = (g_steering_configs.proportional_gain * (float)next.line_position) +
                            (g_steering_configs.derivative_gain * derivative);
 
-        buddy2_set_motor_pwm(buddy3_clamp_pwm((float)g_steering_configs.base_pwm + correction),
+        buddy3_drive_observed(buddy3_clamp_pwm((float)g_steering_configs.base_pwm + correction),
                              buddy3_clamp_pwm((float)g_steering_configs.base_pwm - correction));
     }
 #endif
@@ -905,13 +945,17 @@ void buddy3_start_line_follow(void)
 
 void buddy3_stop_line_follow(void)
 {
+    buddy3_stop_with_input(NULL);
+}
+static void buddy3_stop_with_input(const robot_steering_input_t *input)
+{
     g_line_following = false;
     buddy3_junction_reset(&g_junction);
     buddy3_barcode_reset(&g_barcode_decoder);
     g_barcode_ready = false;
     g_state.barcode_ready = false;
     g_straight_hold_active = false;
-    buddy2_stop();
+    buddy2_stop_observed(input);
 }
 
 bool buddy3_line_following(void)

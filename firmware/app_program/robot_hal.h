@@ -39,6 +39,8 @@ void     hal_init(void);
 /* ---- Time ---- */
 /** Microseconds since boot (1 MHz hardware timer). */
 uint64_t hal_time_us(void);
+/** Diagnostic boot identifier; non-cryptographic oscillator noise. */
+uint32_t hal_diagnostic_boot_id(void);
 /** Busy-wait.  Only for very short waits (a few us); use tk_dly_tsk() otherwise. */
 void     hal_delay_us(uint32_t us);
 

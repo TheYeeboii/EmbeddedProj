@@ -77,6 +77,11 @@ int32_t buddy2_motion_init(void);
 /** @brief Run one control step.  Call every BUDDY2_CONTROL_PERIOD_MS. */
 void buddy2_update(uint32_t now_ms);
 
+struct robot_steering_input;
+/* Same motor behavior; associate the exact front-IR decision snapshot. */
+void buddy2_set_motor_pwm_observed(int16_t left_pwm, int16_t right_pwm,
+                                  const struct robot_steering_input *input);
+void buddy2_stop_observed(const struct robot_steering_input *input);
 void buddy2_set_motor_pwm(int16_t left_pwm, int16_t right_pwm);
 void buddy2_stop(void);
 void buddy2_get_motion_state(buddy2_motion_state_t *p_state);

@@ -8,6 +8,7 @@ int tk_cre_mtx(const T_CMTX *c) { (void)c; return 1; }
 int tk_loc_mtx(ID id,int timeout) { (void)id;(void)timeout;return 0; }
 int tk_unl_mtx(ID id) { (void)id;return 0; }
 uint64_t hal_time_us(void) { return fake_us; }
+uint32_t app_now_ms(void) { return (uint32_t)(fake_us / 1000u); }
 void hal_pwm_release_reset(void) {}
 void hal_pwm_pin_init(uint32_t pin,uint32_t wrap) { (void)pin;(void)wrap; }
 void hal_pwm_set_level(uint32_t pin,uint32_t level) { (void)pin;(void)level; }
@@ -23,6 +24,16 @@ int main(void) {
     buddy2_set_trim(50,100);
     fake_us=10000; buddy2_set_motor_pwm(12000,12000);
     assert(g_left_applied_pwm==2400&&g_right_applied_pwm==4800);
+    robot_steering_event_t trace;
+    while(robot_steering_peek(&trace))robot_steering_ack(trace.seq);
+    fake_us=20000;
+    robot_steering_input_t input={0}; input.ts_ms=20; input.norm[0]=900;
+    input.threshold=550; input.phase=TRACE_MICRO;
+    buddy2_set_motor_pwm_observed(10000,20000,&input);
+    assert(robot_steering_peek(&trace) && trace.has_input && trace.input.norm[0]==900);
+    assert(trace.requested[0]==10000 && trace.applied[0]==2000 && trace.applied[1]==8000);
+    buddy2_set_motor_pwm(12000,12000);
+    drain(); /* Clear transitions deliberately introduced by the observed command. */
     assert(!robot_action_peek(&e)); /* Unequal trim alone is not a turn. */
     fake_us=20000; buddy2_set_motor_pwm(8000,12000);
     assert(robot_action_peek(&e)&&e.action==ROBOT_ACTION_TURN_LEFT&&e.ts_ms==20);
