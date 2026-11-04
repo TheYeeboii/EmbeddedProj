@@ -30,6 +30,8 @@
 #include "pin_config.h"
 #include "robot_hal.h"
 #include "robot_action_log.h"
+#include "robot_steering_trace.h"
+#include "app_main.h"
 
 /* ------------------------------------------------------------------ *
  *  Tunables
@@ -246,8 +248,40 @@ static void buddy2_set_motor_pwm_locked(int16_t left_pwm, int16_t right_pwm)
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, right_command);
 }
 
+/* Snapshot while the same mutex protects accepted output and odometry. */
+static int32_t buddy2_trace_distance(float mm)
+{
+    float value = mm * 10.0f;
+    if (!(value == value)) return 0;
+    if (value > 2147480000.0f) return INT32_MAX;
+    if (value < -2147480000.0f) return -INT32_MAX;
+    return (int32_t)value;
+}
+static int16_t buddy2_trace_speed(float speed)
+{
+    int32_t value = buddy2_trace_distance(speed);
+    return value > 32767 ? 32767 : value < -32767 ? -32767 : (int16_t)value;
+}
+static void buddy2_trace(int16_t left, int16_t right,
+                         const robot_steering_input_t *input)
+{
+    robot_steering_event_t event = {0};
+    event.ts_ms = app_now_ms(); /* Same kernel clock as IR and odometry. */
+    event.requested[0] = left; event.requested[1] = right;
+    event.applied[0] = g_left_applied_pwm; event.applied[1] = g_right_applied_pwm;
+    event.distance_x10[0] = buddy2_trace_distance(g_state.left_distance_mm);
+    event.distance_x10[1] = buddy2_trace_distance(g_state.right_distance_mm);
+    event.speed_x10[0] = buddy2_trace_speed(g_state.left_speed_mm_s);
+    event.speed_x10[1] = buddy2_trace_speed(g_state.right_speed_mm_s);
+    event.encoder_ms = g_state.timestamp_ms;
+    event.faults = (uint8_t)(g_state.left_encoder_fault | (g_state.right_encoder_fault << 1));
+    event.has_input = input != NULL;
+    if (input) event.input = *input;
+    robot_steering_record(&event);
+}
+
 /* Caller must hold the mutex. */
-static void buddy2_stop_locked(void)
+static void buddy2_stop_locked(const robot_steering_input_t *input)
 {
     g_motion.active     = false;
     g_left_applied_pwm  = 0;
@@ -256,6 +290,7 @@ static void buddy2_stop_locked(void)
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, 0);
     robot_action_record(ROBOT_ACTION_NONE, ROBOT_ACTION_STOP, 0, 0,
                         (uint32_t)(hal_time_us() / 1000u));
+    buddy2_trace(0, 0, input);
 }
 
 static void buddy2_encoder_pin_init(uint32_t pin)
@@ -301,7 +336,7 @@ int32_t buddy2_motion_init(void)
 
     buddy2_lock();
     g_initialized = true;
-    buddy2_stop_locked();
+    buddy2_stop_locked(NULL);
     buddy2_unlock();
 
     buddy2_reset_encoders();
@@ -310,6 +345,11 @@ int32_t buddy2_motion_init(void)
 }
 
 void buddy2_set_motor_pwm(int16_t left_pwm, int16_t right_pwm)
+{
+    buddy2_set_motor_pwm_observed(left_pwm, right_pwm, NULL);
+}
+void buddy2_set_motor_pwm_observed(int16_t left_pwm, int16_t right_pwm,
+                                  const robot_steering_input_t *input)
 {
     if (!g_initialized)
     {
@@ -324,6 +364,7 @@ void buddy2_set_motor_pwm(int16_t left_pwm, int16_t right_pwm)
     robot_action_record(robot_action_direction_for_pwm(left_pwm, right_pwm),
                         ROBOT_ACTION_PWM, left_pwm, right_pwm,
                         (uint32_t)(hal_time_us() / 1000u));
+    buddy2_trace(left_pwm, right_pwm, input);
     buddy2_unlock();
 }
 
@@ -376,12 +417,16 @@ void buddy2_get_trim(uint8_t *p_left_pct, uint8_t *p_right_pct)
 
 void buddy2_stop(void)
 {
+    buddy2_stop_observed(NULL);
+}
+void buddy2_stop_observed(const robot_steering_input_t *input)
+{
     if (!g_initialized)
     {
         return;
     }
     buddy2_lock();
-    buddy2_stop_locked();
+    buddy2_stop_locked(input);
     buddy2_unlock();
 }
 
@@ -453,6 +498,8 @@ static bool buddy2_start_motion(float left_distance_mm,
                         (int16_t)(g_motion.left_direction * max_pwm),
                         (int16_t)(g_motion.right_direction * max_pwm),
                         (uint32_t)(hal_time_us() / 1000u));
+    buddy2_trace((int16_t)(g_motion.left_direction * max_pwm),
+                 (int16_t)(g_motion.right_direction * max_pwm), NULL);
     buddy2_unlock();
 
     return true;
@@ -586,7 +633,7 @@ void buddy2_update(uint32_t now_ms)
              * stop it.  Raw drive and line following only report it. */
             if ((left_new || right_new) && g_motion.active)
             {
-                buddy2_stop_locked();
+                buddy2_stop_locked(NULL);
             }
         }
     }
@@ -599,7 +646,7 @@ void buddy2_update(uint32_t now_ms)
 
         if (progress >= (g_motion.target_distance_mm - BUDDY2_POSITION_TOLERANCE_MM))
         {
-            buddy2_stop_locked();
+            buddy2_stop_locked(NULL);
         }
         else
         {
@@ -632,6 +679,7 @@ void buddy2_update(uint32_t now_ms)
 
             buddy2_set_motor_pwm_locked(buddy2_clamp_pwm(left_output),
                                         buddy2_clamp_pwm(right_output));
+            buddy2_trace(buddy2_clamp_pwm(left_output), buddy2_clamp_pwm(right_output), NULL);
         }
     }
 

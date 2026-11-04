@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=13">
+  <link rel="stylesheet" href="styles.css?v=14">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -204,6 +204,29 @@
               <div class="position-scale muted small num" aria-hidden="true"><span>-1000</span><span>0</span><span>+1000</span></div>
             </div>
           </div>
+        </section>
+
+        <section id="steering-visual" class="card steering-visual" aria-labelledby="steering-title" data-direction="unknown">
+          <header class="card-header">
+            <h2 id="steering-title">Steering evidence</h2>
+            <span class="badge" data-tone="muted">Commanded direction</span>
+          </header>
+          <div class="steering-live" aria-live="polite">
+            <span class="steering-arrow steering-left" aria-hidden="true">←</span>
+            <div><strong data-steering="live">Waiting for steering trace…</strong><p class="muted small">Arrows show commands. Encoder measurements are separate evidence.</p></div>
+            <span class="steering-arrow steering-right" aria-hidden="true">→</span>
+          </div>
+          <div class="trace-controls">
+            <button class="btn btn-outline btn-sm" data-steering="pause" type="button" aria-pressed="false">Freeze history</button>
+            <button class="btn btn-ghost btn-sm" data-steering="clear" type="button">Clear history</button>
+            <button class="btn btn-ghost btn-sm" data-steering="export" type="button">Export JSON</button>
+            <label class="btn btn-ghost btn-sm">Import replay<input data-steering="import" type="file" accept="application/json,.json" class="trace-file"></label>
+          </div>
+          <p data-steering="notice" class="muted small trace-notice"></p>
+          <p data-steering="axis" class="muted small trace-notice">Green: left · blue: right · grey: straight/stopped · orange: unknown interval. Dots: front L/R normalized IR.</p>
+          <svg preserveAspectRatio="none" data-steering="timeline" class="steering-timeline" viewBox="0 0 900 85" role="img" aria-label="Command duration and front IR history"></svg>
+          <label class="trace-cursor">Inspect event <input data-steering="cursor" type="range" min="0" max="0" value="0" disabled></label>
+          <pre data-steering="detail" class="trace-detail" tabindex="0"></pre>
         </section>
 
         <section class="card" aria-labelledby="serial-title">
@@ -400,6 +423,7 @@
   <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
   <script src="action-log.js?v=1"></script>
-  <script src="app.js?v=19"></script>
+  <script src="steering-view.js?v=1"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

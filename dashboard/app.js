@@ -4,7 +4,8 @@ const topics = {
   status: 'rover/status',
   commands: 'rover/commands',
   debug: 'rover/debug',
-  actions: 'rover/actions'
+  actions: 'rover/actions',
+  steering: 'rover/steering'
 };
 
 const brokerHost = new URLSearchParams(window.location.search).get('broker') || '192.168.137.1';
@@ -35,6 +36,7 @@ const connection = $('#connection');
 const commandResult = $('#command-result');
 const serialLog = $('#serial-log');
 const actionLog = new window.RoverActionLog($('#action-log'), $('#steering-action'));
+const steeringView = new window.RoverSteeringView($('#steering-visual'));
 
 let client = null;
 let serialPaused = false;
@@ -82,11 +84,13 @@ function markSeen() {
 function refreshRobotLink() {
   if (robotOffline) {
     actionLog.unavailable();
+    steeringView.unavailable();
     setBadge('robot-link', 'Offline', 'destructive');
   } else if (!lastSeen) {
     setBadge('robot-link', 'Unknown', 'muted');
   } else if (Date.now() - lastSeen > STALE_AFTER_MS) {
     actionLog.unavailable();
+    steeringView.unavailable();
     setBadge('robot-link', 'Stale', 'warning');
   } else {
     setBadge('robot-link', 'Online', 'success');
@@ -159,8 +163,8 @@ function showTelemetry(data) {
   setText('updated', `Updated ${timeFormat.format(new Date())}`);
 
   /* Telemetry carries raw IR too; debug messages refresh the bars more often. */
-  setText('raw-0', fmt(data.left_ir));
-  setText('raw-1', fmt(data.center_ir));
+  setText('raw-0', fmt(data.center_ir));
+  setText('raw-1', fmt(data.left_ir));
   setText('raw-2', fmt(data.right_ir));
 
   if (typeof data.heading_deg === 'number') {
@@ -203,10 +207,10 @@ function drawSpark() {
 
 function showDebug(data) {
   markSeen();
-  /* Channel order from firmware: 0 front left, 1 front right, 2 barcode. */
+  /* Firmware ADC order: 0 physical front right, 1 physical front left, 2 barcode. */
   [
-    [data.norm_left, data.raw_left],
     [data.norm_center, data.raw_center],
+    [data.norm_left, data.raw_left],
     [data.norm_right, data.raw_right]
   ].forEach(([norm, raw], index) => {
     setText(`norm-${index}`, fmt(norm));
@@ -579,12 +583,13 @@ if (!window.mqtt) {
 
   client.on('connect', () => {
     setConnection('online', 'Connected');
-    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status, topics.actions]);
+    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status, topics.actions, topics.steering]);
   });
   client.on('reconnect', () => setConnection('pending', 'Reconnecting…'));
   client.on('close', () => {
     stopHold(false);
     actionLog.unavailable();
+    steeringView.unavailable();
     setConnection('offline', 'Disconnected');
   });
   client.on('error', () => setConnection('offline', 'Broker error'));
@@ -594,6 +599,9 @@ if (!window.mqtt) {
     if (topic === topics.telemetry) showTelemetry(data);
     else if (topic === topics.actions) {
       if (actionLog.handle(data, serialPaused)) markSeen();
+    }
+    else if (topic === topics.steering) {
+      if (steeringView.handle(data)) markSeen();
     }
     else if (topic === topics.debug) showDebug(data);
     else if (topic === topics.heartbeat) markSeen();

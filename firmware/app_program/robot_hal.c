@@ -15,6 +15,7 @@
 #include "hardware/resets.h"
 #include "hardware/timer.h"
 #include "hardware/structs/watchdog.h"
+#include "hardware/structs/rosc.h"
 
 #include "robot_hal.h"
 
@@ -79,6 +80,16 @@ void hal_init(void)
 }
 
 /* ---------------- Time ---------------- */
+
+uint32_t hal_diagnostic_boot_id(void)
+{
+    uint32_t value = (uint32_t)time_us_64();
+    unsigned i;
+    /* Bounded startup-only sampling. Not an authentication token. */
+    for (i = 0; i < 64; ++i)
+        value = (value << 1) ^ (value >> 31) ^ (rosc_hw->randombit & 1u);
+    return value;
+}
 
 uint64_t hal_time_us(void)
 {

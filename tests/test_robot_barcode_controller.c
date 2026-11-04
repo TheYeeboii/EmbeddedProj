@@ -11,6 +11,7 @@ static uint8_t stage=1, event, servo_angle=90;
 static unsigned starts, stops, lefts, rights, forwards;
 int tm_printf(const unsigned char *fmt, ...) { (void)fmt; return 0; }
 void hal_gpio_input_pullup(uint32_t pin) { (void)pin; }
+void buddy4_reset_run(void) {}
 bool hal_gpio_read(uint32_t pin) { (void)pin; return button_high; }
 void buddy2_stop(void) { motion=false; ++stops; }
 bool buddy2_motion_active(void) { return motion; }

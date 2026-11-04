@@ -37,6 +37,7 @@
 #include "robot_hal.h"
 #include "robot_telemetry.h"
 #include "robot_action_log.h"
+#include "robot_steering_trace.h"
 #include "usb_console_compat.h"
 
 /* ------------------------------------------------------------------ *
@@ -175,6 +176,7 @@ static void controller_task(INT stacd, void *p_exinf)
         }
         robot_controller_step(app_now_ms());
         robot_action_publish(app_now_ms());
+        robot_steering_publish(app_now_ms());
     }
 }
 
@@ -462,6 +464,7 @@ EXPORT INT usermain(void)
     {
         app_fail_forever("buddy2_motion_init");
     }
+    robot_diagnostics_init(hal_diagnostic_boot_id());
     buddy3_init();
     buddy5_init();
     robot_controller_init();

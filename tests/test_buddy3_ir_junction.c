@@ -16,6 +16,14 @@ void buddy2_get_calibration(buddy2_calibration_t *c) {
 }
 void buddy2_set_motor_pwm(int16_t l,int16_t r) { left_pwm=l; right_pwm=r; }
 void buddy2_stop(void) { left_pwm=0; right_pwm=0; }
+static robot_steering_input_t decision_input;
+void buddy2_set_motor_pwm_observed(int16_t l,int16_t r,const struct robot_steering_input *input) {
+    assert(input); decision_input=*input; buddy2_set_motor_pwm(l,r);
+}
+void buddy2_stop_observed(const struct robot_steering_input *input) {
+    if (input) decision_input=*input;
+    buddy2_stop();
+}
 static void observe(unsigned side,uint32_t now,float l,float r) {
     /* Express inputs as black/white, independent of the active calibration. */
     adc[0]=(side&2)?g_sensor_configs[0].maximum:g_sensor_configs[0].minimum;
@@ -37,6 +45,8 @@ int main(void) {
     assert(left_pwm>right_pwm); /* Keep a centred, both-white straight segment straight. */
     observe(1,30,4,6);
     assert(left_pwm<right_pwm); /* A line edge immediately overrides encoder hold. */
+    assert(decision_input.ts_ms==30 && decision_input.phase==TRACE_MICRO);
+    assert(decision_input.norm[0]>=decision_input.threshold && decision_input.norm[1]<decision_input.threshold);
     reset();
     g_test_steering.corner_active=true;
     observe(3,10,0,0);
