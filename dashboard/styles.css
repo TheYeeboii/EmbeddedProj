@@ -456,3 +456,4 @@ kbd {
 
 #barcode-visual .card-header { align-items: flex-start; }
 [data-barcode="status"] { white-space: normal; max-width: 52%; text-align: right; }
+.steering-arrow[hidden] { display: none; }

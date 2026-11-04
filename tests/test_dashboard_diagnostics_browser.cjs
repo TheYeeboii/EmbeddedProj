@@ -29,12 +29,40 @@ const assert=require('node:assert/strict');
  await page.locator('[data-steering="import"]').setInputFiles('/private/tmp/steering-replay.json');
  await page.waitForFunction(()=>document.querySelector('[data-steering="notice"]').textContent.includes('Imported replay'));
  assert.equal(await page.locator('[data-steering="timeline"] rect').count(),18);
+ // Live ownership changes still apply while the historical view is frozen.
+ await page.evaluate(()=>{
+  const sample=steeringView.history.last;
+  window.mockHandlers.message('rover/steering',JSON.stringify({...sample,type:'steering',seq:19,ts_ms:190,owner:1,has_input:0}));
+  for(const [i,action] of ['turn_left','stop_turn_left','turn_right','stop_turn_right'].entries())
+   window.mockHandlers.message('rover/actions',JSON.stringify({type:'action',seq:i+1,ts_ms:190+i,dropped:0,direction:i<2?'left':'right',source:'pwm',action}));
+ });
+ assert.equal(await page.locator('.steering-arrow:visible').count(),0);
+ assert.match(await page.locator('[data-steering="live"]').textContent(),/Manual control/);
+ assert.equal(await page.locator('[data-steering="timeline"] rect').count(),18);
+ assert(!/Trying to turn|Stopped turning/.test(await page.locator('#action-log').textContent()));
+ await page.evaluate(()=>{
+  const sample=steeringView.history.last;
+  window.mockHandlers.message('rover/steering',JSON.stringify({...sample,seq:20,ts_ms:200,owner:2,direction:2}));
+ });
+ assert.equal(await page.locator('.steering-arrow:visible').count(),2);
+ assert.equal(await page.locator('#steering-visual').getAttribute('data-direction'),'right');
+ assert.equal(await page.locator('[data-steering="timeline"] rect').count(),18);
+ await page.locator('#left-speed').fill('-1');
+ await page.locator('#drive-form button[type="submit"]').click();
+ assert.match(await page.locator('#action-log').textContent(),/Dashboard rejected input/);
+ await page.evaluate(()=>{
+  const sample=steeringView.history.last;
+  window.mockHandlers.message('rover/steering',JSON.stringify({...sample,seq:21,ts_ms:210,faults:1}));
+  window.mockHandlers.message('rover/steering',JSON.stringify({...sample,seq:22,ts_ms:220,owner:0,direction:0,phase:9,faults:1}));
+ });
+ assert.match(await page.locator('#action-log').textContent(),/Encoder fault: left/);
+ assert.match(await page.locator('#action-log').textContent(),/Stop commanded: all sensors black/);
  await page.evaluate(()=>window.mockHandlers.close());
  assert.equal(await page.locator('#steering-visual').getAttribute('data-direction'),'unknown');
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
  await page.locator('#steering-visual').screenshot({path:'/private/tmp/steering-mobile.png'});
  assert.deepEqual(errors,[]);
- console.log('PASS: browser arrows/timeline/freeze/inspection/export/import/disconnect; desktop and mobile layout, no page errors');
+ console.log('PASS: browser arrows/timeline/freeze/inspection/export/import/disconnect; manual arrows collapse, autonomous restore, quiet turn logs, faults/stops/rejections; desktop/mobile, no page errors');
  await browser.close();
-})().catch(e=>{console.error(e);process.exitCode=1;});
+})().catch(e=>{console.error(e);process.exit(1);});
