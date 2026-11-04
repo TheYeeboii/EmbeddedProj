@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=17">
+  <link rel="stylesheet" href="styles.css?v=18">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -237,6 +237,19 @@
             <button data-barcode="export" class="btn btn-ghost btn-sm" type="button">Export scans</button>
             <label class="btn btn-ghost btn-sm">Import replay<input data-barcode="import" type="file" accept="application/json,.json" class="trace-file"></label>
           </div>
+          <form id="barcode-config-form" class="barcode-configuration" novalidate>
+            <strong>Reader setup — configure while stopped</strong>
+            <p data-barcode-config="active" class="muted small">Waiting for reader settings…</p>
+            <div class="barcode-reference-controls">
+              <label>Minimum supported element (mm)<input data-barcode-config="minimum" class="input num" type="number" min="1" max="1000" step="1" value="3" required></label>
+              <label>Sensor offset from wheel midpoint (mm)<input data-barcode-config="offset" class="input num" type="number" min="-500" max="500" step="1" placeholder="Measure first: left +, right −" required></label>
+            </div>
+            <p class="muted small">Measure sideways from the midpoint between the wheels to the sensing spot, not from the body's edge. Left is positive; right is negative. The minimum is a resolution bound, not an exact printed bar width.</p>
+            <button data-barcode-config="apply" class="btn btn-outline btn-sm" type="submit" disabled>Apply reader settings</button>
+            <p data-barcode-config="status" class="muted small" role="status">Waiting for fresh rover telemetry. Settings can only be applied while stopped.</p>
+            <p class="muted small">Settings are RAM-only and reset on reboot. Applying settings does not start the motors; barcode actions remain disabled.</p>
+          </form>
+
           <p data-barcode="notice" class="muted small trace-notice"></p>
           <label class="barcode-field">Inspect scan <select data-barcode="scan" disabled></select></label>
           <p data-barcode="outcome" class="barcode-outcome" role="status"></p>
@@ -455,7 +468,8 @@
   <script src="action-log.js?v=2"></script>
   <script src="steering-view.js?v=2"></script>
   <script src="barcode-model.js?v=1"></script>
-  <script src="barcode-view.js?v=1"></script>
-  <script src="app.js?v=23"></script>
+  <script src="barcode-view.js?v=2"></script>
+  <script src="barcode-config.js?v=1"></script>
+  <script src="app.js?v=24"></script>
 </body>
 </html>

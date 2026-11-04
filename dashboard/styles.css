@@ -457,3 +457,8 @@ kbd {
 #barcode-visual .card-header { align-items: flex-start; }
 [data-barcode="status"] { white-space: normal; max-width: 52%; text-align: right; }
 .steering-arrow[hidden] { display: none; }
+
+.barcode-configuration { margin: 1rem 1.25rem; padding: 1rem; border: 1px solid var(--border); border-radius: .5rem; }
+.barcode-configuration .barcode-reference-controls { margin: .75rem 0; }
+.barcode-configuration input { max-width: 100%; }
+.barcode-configuration p { margin: .6rem 0; }

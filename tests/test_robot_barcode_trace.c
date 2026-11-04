@@ -69,6 +69,12 @@ static void replay(bool reverse,bool interrupt)
 }
 int main(int argc,char **argv)
 {
+    reset();
+    robot_barcode_packet_t initial;
+    assert(robot_barcode_packet_peek(&initial,0));
+    assert(initial.type==BC_PACKET_STATE && initial.config[5]==25 && initial.config[3]==400);
+    robot_barcode_trace_enable(false);
+    assert(robot_barcode_packet_peek(&initial,0) && initial.state==0 && initial.config[5]==0);
     reset();if(argc>1){fixture=fopen(argv[1],"w");assert(fixture);}
     replay(false,false);replay(true,false);replay(false,true);
     if(fixture){fclose(fixture);fixture=NULL;}
@@ -104,6 +110,9 @@ int main(int argc,char **argv)
     for(unsigned i=0;i<4;++i){f->samples[i].ts_ms=UINT32_MAX;f->samples[i].raw=4095;f->samples[i].normalized=1000;f->samples[i].left_x10=-INT32_MAX;f->samples[i].right_x10=INT32_MAX;f->samples[i].position_x100=INT32_MAX;f->samples[i].black=1;}
     robot_barcode_publish(UINT32_MAX);
     f->done=true;f->state=5;f->reason=B3BC_FORMAT;f->format=CODE39_BAD_WIDTH;f->partial_x100=f->trailing_x100=f->narrow_x100=f->ratio_x100=f->max_gap_x100=INT32_MAX;f->sample_drops=UINT32_MAX;dropped_scans=UINT32_MAX;
+    robot_barcode_publish(UINT32_MAX);
+    for(unsigned i=0;i<11;++i)configuration[i]=INT32_MAX;
+    have_state=false;packet_sequence=UINT32_MAX-1;reader_state=6;reader_blocked=31;
     robot_barcode_publish(UINT32_MAX);
     printf("PASS: barcode capture-to-MQTT replay, forward/reverse F, aborted evidence, raw bounds, pressure/retry, stale ack; max payload %u bytes\n",largest);
 }

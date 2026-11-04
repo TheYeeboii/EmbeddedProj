@@ -25,3 +25,5 @@ node tests/test_steering_history.cjs
 node tests/test_barcode_history.cjs
 node tests/test_barcode_wire.cjs "$build_dir/barcode-wire.ndjson"
 node --check dashboard/barcode-view.js
+node --check dashboard/barcode-config.js
+node tests/test_barcode_config.cjs

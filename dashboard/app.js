@@ -38,6 +38,9 @@ const serialLog = $('#serial-log');
 const actionLog = new window.RoverActionLog($('#action-log'), $('#steering-action'));
 const steeringView = new window.RoverSteeringView($('#steering-visual'));
 const barcodeView = new window.RoverBarcodeView($('#barcode-visual'));
+const barcodeConfiguration = new window.RoverBarcodeConfiguration($('#barcode-config-form'), {
+  send: (command, values) => sendCommand(command, values, { quiet: true })
+});
 
 let client = null;
 let serialPaused = false;
@@ -87,6 +90,7 @@ function refreshRobotLink() {
     actionLog.unavailable();
     steeringView.unavailable();
     barcodeView.unavailable();
+    barcodeConfiguration.unavailable();
     setBadge('robot-link', 'Offline', 'destructive');
   } else if (!lastSeen) {
     setBadge('robot-link', 'Unknown', 'muted');
@@ -94,6 +98,7 @@ function refreshRobotLink() {
     actionLog.unavailable();
     steeringView.unavailable();
     barcodeView.unavailable();
+    barcodeConfiguration.unavailable();
     setBadge('robot-link', 'Stale', 'warning');
   } else {
     setBadge('robot-link', 'Online', 'success');
@@ -135,6 +140,7 @@ function showTelemetry(data) {
   setText('state', sensorsOk ? 'All sensors OK' : (data.state === 'compass_error' ? 'Compass error' : (data.state || 'Unknown')));
   $('#state').style.color = sensorsOk ? '' : 'var(--warning)';
 
+  barcodeConfiguration.robot(data.mode);
   const mode = data.mode || 'idle';
   setBadge('mode', mode, MODE_TONES[mode] || 'muted');
 
@@ -596,6 +602,7 @@ if (!window.mqtt) {
     actionLog.unavailable();
     steeringView.unavailable();
     barcodeView.unavailable();
+    barcodeConfiguration.unavailable();
     setConnection('offline', 'Disconnected');
   });
   client.on('error', () => setConnection('offline', 'Broker error'));
@@ -613,7 +620,10 @@ if (!window.mqtt) {
       }
     }
     else if (topic === topics.barcode) {
-      if (barcodeView.handle(data)) markSeen();
+      if (barcodeView.handle(data)) {
+        barcodeConfiguration.reader(data);
+        markSeen();
+      }
     }
     else if (topic === topics.debug) showDebug(data);
     else if (topic === topics.heartbeat) markSeen();

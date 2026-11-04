@@ -23,7 +23,7 @@ static int active_slot = -1;
 static int32_t configuration[11];
 static uint32_t scan_sequence, packet_sequence, dropped_scans, last_state;
 static bool enabled, have_state;
-static uint8_t reader_state;
+static uint8_t reader_state, reader_blocked;
 
 int32_t robot_barcode_scaled(float value, float scale)
 {
@@ -36,7 +36,10 @@ int32_t robot_barcode_scaled(float value, float scale)
 void robot_barcode_trace_enable(bool value)
 {
     UINT lock;
-    DI(lock); enabled = value; reader_state = value ? 1u : 0u; EI(lock);
+    unsigned i;
+    DI(lock); enabled = value; reader_state = value ? 1u : 0u;
+    if (!value) for (i = 0; i < 11; ++i) configuration[i] = 0;
+    EI(lock);
 }
 void robot_barcode_trace_configure(const int32_t config[11])
 {
@@ -44,7 +47,7 @@ void robot_barcode_trace_configure(const int32_t config[11])
     unsigned i;
     DI(lock);
     for (i = 0; i < 11; ++i) configuration[i] = config[i];
-    enabled = true; reader_state = 1;
+    enabled = true; reader_state = 1; reader_blocked = 1;
     EI(lock);
 }
 void robot_barcode_trace_cancel(uint32_t now)
@@ -69,6 +72,7 @@ void robot_barcode_trace_observe(const buddy3_barcode_decoder_t *s,
     robot_barcode_frame_t *f;
     unsigned i;
     DI(lock);
+    reader_blocked = o->blocked;
     reader_state = !enabled ? 0 : o->blocked ? 6 : s->active ? (s->count == 29 ? 3 : 2) : 1;
     if (!was_active && s->active) {
         unsigned slot = 0;
@@ -146,7 +150,8 @@ bool robot_barcode_packet_peek(robot_barcode_packet_t *p, uint32_t now)
     p->seq = packet_sequence + 1; p->dropped = dropped_scans;
     if (slot == BARCODE_TRACE_FRAMES) {
         if (have_state && now - last_state < 1000u) { EI(lock); return false; }
-        p->type = BC_PACKET_STATE; p->state = reader_state; p->ts_ms = now;
+        p->type = BC_PACKET_STATE; p->state = reader_state; p->ts_ms = now; p->blocked = reader_blocked;
+        for (i = 0; i < 11; ++i) p->config[i] = configuration[i];
         EI(lock); return true;
     }
     {

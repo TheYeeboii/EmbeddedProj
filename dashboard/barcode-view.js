@@ -35,7 +35,12 @@
       return true;
     }
     unavailable(){this.history.unavailable();this.renderLive();}
-    renderLive(){this.find('status').textContent=this.history.state===null?'Reader state unavailable / buffered history':states[this.history.state];}
+    renderLive(){
+      const state=this.history.state,blocked=this.history.last?.blocked??0;
+      this.find('status').textContent=state===null?'Reader state unavailable / buffered history':
+        state===6?(blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
+          blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21 to start':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
+    }
     frames(){return this.frozen||this.history.frames;}
     frame(){const frames=this.frames();return frames.find(f=>`${f.boot}:${f.id}`===this.selected)||frames[frames.length-1];}
     render(){

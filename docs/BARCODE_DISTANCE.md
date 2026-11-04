@@ -59,7 +59,15 @@ more resolution may be needed with sensor offset and task scheduling jitter.
 The actual barcode must also be sampled at least four times per narrow width.
 Do not change encoder calibration just to bypass the resolution checks.
 
-While stopped:
+The dashboard now has **Reader setup — configure while stopped** inside the
+barcode evidence panel. Wait for fresh telemetry showing idle, enter the minimum
+supported element (3 mm is an initial resolution bound for the current encoder
+defaults), and enter the measured signed sensor offset. Apply sends only
+configuration and observe-mode commands; it never starts motion. Confirm the
+reader is enabled, then press GP21. Older firmware can report enabled without
+confirming exact settings; current firmware includes them in idle snapshots.
+
+For USB/manual configuration while stopped:
 
 ```text
 barcode_config MIN_ELEMENT_MM OFFSET_LEFT_MM

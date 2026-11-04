@@ -6,11 +6,28 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
  const page=await browser.newPage({viewport:{width:1280,height:960}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://**/*',route=>{
-  if(route.request().url().includes('mqtt.min.js'))return route.fulfill({contentType:'application/javascript',body:`window.mockHandlers={};window.mqtt={connect:()=>({connected:true,on:(name,fn)=>window.mockHandlers[name]=fn,subscribe:()=>{},publish:()=>{}})};`});
+  if(route.request().url().includes('mqtt.min.js'))return route.fulfill({contentType:'application/javascript',body:`window.mockHandlers={};window.sentCommands=[];window.mqtt={connect:()=>({connected:true,on:(name,fn)=>window.mockHandlers[name]=fn,subscribe:()=>{},publish:(topic,body)=>window.sentCommands.push({topic,body:JSON.parse(body)})})};`});
   if(route.request().url().includes('lucide'))return route.fulfill({contentType:'application/javascript',body:'window.lucide={createIcons:()=>{}};'});
   return route.abort();
  });
  await page.goto(process.env.DASHBOARD_URL||'http://127.0.0.1:8765/',{waitUntil:'networkidle'});
+ // Configuration is available before any scan, but only with fresh idle telemetry.
+ assert(await page.locator('[data-barcode-config="apply"]').isDisabled());
+ await page.evaluate(()=>{
+  window.mockHandlers.connect();
+  window.mockHandlers.message('rover/telemetry',JSON.stringify({mode:'idle',state:'online',ts_ms:0}));
+  window.mockHandlers.message('rover/barcode',JSON.stringify({v:1,type:'barcode_state',boot:99,seq:1,scan:0,ts_ms:0,lag_ms:0,dropped:0,state:0,count:0,samples:0,sample_drops:0,partial:0,blocked:1,config:Array(11).fill(0)}));
+ });
+ assert(await page.locator('[data-barcode-config="apply"]').isEnabled());
+ await page.locator('[data-barcode-config="offset"]').fill('100'); // Synthetic test measurement only.
+ await page.locator('[data-barcode-config="apply"]').click();
+ assert.deepEqual(await page.evaluate(()=>window.sentCommands.map(x=>x.body)),[{cmd:'barcode_config',min_element_mm:3,offset_left_mm:100},{cmd:'barcode_mode',mode:1}]);
+ await page.evaluate(()=>window.mockHandlers.message('rover/barcode',JSON.stringify({v:1,type:'barcode_state',boot:99,seq:2,scan:0,ts_ms:10,lag_ms:0,dropped:0,state:6,count:0,samples:0,sample_drops:0,partial:0,blocked:1,config:[2000,2500,0,400,600,300,1000,1500,650,3870,3870]})));
+ assert.match(await page.locator('[data-barcode-config="status"]').textContent(),/confirmed/);
+ assert.match(await page.locator('[data-barcode="status"]').textContent(),/press GP21/);
+ await page.evaluate(()=>window.mockHandlers.message('rover/telemetry',JSON.stringify({mode:'line',state:'online',ts_ms:20})));
+ assert(await page.locator('[data-barcode-config="apply"]').isDisabled());
+ await page.reload({waitUntil:'networkidle'});
  const send=async messages=>page.evaluate(messages=>{for(const p of messages)window.mockHandlers.message('rover/barcode',JSON.stringify(p));},messages);
  const cut=packets.findIndex(p=>p.type==='barcode_edges'&&p.rows.some(r=>r[0]>=4))+1;
  await send(packets.slice(0,cut));

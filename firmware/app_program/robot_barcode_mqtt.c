@@ -4,6 +4,15 @@
 #include "robot_barcode_trace.h"
 #include "robot_steering_trace.h"
 
+static INT barcode_append_config(char *out, const robot_barcode_packet_t *p)
+{
+    return tm_sprintf((UB *)out, (UB *)
+        ",\"config\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
+        (INT)p->config[0], (INT)p->config[1], (INT)p->config[2], (INT)p->config[3],
+        (INT)p->config[4], (INT)p->config[5], (INT)p->config[6], (INT)p->config[7],
+        (INT)p->config[8], (INT)p->config[9], (INT)p->config[10]);
+}
+
 void robot_barcode_publish(uint32_t now)
 {
     static char payload[COMMS_PAYLOAD_MAX];
@@ -20,11 +29,8 @@ void robot_barcode_publish(uint32_t now)
             types[p.type], (UINT)robot_diagnostics_session(), (UINT)p.seq, (UINT)p.scan,
             (UINT)p.ts_ms, (UINT)p.dropped, (UINT)(now - p.ts_ms));
         if (p.type == BC_PACKET_START) {
-            length += tm_sprintf((UB *)payload+length, (UB *)
-                ",\"leading\":%d,\"config\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
-                (INT)p.leading, (INT)p.config[0], (INT)p.config[1], (INT)p.config[2],
-                (INT)p.config[3], (INT)p.config[4], (INT)p.config[5], (INT)p.config[6],
-                (INT)p.config[7], (INT)p.config[8], (INT)p.config[9], (INT)p.config[10]);
+            length += tm_sprintf((UB *)payload+length, (UB *)",\"leading\":%d", (INT)p.leading);
+            length += barcode_append_config(payload+length,&p);
         } else if (p.type == BC_PACKET_EDGES || p.type == BC_PACKET_SAMPLES) {
             length += tm_sprintf((UB *)payload+length, (UB *)",\"rows\":[");
             for (i = 0; i < p.count; ++i) {
@@ -52,6 +58,7 @@ void robot_barcode_publish(uint32_t now)
                 (UINT)p.reason, (UINT)p.format, (UINT)p.symbol, (UINT)p.reversed,
                 (INT)p.leading, (INT)p.trailing, (INT)p.narrow, (INT)p.ratio, (INT)p.max_gap);
         }
+        if (p.type == BC_PACKET_STATE) length += barcode_append_config(payload+length,&p);
         (void)tm_sprintf((UB *)payload+length,(UB *)"}");
         if (!comms_publish(COMMS_TOPIC_BARCODE, payload)) return;
         robot_barcode_packet_ack(&p);
