@@ -36,7 +36,8 @@ static const char *const g_topic_names[COMMS_TOPIC_COUNT] =
     "rover/heartbeat",
     "rover/status",
     "rover/actions",
-    "rover/steering"
+    "rover/steering",
+    "rover/barcode"
 };
 
 static mqtt_client_t *g_client            = NULL;

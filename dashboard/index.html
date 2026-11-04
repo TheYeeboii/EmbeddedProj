@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=15">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -229,6 +229,36 @@
           <pre data-steering="detail" class="trace-detail" tabindex="0"></pre>
         </section>
 
+        <section id="barcode-visual" class="card" aria-labelledby="barcode-title">
+          <header class="card-header"><h2 id="barcode-title">Barcode scan evidence</h2><span data-barcode="status" class="badge" data-tone="muted">Waiting for reader…</span></header>
+          <div class="trace-controls">
+            <button data-barcode="pause" class="btn btn-outline btn-sm" type="button" aria-pressed="false">Freeze scans</button>
+            <button data-barcode="clear" class="btn btn-ghost btn-sm" type="button">Clear history</button>
+            <button data-barcode="export" class="btn btn-ghost btn-sm" type="button">Export scans</button>
+            <label class="btn btn-ghost btn-sm">Import replay<input data-barcode="import" type="file" accept="application/json,.json" class="trace-file"></label>
+          </div>
+          <p data-barcode="notice" class="muted small trace-notice"></p>
+          <label class="barcode-field">Inspect scan <select data-barcode="scan" disabled></select></label>
+          <p data-barcode="outcome" class="barcode-outcome" role="status"></p>
+          <pre data-barcode="summary" class="trace-detail" tabindex="0"></pre>
+          <div class="barcode-reference-controls">
+            <label>Expected letter from print <select data-barcode="expected" aria-label="Expected letter from print"></select></label>
+            <label>Reference orientation <select data-barcode="orientation"><option value="validated">Use validated orientation</option><option value="forward">Forward</option><option value="reverse">Flipped</option></select></label>
+            <label>Reference wide:narrow <select data-barcode="ratio"><option value="3">3:1</option><option value="2">2:1</option></select></label>
+          </div>
+          <p class="small trace-notice">Measured bars and spaces — select a segment or element below. Orange marks unknown transport data, not a confirmed sensing error.</p>
+          <svg data-barcode="strip" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Measured barcode widths"></svg>
+          <p class="small trace-notice">Expected reference — selected independently of the decoded letter.</p>
+          <svg data-barcode="reference" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Selected expected Code 39 reference"></svg>
+          <p data-barcode="scale" class="muted small trace-notice"></p>
+          <div data-barcode="elements" class="barcode-elements" aria-label="Measured bar and space details"></div>
+          <pre data-barcode="detail" class="trace-detail" tabindex="0"></pre>
+          <p class="small trace-notice">Side sensor over rover time: blue = raw /4095, green = normalized /1000, dashed lines = hysteresis thresholds. Gaps in samples break the curves.</p>
+          <svg data-barcode="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Side IR signal history"></svg>
+          <label class="trace-cursor">Inspect sample <input data-barcode="sample" type="range" min="0" max="0" value="0" disabled></label>
+          <pre data-barcode="sample-detail" class="trace-detail" tabindex="0"></pre>
+        </section>
+
         <section class="card" aria-labelledby="serial-title">
           <header class="card-header">
             <h2 id="serial-title">Serial monitor</h2>
@@ -424,6 +454,8 @@
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
   <script src="action-log.js?v=1"></script>
   <script src="steering-view.js?v=1"></script>
-  <script src="app.js?v=20"></script>
+  <script src="barcode-model.js?v=1"></script>
+  <script src="barcode-view.js?v=1"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>

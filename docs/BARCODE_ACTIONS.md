@@ -23,13 +23,14 @@ numeric 1/2/3 motor-action path and its helper module have been removed.
 ## Outstanding issue gates
 
 - [#12](https://github.com/TheYeeboii/EmbeddedProj/issues/12): distance capture is
-  implemented; raw per-wheel trace export and real IR traces remain.
+  implemented with raw per-wheel diagnostic export; real IR traces remain.
 - [#13](https://github.com/TheYeeboii/EmbeddedProj/issues/13): adaptive single-letter
   Code 39 is implemented with host tests; physical evidence remains outstanding.
 - [#14](https://github.com/TheYeeboii/EmbeddedProj/issues/14): both print orientations
   are tested in software; real flipped-print trials remain outstanding.
 - [#15](https://github.com/TheYeeboii/EmbeddedProj/issues/15): USB results/rejections
-  and loss counts are implemented. MQTT event history and reconnect tests remain.
+  and loss counts are implemented. MQTT scan history, gap/reconnect handling and
+  export/replay are now implemented; physical radio tests remain.
 - [#16](https://github.com/TheYeeboii/EmbeddedProj/issues/16): physical qualification
   remains open. Target at least 95% successful reads and no wrong-letter accepts.
 - [#17](https://github.com/TheYeeboii/EmbeddedProj/issues/17): mapping remains
