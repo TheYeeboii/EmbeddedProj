@@ -6,7 +6,8 @@ const topics = {
   debug: 'rover/debug',
   actions: 'rover/actions',
   steering: 'rover/steering',
-  barcode: 'rover/barcode'
+  barcode: 'rover/barcode',
+  irStream: 'rover/ir'
 };
 
 const brokerHost = new URLSearchParams(window.location.search).get('broker') || '192.168.137.1';
@@ -38,6 +39,7 @@ const serialLog = $('#serial-log');
 const actionLog = new window.RoverActionLog($('#action-log'), $('#steering-action'));
 const steeringView = new window.RoverSteeringView($('#steering-visual'));
 const barcodeView = new window.RoverBarcodeView($('#barcode-visual'));
+const irStreamView = new window.RoverIRStreamView($('#barcode-visual'));
 const barcodeConfiguration = new window.RoverBarcodeConfiguration($('#barcode-config-form'), {
   send: (command, values) => sendCommand(command, values, { quiet: true })
 });
@@ -90,6 +92,7 @@ function refreshRobotLink() {
     actionLog.unavailable();
     steeringView.unavailable();
     barcodeView.unavailable();
+    irStreamView.unavailable();
     barcodeConfiguration.unavailable();
     setBadge('robot-link', 'Offline', 'destructive');
   } else if (!lastSeen) {
@@ -98,6 +101,7 @@ function refreshRobotLink() {
     actionLog.unavailable();
     steeringView.unavailable();
     barcodeView.unavailable();
+    irStreamView.unavailable();
     barcodeConfiguration.unavailable();
     setBadge('robot-link', 'Stale', 'warning');
   } else {
@@ -366,7 +370,7 @@ document.querySelectorAll('[data-command]').forEach((button) => {
 });
 
 function isTyping(target) {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable;
 }
 
 document.addEventListener('keydown', (event) => {
@@ -594,7 +598,7 @@ if (!window.mqtt) {
 
   client.on('connect', () => {
     setConnection('online', 'Connected');
-    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status, topics.actions, topics.steering, topics.barcode]);
+    client.subscribe([topics.telemetry, topics.heartbeat, topics.debug, topics.status, topics.actions, topics.steering, topics.barcode, topics.irStream]);
   });
   client.on('reconnect', () => setConnection('pending', 'Reconnecting…'));
   client.on('close', () => {
@@ -602,6 +606,7 @@ if (!window.mqtt) {
     actionLog.unavailable();
     steeringView.unavailable();
     barcodeView.unavailable();
+    irStreamView.unavailable();
     barcodeConfiguration.unavailable();
     setConnection('offline', 'Disconnected');
   });
@@ -624,6 +629,9 @@ if (!window.mqtt) {
         barcodeConfiguration.reader(data);
         markSeen();
       }
+    }
+    else if (topic === topics.irStream) {
+      if (irStreamView.handle(data)) markSeen();
     }
     else if (topic === topics.debug) showDebug(data);
     else if (topic === topics.heartbeat) markSeen();

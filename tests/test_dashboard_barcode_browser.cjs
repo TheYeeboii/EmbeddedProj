@@ -11,6 +11,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
   return route.abort();
  });
  await page.goto(process.env.DASHBOARD_URL||'http://127.0.0.1:8765/',{waitUntil:'networkidle'});
+ await page.locator('#ir-attempts-tab').click();
  // Configuration is available before any scan, but only with fresh idle telemetry.
  assert(await page.locator('[data-barcode-config="apply"]').isDisabled());
  await page.evaluate(()=>{
@@ -32,6 +33,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
  await page.evaluate(()=>window.mockHandlers.message('rover/telemetry',JSON.stringify({mode:'line',state:'online',ts_ms:20})));
  assert(await page.locator('[data-barcode-config="apply"]').isDisabled());
  await page.reload({waitUntil:'networkidle'});
+ await page.locator('#ir-attempts-tab').click();
  const send=async messages=>page.evaluate(messages=>{for(const p of messages)window.mockHandlers.message('rover/barcode',JSON.stringify(p));},messages);
  const cut=packets.findIndex(p=>p.type==='barcode_edges'&&p.rows.some(r=>r[0]>=4))+1;
  await send(packets.slice(0,cut));

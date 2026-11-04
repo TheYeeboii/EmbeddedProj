@@ -43,6 +43,17 @@ static void reset(void) {
     buddy3_init(); buddy3_set_test_stage(1); buddy3_start_line_follow();
 }
 int main(void) {
+    /* Raw IR is observable before enabling the decoder, while stationary. */
+    buddy3_init();
+    adc[0]=g_sensor_configs[0].minimum;adc[1]=g_sensor_configs[1].minimum;
+    adc[2]=g_sensor_configs[2].maximum;buddy3_update(10);
+    adc[2]=g_sensor_configs[2].minimum;buddy3_update(20);
+    robot_ir_stream_batch_t stream;
+    assert(robot_ir_stream_peek(&stream)&&stream.count==2);
+    assert(stream.rows[0].black==1 && stream.rows[1].black==0);
+    assert(stream.rows[0].left_x10==0 && stream.rows[0].right_x10==0);
+    assert(!buddy3_barcode_calibrated() && !g_barcode_decoder.active);
+    robot_ir_stream_ack(&stream);
     /* Exercise real ADC normalization, encoder adapter and event handoff. */
     const char *patterns[] = {"010010100", "001011000", "010010100"};
     float boundaries[30];

@@ -21,6 +21,8 @@
 #include "buddy3_steering.h"
 #include "robot_steering_trace.h"
 #include "robot_barcode_trace.h"
+#include "robot_ir_stream.h"
+_Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS, "IR stream cadence mismatch");
 #include "buddy3_barcode.h"
 #include "buddy3_junction.h"
 
@@ -358,6 +360,8 @@ static void buddy3_decode_barcode(uint16_t sensor_value, uint16_t raw, uint32_t 
     if (buddy3_junction_active(&g_junction) ||
         (g_test_last_phase != B3_TRACK && g_test_last_phase != B3_MICRO)) observation.blocked |= 16;
     if (travel > 0) unfinished += travel;
+    robot_ir_stream_record(&observation,g_sensor_configs[2].minimum,
+                           g_sensor_configs[2].maximum,g_sensor_configs[2].line_is_dark);
     emitted = buddy3_barcode_step(&g_barcode_decoder, &g_barcode_config,
               g_barcode_black, travel, now_ms, permitted, &event);
     robot_barcode_trace_observe(&g_barcode_decoder,&observation,was_active,unfinished,

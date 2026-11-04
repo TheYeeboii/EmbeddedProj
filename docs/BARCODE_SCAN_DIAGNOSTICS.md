@@ -1,6 +1,30 @@
 # Barcode scan evidence — issue #19
 
-## What the panel shows
+## Two independent evidence views
+
+The default **Continuous IR** tab records everything the side sensor observes,
+including when the decoder is disabled, suspended or has never found a barcode.
+It also works when white/black paper is moved under a stationary rover. No reader
+configuration, encoder travel or leading quiet zone is required for this view.
+The live black/white indicator and time strip use the sensor's hysteresis state;
+the raw and normalized plots expose optical/calibration problems. A sample can
+show black without becoming a valid barcode element. Firmware still needs to be
+running and connected to MQTT; classification is evidence, not ground truth.
+
+The **Barcode attempts** tab retains the distance-based decoder evidence described
+below, including rejected and interrupted attempts. Reader setup is in this tab.
+Switching tabs only changes the display: both streams continue to record, and
+neither tab sends motor commands. Freeze/replay, clear, export and import are
+independent for the two histories. Select a time window and inspect individual
+continuous observations; export before clearing or leaving the page.
+
+The continuous strip uses **time**, not printed millimetres. Grey means unknown
+or missing observations, never assumed white. Narrow black pulses are retained
+between MQTT updates rather than replaced by the latest white reading. A black
+transition that was never sampled cannot be reconstructed. Live state becomes
+unavailable on disconnect or stale data, while recorded evidence remains.
+
+## What the barcode-attempt panel shows
 
 The dashboard now reports disabled/waiting/capturing/trailing-quiet/accepted/
 rejected/suspended states and grows a measured black/white strip during a scan.
@@ -20,8 +44,8 @@ Afterward, measured first-character widths estimate the shared scale. No
 
 The measured strip shows the contiguous confirmed prefix. Orange means an
 unknown transport interval; later received widths remain inspectable by index
-but are not placed at invented physical positions. A grey unfinished segment
-is not a classified/validated bar. Leading/trailing white distances appear in
+but are not placed at invented physical positions. An unfinished segment keeps its observed black/white colour with a dashed
+outline; its width is provisional and it is not a validated barcode element. Leading/trailing white distances appear in
 the scan summary. Narrow/wide classes require complete nine-element groups.
 Reference differences highlight mismatched classes, not a proven root cause.
 
@@ -74,6 +98,28 @@ missing row indices, conflicting rows, missing metadata, sample drops and stale
 reader state are visible. A reconnect does not promise replay of data already
 accepted by the mailbox. Connect BEFORE the passage for complete evidence.
 
+## Continuous protocol v1 (`rover/ir`, non-retained)
+
+A separate fixed ring retains the newest 256 observations (about 2.56 seconds
+at the nominal 10 ms sampling period). Overflow increments a drop counter.
+The controller publishes up to two batches per iteration, normally four samples
+per packet (about 25 packets/second). A final short batch waits at most 40 ms
+before being offered to the nonblocking mailbox. It shares finite MQTT capacity
+with other diagnostics; sequence/timing gaps remain visible rather than hidden.
+
+Packets contain `v:1`, `type:"ir_stream"`, shared diagnostic `boot`, newest-row
+`ts_ms`, queue `lag_ms`, cumulative `dropped`, `period_ms:10`, `white:400`,
+`black:600` and up to four `rows`:
+
+`[sample_seq, sample_ms, raw, normalized, hysteresis_black, left_0.1mm,
+right_0.1mm, decoder_blocked_flags, raw_minimum, raw_maximum, inverted]`.
+
+Decoder blocked flags are informational and never gate this recorder. Calibration
+travels with each observation. The browser retains at most 6000 samples (about
+60 seconds), rejects duplicates/out-of-order data, marks missing observations,
+and supports a bounded 4 MB JSON export/import (`rover-ir-stream-v1`). Older
+firmware without this topic leaves the continuous view unavailable, not white.
+
 ## Protocol v1 (`rover/barcode`, non-retained)
 
 All packets contain `v`, `type`, diagnostic `boot`, packet `seq`, `scan`, kernel
@@ -125,6 +171,18 @@ mailbox limit. No broker authentication/configuration changes are included.
 
 ## Testing
 
+Continuous regressions cover black pulses with stationary encoders and blocked
+or unconfigured decoding, queue pressure/retry/wrap, calibration serialization,
+and actual C-generated packets through the JS history. The browser test
+`tests/test_dashboard_ir_stream_browser.cjs` accepts continuous and barcode
+NDJSON fixture paths; it verifies black without barcode frames, independent
+buffers/tabs, unknown gaps, partial black elements, export/import, disconnect,
+mobile layout and that tab/dropdown keyboard navigation sends no motor command.
+Compile `tests/test_robot_ir_stream.c` and run it with an output path to generate
+the continuous fixture. These tests are included in the diagnostics suite except
+for the browser test, which needs the local server and Playwright described below.
+
+
 `sh tests/run_ir_diagnostics_tests.sh` covers firmware capture/serialization,
 bounded raw storage, aborted evidence, overflow/backpressure/stale ack, real
 C-generated JSON into the dashboard model, reference A–Z, independent F/Y/A/Z
@@ -144,7 +202,8 @@ JSON download/import, missing batches and mobile overflow. No rover is driven.
 
 Both USB CDC and complete Wi-Fi/DHCP/MQTT firmware compile with SDK 2.3.1.
 The network compile used a temporary dummy credential fixture, removed after
-verification. Its output files are labelled `ISSUE19_BUILD_CHECK_ONLY_20261104`
+verification. The latest continuous-stream build output files are labelled
+`ISSUE19_CONTINUOUS_IR_BUILD_CHECK_ONLY_20261104`
 and are NOT suitable for flashing. Configure real local credentials and rebuild
 before a real radio test. No credentials are committed.
 
