@@ -17,6 +17,8 @@
     if(d.type==='barcode_edges'||d.type==='barcode_samples') return Array.isArray(d.rows)&&d.rows.length>0&&d.rows.length<=4&&
       d.rows.every(d.type==='barcode_edges'?edge:sample)&&new Set(d.rows.map(r=>r[0])).size===d.rows.length;
     if(!integer(d.state,0,6)||!integer(d.count,0,29)||!integer(d.samples,0,512)||!u32(d.sample_drops)||!signed(d.partial)||!integer(d.blocked,0,31)) return false;
+    if(d.type==='barcode_state'&&d.config!==undefined&&(!array(d.config,11)||!d.config.every(signed)||
+       (d.state!==0&&(d.config[5]<=0||d.config[3]>=d.config[4]))))return false;
     if(d.type==='barcode_end') return integer(d.reason,1,7)&&integer(d.format,0,5)&&integer(d.reversed,0,1)&&
       ['leading','trailing','narrow','ratio','max_gap'].every(k=>signed(d[k]))&&
       (d.reason===1 ? (d.state===4&&integer(d.symbol,65,90)&&d.count===29) : (d.state===5&&d.symbol===0));

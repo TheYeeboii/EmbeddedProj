@@ -30,6 +30,22 @@ trace is incomplete; the view explicitly distinguishes these facts. No prefix
 or partial capture is labelled a decoded letter. Barcode movement remains
 disabled; an import/replay never sends commands.
 
+## Enabling a disabled reader
+
+`Disabled / unconfigured` means capture has not been enabled: the firmware
+minimum element defaults to zero. Use the stopped-only Reader setup form in
+the panel instead of needing a serial command. The form requires fresh idle
+telemetry, validates both fields, requests observe-only mode, and waits for
+the firmware state. Exact active minimum/offset values are confirmed when
+available; older firmware reports enabled with an explicit unconfirmed-values
+notice. Lost/stale state, timeout and reboot do not appear as success.
+
+Measure sensor offset from the midpoint BETWEEN the wheels to the sensing
+spot. Left positive, right negative. An offset beyond the body edge must also
+include the distance from that edge to the wheel midpoint; do not treat a
+1–3 cm body-edge clearance as a 10–30 mm centre offset. Settings are RAM-only
+and must be reapplied after reboot (or set as measured firmware defaults).
+
 ## Resource and transport bounds
 
 The diagnostic recorder is separate from the hardware-independent Code 39
@@ -78,7 +94,9 @@ matches the steering diagnostic stream; sequences identify barcode packets.
   estimated_local_sensor_0.01mm, hysteresis_black]`.
 - `barcode_progress` / `barcode_state`: reader `state`, completed `count`,
   retained `samples`, `sample_drops`, unfinished `partial` (0.01 mm), and
-  `blocked` reason flags. Idle state snapshots are published about once a second.
+  `blocked` reason flags. Idle state snapshots are published about once a second and include the
+  active `config` array even before a scan. State zero reports disabled settings
+  as zeros; blocked flags explain configured-but-suspended operation.
 - `barcode_end`: the same progress fields plus result `reason` and `format`,
   ASCII `symbol` (zero when rejected), `reversed`, `leading`, `trailing`,
   measured `narrow` (0.01 mm), `ratio` (0.01 ratio), and largest accepted
