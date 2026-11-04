@@ -26,34 +26,19 @@ capture barcode transitions.
 The two front sensors steer; the side sensor is independent and reads barcodes.
 Their use of the same 10 ms task does not mean each task tick is a barcode bit.
 
-## Barcode reader and movement
+## Barcode reader
 
-See [BARCODE_DISTANCE.md](BARCODE_DISTANCE.md) for the decoder format,
-distance/offset calibration, and encoder prerequisites.
-See [BARCODE_ACTIONS.md](BARCODE_ACTIONS.md) for read-only and movement tests.
+See [BARCODE_DISTANCE.md](BARCODE_DISTANCE.md) for adaptive Code 39 decoding,
+sensor offset and encoder requirements, and [BARCODE_ACTIONS.md](BARCODE_ACTIONS.md)
+for staged tests and issue status.
 
-The software currently supports the project's custom fixed-cell format:
-0xA5 followed by command 1 (left), 2 (right), or 3 (straight), MSB first.
-A two-cell white lead-in precedes each frame. This is not Code 39/EAN/QR.
-The physical track's printed barcode format is not yet confirmed.
+The supplied photos contain single-letter Code 39 frames `*F*` and `*Y*`.
+The reader supports uppercase A–Z and either print orientation. It infers
+narrow/wide widths per frame; no fixed barcode length or exact bit width is
+required. The former `0xA5 + numeric command` decoder has been removed.
 
-Samples are assigned by measured sensor travel, with small-turn compensation
-for the side sensor's lateral offset. Large turns, reverse motion, coarse
-position jumps, stalled frames and recovery invalidate the read. Calibration
-must provide sufficient resolution: at least four wheel encoder edges per cell.
-
-Main's Buddy 2 update reads independent encoders at 387 edges/revolution and
-reports encoder faults. These changes are preserved; faults invalidate reads
-and prevent automatic resume of fault-stopped barcode moves.
-Cell width is still unmeasured, so reading stays disabled until configured.
-Read-only mode is the default once calibration is valid.
-
-With barcode_mode 2 explicitly enabled, a valid read acts immediately:
-pause tracking, turn left/right 90 degrees or move straight 300 mm, then resume
-tracking. A rejected move or 8-second motion timeout stops without resuming.
-GP21/stop can cancel a move. The reader resets at each handoff so a stale
-frame cannot retrigger. These motion distances/angles require track validation.
-
-For button-only operation after validating the physical format and calibration,
-set the measured defaults in buddy3_barcode.h and the default mode in
-robot_barcode_action.h. GP21 still controls starting and stopping.
+Reading is disabled until the minimum resolvable element and sensor offset
+are configured. GP21 starts/stops tracking with the reader. Valid letters and
+rejected frames are logged from the controller task, outside sensor capture.
+Letter-to-turn mapping remains disabled until the demo mapping and physical
+qualification are available; `barcode_mode 2` is rejected.
