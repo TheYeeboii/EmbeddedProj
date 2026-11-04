@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=16">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -213,7 +213,7 @@
           </header>
           <div class="steering-live" aria-live="polite">
             <span class="steering-arrow steering-left" aria-hidden="true">←</span>
-            <div><strong data-steering="live">Waiting for steering trace…</strong><p class="muted small">Arrows show commands. Encoder measurements are separate evidence.</p></div>
+            <div><strong data-steering="live">Waiting for steering trace…</strong><p data-steering="hint" class="muted small">Arrows show commands. Encoder measurements are separate evidence.</p></div>
             <span class="steering-arrow steering-right" aria-hidden="true">→</span>
           </div>
           <div class="trace-controls">
@@ -242,11 +242,11 @@
             </div>
           </header>
           <div class="action-caption small">
-            <span id="action-title">Steering actions</span>
+            <span id="action-title">Diagnostic events</span>
             <span id="steering-action" class="badge" data-tone="muted">Waiting for commands…</span>
           </div>
-          <pre id="action-log" class="console" tabindex="0" aria-labelledby="action-title"><span class="console-empty">Waiting for rover/actions…</span></pre>
-          <p class="muted small">Commanded actions, not measured heading. Pause/Clear applies to both logs.</p>
+          <pre id="action-log" class="console" tabindex="0" aria-labelledby="action-title"><span class="console-empty">No diagnostic events yet.</span></pre>
+          <p class="muted small">Stops, faults, control handovers and delivery warnings. Routine corrections are shown in the steering timeline. Pause/Clear applies to both logs.</p>
           <pre id="serial-log" class="console" tabindex="0" aria-label="Line sensor debug stream"><span class="console-empty">Waiting for rover/debug data…</span></pre>
         </section>
       </div>
@@ -422,8 +422,8 @@
 
   <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-  <script src="action-log.js?v=1"></script>
-  <script src="steering-view.js?v=1"></script>
-  <script src="app.js?v=20"></script>
+  <script src="action-log.js?v=2"></script>
+  <script src="steering-view.js?v=2"></script>
+  <script src="app.js?v=22"></script>
 </body>
 </html>

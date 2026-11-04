@@ -6,10 +6,17 @@ The new panel displays commanded left/right arrows, a duration timeline and
 front-IR observations. Select a timeline segment or move the event slider to
 freeze and inspect its sensor input, calibration, phase, requested/applied PWM,
 encoder distance/speed and timestamps. Freeze does not stop the rover. Live
-arrows continue updating; use GP21 or the normal Stop control to stop motion.
+arrows continue updating during autonomous control. During manual control the
+D-pad remains available and the duplicate arrows collapse; history continues
+recording. Use GP21 or the normal Stop control to stop motion.
 Export preserves the frozen/live history as JSON; Import displays it as a
 replay without publishing any movement commands. Old firmware still supports
-the existing action log; the new panel requires `rover/steering` messages.
+the action stream and delivery warnings; the new panel requires
+`rover/steering` messages. Routine left/right/stop-turn rows are omitted from
+the text log. Diagnostic events retain control-owner handovers, actual stop
+commands, encoder faults/recovery, delivery gaps and dashboard input rejections.
+Firmware-side command rejections remain available through their existing
+reporting paths; browser input errors are labelled explicitly as dashboard rejections.
 
 Green timeline segments mean left, blue right, grey straight/stopped and
 orange unavailable intervals. The slider/detail identifies stopped versus

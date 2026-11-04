@@ -435,3 +435,5 @@ kbd {
 .trace-ir-left { fill: #22c55e; } .trace-ir-right { fill: #38bdf8; }
 .trace-detail { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; margin: 1rem 1.25rem; padding: .8rem; font-size: .72rem; line-height: 1.6; background: var(--console); border: 1px solid var(--border); border-radius: .5rem; }
 @media (max-width: 560px) { .steering-live { gap: .5rem; } .steering-arrow { font-size: 2rem; padding: .2rem .4rem; } }
+
+.steering-arrow[hidden] { display: none; }

@@ -1,16 +1,7 @@
 (function (root) {
   'use strict';
-  const LABELS = Object.freeze({
-    turn_left: 'Trying to turn left',
-    turn_right: 'Trying to turn right',
-    stop_turn_left: 'Stopped turning left',
-    stop_turn_right: 'Stopped turning right'
-  });
-  const SOURCES = Object.freeze({
-    pwm: 'steering/manual command',
-    motion: 'distance/turn move',
-    stop: 'motor stop'
-  });
+  const ACTIONS = new Set(['turn_left', 'turn_right', 'stop_turn_left', 'stop_turn_right']);
+  const OWNERS = ['Stopped', 'Manual', 'Tracking', 'Junction', 'Search', 'Avoidance', 'Motion'];
   const validCount = n => Number.isInteger(n) && n >= 0 && n <= 0xffffffff;
   class RoverActionLog {
     constructor(log, badge, options = {}) {
@@ -20,16 +11,17 @@
       this.clock = options.clock || (() => new Date().toLocaleTimeString());
       this.lastSequence = null;
       this.lastDropped = 0;
+      this.lastDiagnostic = null;
     }
     unavailable() {
-      this.badge.textContent = 'Command state unavailable';
+      this.badge.textContent = 'Diagnostics unavailable';
       this.badge.dataset.tone = 'muted';
     }
     clear() {
       this.log.replaceChildren();
       const empty = this.log.ownerDocument.createElement('span');
       empty.className = 'console-empty';
-      empty.textContent = 'Waiting for rover/actions…';
+      empty.textContent = 'No diagnostic events yet.';
       this.log.append(empty);
     }
     append(text, action = '') {
@@ -43,12 +35,43 @@
       while (this.log.childElementCount > this.limit) this.log.firstElementChild.remove();
       if (follow) this.log.scrollTop = this.log.scrollHeight;
     }
+    diagnostic(data, paused = false) {
+      if (!data || !['steering', 'steering_state'].includes(data.type) ||
+          !validCount(data.boot) || !validCount(data.seq) || !validCount(data.ts_ms) ||
+          !Number.isInteger(data.owner) || data.owner < 0 || data.owner >= OWNERS.length ||
+          !Number.isInteger(data.faults) || data.faults < 0 || data.faults > 3) return false;
+      const previous = this.lastDiagnostic;
+      const sameBoot = previous && previous.boot === data.boot;
+      if (sameBoot) {
+        const advance = (data.seq - previous.seq) >>> 0;
+        if (advance >= 0x80000000) return false;
+      }
+      this.lastDiagnostic = { boot: data.boot, seq: data.seq, owner: data.owner, faults: data.faults };
+      this.badge.textContent = data.lag_ms > 500 ? 'Buffered diagnostics' : 'Control: ' + OWNERS[data.owner];
+      this.badge.dataset.tone = data.faults ? 'warning' : 'muted';
+      if (sameBoot && previous.seq === data.seq) return true; // Restore badge without duplicate rows.
+      if (paused) return true;
+      const prefix = this.clock() + '  [rover ' + (data.ts_ms / 1000).toFixed(2) + 's] ';
+      if (!sameBoot || previous.owner !== data.owner) {
+        const stop = sameBoot && data.owner === 0;
+        const message = stop ? 'Stop commanded' + (data.phase === 9 ? ': all sensors black' : '') :
+          (previous && !sameBoot ? 'Rover restarted; ' : '') + 'Control owner: ' +
+          (sameBoot ? OWNERS[previous.owner] + ' → ' : '') + OWNERS[data.owner];
+        this.append(prefix + message, stop ? 'stop' : 'owner');
+      }
+      const oldFaults = sameBoot ? previous.faults : 0;
+      if (data.faults !== oldFaults) {
+        const wheels = [data.faults & 1 ? 'left' : '', data.faults & 2 ? 'right' : ''].filter(Boolean).join(' and ');
+        this.append(prefix + (data.faults ? 'Encoder fault: ' + wheels : 'Encoder feedback restored'), 'fault');
+      }
+      return true;
+    }
     handle(data, paused = false) {
       if (!data || (data.type !== 'action' && data.type !== 'action_state') ||
           !validCount(data.seq) || !validCount(data.ts_ms) ||
           !validCount(data.dropped) || !['none', 'left', 'right'].includes(data.direction))
         return false;
-      if (data.type === 'action' && !Object.hasOwn(LABELS, data.action)) return false;
+      if (data.type === 'action' && !ACTIONS.has(data.action)) return false;
 
       if (this.lastSequence !== null && data.seq < this.lastSequence) {
         // A restarted firmware begins a new sequence.
@@ -59,23 +82,17 @@
       const dropped = Math.max(0, data.dropped - this.lastDropped);
       this.lastSequence = data.seq;
       this.lastDropped = data.dropped;
-      this.badge.textContent = data.direction === 'left' ? 'Left turn commanded' :
-        data.direction === 'right' ? 'Right turn commanded' : 'No turn commanded';
-      this.badge.dataset.tone = data.direction === 'none' ? 'muted' : 'accent';
+      if (!this.lastDiagnostic) {
+        this.badge.textContent = 'Action stream connected';
+        this.badge.dataset.tone = 'muted';
+      }
       if (paused) return true; // Pause history only; the current badge stays live.
 
       if (gap || dropped) {
         this.append(this.clock() + '  Some action events were unavailable' +
           ' (sequence gap ' + gap + ', firmware buffer drops +' + dropped + ').', 'gap');
       }
-      if (data.type === 'action') {
-        const uptime = (data.ts_ms / 1000).toFixed(2) + 's';
-        const source = SOURCES[data.source] || 'command';
-        const pwm = Number.isInteger(data.left_pwm) && Number.isInteger(data.right_pwm) ?
-          '; PWM L=' + data.left_pwm + ' R=' + data.right_pwm : '';
-        this.append(this.clock() + '  [rover ' + uptime + '] ' + LABELS[data.action] +
-          ' (' + source + pwm + ')', data.action);
-      }
+      // Routine turn transitions stay in the visual timeline, not this log.
       return true;
     }
   }
