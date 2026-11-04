@@ -107,9 +107,15 @@
     }
     renderLive() {
       const d = this.history.live;
+      const manual = !!d && d.owner === 1;
+      this.element.dataset.manual = String(manual);
+      this.element.querySelectorAll('.steering-arrow').forEach(arrow => { arrow.hidden = manual; });
+      this.find('hint').textContent = manual ?
+        'Steering arrows are collapsed during manual control. History continues recording.' :
+        'Arrows show commands. Encoder measurements are separate evidence.';
       this.element.dataset.direction = d ? ['straight', 'left', 'right'][d.direction] : 'unknown';
       this.element.dataset.stopped = String(!!d && d.owner === 0);
-      this.find('live').textContent = d ? `${owners[d.owner]} · ${phases[d.phase]} · ${d.owner === 0 ? 'stopped' : ['straight', 'left commanded', 'right commanded'][d.direction]}` : 'State unavailable / catching up';
+      this.find('live').textContent = manual ? 'Manual control · use the D-pad' : d ? `${owners[d.owner]} · ${phases[d.phase]} · ${d.owner === 0 ? 'stopped' : ['straight', 'left commanded', 'right commanded'][d.direction]}` : 'State unavailable / catching up';
     }
     render() {
       this.renderLive();
