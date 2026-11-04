@@ -395,6 +395,7 @@ function showError(id, message, input) {
   const el = $(`#${id}`);
   el.hidden = !message;
   el.textContent = message || '';
+  if (message && !serialPaused) actionLog.append('Dashboard rejected input: ' + message, 'rejected');
   if (message && input) input.focus();
 }
 
@@ -601,7 +602,10 @@ if (!window.mqtt) {
       if (actionLog.handle(data, serialPaused)) markSeen();
     }
     else if (topic === topics.steering) {
-      if (steeringView.handle(data)) markSeen();
+      if (steeringView.handle(data)) {
+        actionLog.diagnostic(data, serialPaused);
+        markSeen();
+      }
     }
     else if (topic === topics.debug) showDebug(data);
     else if (topic === topics.heartbeat) markSeen();
