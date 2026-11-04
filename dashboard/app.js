@@ -15,7 +15,6 @@ const DRIVE_REPEAT_MS = 300;
 const STALE_AFTER_MS = 25000;
 const SERIAL_MAX_LINES = 200;
 const SPARK_POINTS = 40;
-const BARCODE_NAMES = { 1: 'left', 2: 'right', 3: 'straight' };
 /* Buddy 4 BUDDY4_MOTION_* values (buddy4_processing.h). */
 const MOTION_NAMES = ['Unknown', 'Stationary', 'Cruising', 'Accelerating', 'Decelerating', 'Turning', 'On a hump', 'Sudden impact'];
 const MODE_TONES = { idle: 'muted', drive: 'accent', motion: 'accent', line: 'success' };
@@ -224,7 +223,8 @@ function showDebug(data) {
   $('#chip-line').classList.toggle('on', Boolean(data.line));
   $('#chip-junction').classList.toggle('on', Boolean(data.junction));
   $('#chip-barcode').classList.toggle('on', Boolean(data.barcode));
-  const barcodeName = BARCODE_NAMES[data.command];
+  const barcodeName = Number.isInteger(data.command) && data.command >= 65 && data.command <= 90
+    ? String.fromCharCode(data.command) : '';
   $('#barcode-cmd').textContent = data.barcode && barcodeName ? barcodeName : '';
 
   appendSerial(data);

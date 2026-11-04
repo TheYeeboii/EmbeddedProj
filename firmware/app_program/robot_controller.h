@@ -4,7 +4,7 @@
  *
  * Takes the old main.c superloop logic and puts it in one place:
  *   - commands from the dashboard (MQTT "rover/commands"),
- *   - barcode actions (turn left / right / go straight, then resume the line),
+ *   - barcode diagnostics (letters and rejected reads),
  *   - the GP21 button (start / stop line following),
  *   - the safety stop for raw "drive" commands that are not refreshed.
  *
@@ -20,7 +20,7 @@
 void        robot_controller_init(void);
 /** Execute one dashboard command: JSON like {"cmd":"drive","left":30000,
  *  "right":30000} or plain text like "drive 30000 30000".  Distance/turn
- *  moves are not dashboard commands; only barcode actions start them. */
+ *  moves are reserved for internal navigation. */
 void        robot_controller_handle_command(const char *p_command, uint32_t now_ms);
 /** Periodic work: barcodes, button, safety timeout. */
 void        robot_controller_step(uint32_t now_ms);

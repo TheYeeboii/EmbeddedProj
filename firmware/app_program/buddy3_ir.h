@@ -16,10 +16,7 @@
 
 #define BUDDY3_SAMPLE_PERIOD_MS  (10u)
 
-/* Barcode commands (see docs/BUDDY3_LINE_AND_BARCODE.md). */
-#define BUDDY3_BARCODE_LEFT      (1u)
-#define BUDDY3_BARCODE_RIGHT     (2u)
-#define BUDDY3_BARCODE_STRAIGHT  (3u)
+#include "buddy3_barcode.h"
 
 /*  TODO:
     1. Rename structs to appropriate name
@@ -67,8 +64,8 @@ typedef struct
     int16_t  line_position; // -1000 to +1000: negative = left, positive = right; zero at junctions
     bool     line_seen; // Either front sensor detects black; false can also mean centred between sensors
     bool     junction_seen; // Both front sensors meet the junction threshold; not proof of a physical junction
-    bool     barcode_ready; // A decoded command is waiting to be consumed
-    uint8_t  barcode_command; // 1 = left, 2 = right, 3 = straight; pending only when barcode_ready is true
+    bool     barcode_ready; // A reader event is waiting to be consumed
+    uint8_t  barcode_command; // Compatibility field: ASCII letter on valid read, otherwise zero
 } buddy3_ir_state_t;
 
 void buddy3_init(void);
@@ -96,10 +93,11 @@ void buddy3_print_debug(void);
 void buddy3_clear_line_seen_event(void);
 /** Return and clear whether either front sensor has seen black since the last clear. */
 bool buddy3_take_line_seen_event(void);
-bool buddy3_take_barcode(uint8_t *p_command);
+bool buddy3_take_barcode(buddy3_barcode_event_t *p_event);
 /* Configure only while stopped. Rejects uncalibrated/low-resolution odometry.
- * Cell is fixed bit width, not total stripe width; lateral offset: left +. */
-bool buddy3_configure_barcode(uint16_t cell_mm, int16_t offset_left_mm);
+ * Minimum element is the smallest resolvable stripe, not a fixed cell width.
+ * Lateral offset: left +. Reader infers actual narrow/wide widths per frame. */
+bool buddy3_configure_barcode(uint16_t min_element_mm, int16_t offset_left_mm);
 bool buddy3_barcode_calibrated(void);
 /** true = that sensor sees black: front-left, front-right, side (barcode). */
 void buddy3_get_colors(bool *p_left_black, bool *p_right_black, bool *p_side_black);
