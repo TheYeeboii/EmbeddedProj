@@ -27,7 +27,7 @@ format, Wi-Fi build requirements and verification steps.
 | File | Buddy | What it does |
 |---|---|---|
 | `app_main.c/.h` | all | `usermain()`: initialises everything and creates the tasks |
-| `robot_controller.c/.h` | all | Vehicle controller: modes, dashboard commands, barcode actions, buttons, safety stop |
+| `robot_controller.c/.h` | all | Vehicle controller: modes, dashboard commands, barcode diagnostics, buttons, safety stop |
 | `comms.c/.h` | 1 | Message buffers between robot tasks and the network |
 | `robot_mqtt.c/.h` | 1 | MQTT client (runs inside the kernel's Wi-Fi task) |
 | `robot_telemetry.c/.h` | 1 | Builds the messages the dashboard shows |
@@ -57,7 +57,7 @@ format, Wi-Fi build requirements and verification steps.
 ### Buttons and testing
 
 - **GP21**: start/stop line following.
-- Distance/turn moves have no dashboard control (the Motion panel was removed on 26 Oct). They run only for barcode actions and Buddy 5's obstacle avoidance.
+- Distance/turn moves have no dashboard control (the Motion panel was removed on 26 Oct). Buddy 5 uses them for obstacle avoidance. Barcode reading currently reports letters only; see [the staged barcode tests](docs/BARCODE_ACTIONS.md).
 
 ## Getting started (Windows laptop)
 

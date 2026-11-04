@@ -27,8 +27,6 @@
 #define BUDDY3_JUNCTION_THRESHOLD   (800u)
 #define BUDDY3_NORMALIZED_MAX       (1000)
 #define BUDDY3_LINE_LOST_STOP_MS    (250u)
-#define BUDDY3_BARCODE_START        (0xA5u)
-#define BUDDY3_BARCODE_BITS         (8u)
 #define BUDDY3_SENSOR_COUNT         (3u)
 
 /* ---- Sensor layout ---------------------------------------------------
@@ -146,12 +144,14 @@ static uint32_t          g_last_update_ms     = 0u;
 static int16_t           g_previous_position  = 0;
 static uint32_t          g_line_lost_since_ms = 0u;
 static buddy3_barcode_decoder_t g_barcode_decoder;
-static buddy3_barcode_config_t g_barcode_config = { BUDDY3_BARCODE_CELL_MM };
+static buddy3_barcode_config_t g_barcode_config = { BUDDY3_BARCODE_MIN_ELEMENT_MM };
 static float g_barcode_offset = BUDDY3_BARCODE_OFFSET_LEFT_MM;
 static bool g_barcode_calibrated = false;
 static bool g_barcode_odometry_valid = false;
 static float g_barcode_last_left, g_barcode_last_right, g_barcode_yaw;
-static uint8_t           g_pending_barcode    = 0u;
+static buddy3_barcode_event_t g_pending_barcode;
+static uint32_t g_barcode_dropped;
+static bool g_barcode_black;
 static bool              g_barcode_ready      = false;
 static bool              g_reported_lost      = false;
 static bool              g_seen_since_start   = false;
@@ -312,7 +312,7 @@ static void buddy3_decode_barcode(uint16_t sensor_value, uint32_t now_ms)
     buddy2_motion_state_t motion = {0};
     buddy2_calibration_t geometry;
     float dl, dr, travel, yaw;
-    uint8_t command;
+    buddy3_barcode_event_t event;
     UINT interrupt_state;
     bool permitted = g_line_following && !buddy3_junction_active(&g_junction) &&
                      g_barcode_calibrated &&
@@ -336,17 +336,20 @@ static void buddy3_decode_barcode(uint16_t sensor_value, uint32_t now_ms)
     if (dl < 0.0f || dr < 0.0f ||
         g_barcode_yaw > 0.1745f || g_barcode_yaw < -0.1745f) permitted = false;
     travel = buddy3_barcode_travel(dl, dr, geometry.track_width_mm, g_barcode_offset);
-    command = buddy3_barcode_step(&g_barcode_decoder, &g_barcode_config,
-              sensor_value >= BUDDY3_EDGE_THRESHOLD, travel, now_ms, permitted);
-    if (command != 0u) {
+    /* Hysteresis avoids adding transitions near a noisy threshold. */
+    if (sensor_value >= 600u) g_barcode_black = true;
+    else if (sensor_value <= 400u) g_barcode_black = false;
+    if (buddy3_barcode_step(&g_barcode_decoder, &g_barcode_config,
+              g_barcode_black, travel, now_ms, permitted, &event)) {
         DI(interrupt_state);
         /* Keep the first unread event; do not overwrite it with a later frame. */
         if (!g_barcode_ready) {
-            g_pending_barcode = command;
+            g_pending_barcode = event;
             g_barcode_ready = true;
+        } else {
+            ++g_barcode_dropped;
         }
         EI(interrupt_state);
-        tm_printf((UB *)"[barcode] decoded command=%u (distance frame)\n", (UINT)command);
     }
 }
 
@@ -363,7 +366,7 @@ void buddy3_init(void)
     g_last_update_ms   = 0u;
     g_line_following   = false;
     g_line_seen_event  = false;
-    (void)buddy3_configure_barcode((uint16_t)BUDDY3_BARCODE_CELL_MM,
+    (void)buddy3_configure_barcode((uint16_t)BUDDY3_BARCODE_MIN_ELEMENT_MM,
                                   (int16_t)BUDDY3_BARCODE_OFFSET_LEFT_MM);
 }
 
@@ -527,7 +530,8 @@ void buddy3_update(uint32_t now_ms)
     /* The outrigger sensor (ADC2) reads the barcodes beside the track. */
     buddy3_decode_barcode(next.sensors[2].normalized, now_ms);
     next.barcode_ready   = g_barcode_ready;
-    next.barcode_command = g_pending_barcode;
+    next.barcode_command = g_barcode_ready && g_pending_barcode.kind == B3BC_VALID ?
+                           (uint8_t)g_pending_barcode.decoded.symbol : 0u;
 
     DI(interrupt_state);
     g_state = next;
@@ -1051,19 +1055,20 @@ void buddy3_get_colors(bool *p_left_black, bool *p_right_black, bool *p_side_bla
     }
 }
 
-bool buddy3_take_barcode(uint8_t *p_command)
+bool buddy3_take_barcode(buddy3_barcode_event_t *p_event)
 {
     UINT interrupt_state;
     bool taken = false;
 
-    if (NULL == p_command)
+    if (NULL == p_event)
     {
         return false;
     }
     DI(interrupt_state);
     if (g_barcode_ready)
     {
-        *p_command            = g_pending_barcode;
+        *p_event              = g_pending_barcode;
+        p_event->dropped       = g_barcode_dropped;
         g_barcode_ready       = false;
         g_state.barcode_ready = false;
         taken                 = true;
@@ -1073,7 +1078,7 @@ bool buddy3_take_barcode(uint8_t *p_command)
     return taken;
 }
 
-bool buddy3_configure_barcode(uint16_t cell_mm, int16_t offset_left_mm)
+bool buddy3_configure_barcode(uint16_t min_element_mm, int16_t offset_left_mm)
 {
     buddy2_calibration_t geometry;
     float left_tick, right_tick, minimum_cell;
@@ -1083,8 +1088,8 @@ bool buddy3_configure_barcode(uint16_t cell_mm, int16_t offset_left_mm)
     g_barcode_ready = false;
     g_state.barcode_ready = false;
     g_barcode_odometry_valid = false;
-    if (cell_mm == 0u) {
-        tm_printf((UB *)"[barcode] disabled: measure cell width and configure first\n");
+    if (min_element_mm == 0u) {
+        tm_printf((UB *)"[barcode] disabled: configure minimum resolvable element and sensor offset\n");
         return false;
     }
 #if defined(ENCODER_LEFT_MIRROR_RIGHT) && ENCODER_LEFT_MIRROR_RIGHT
@@ -1098,17 +1103,17 @@ bool buddy3_configure_barcode(uint16_t cell_mm, int16_t offset_left_mm)
     left_tick = 3.14159265f * geometry.wheel_diameter_mm / geometry.left_ticks_per_wheel_rev;
     right_tick = 3.14159265f * geometry.wheel_diameter_mm / geometry.right_ticks_per_wheel_rev;
     minimum_cell = 4.0f * (left_tick > right_tick ? left_tick : right_tick);
-    if ((float)cell_mm < minimum_cell || cell_mm > 1000u ||
+    if ((float)min_element_mm < minimum_cell || min_element_mm > 1000u ||
         offset_left_mm < -500 || offset_left_mm > 500) {
-        tm_printf((UB *)"[barcode] rejected: cell needs >=%u mm at current encoder resolution; offset -500..500\n",
+        tm_printf((UB *)"[barcode] rejected: minimum element needs >=%u mm at current encoder resolution; offset -500..500\n",
                   (UINT)(minimum_cell + 0.999f));
         return false;
     }
-    g_barcode_config.cell_mm = (float)cell_mm;
+    g_barcode_config.min_element_mm = (float)min_element_mm;
     g_barcode_offset = (float)offset_left_mm;
     g_barcode_calibrated = true;
-    tm_printf((UB *)"[barcode] configured cell=%u mm offset-left=%d mm\n",
-              (UINT)cell_mm, (INT)offset_left_mm);
+    tm_printf((UB *)"[barcode] configured minimum-element=%u mm offset-left=%d mm (adaptive Code39)\n",
+              (UINT)min_element_mm, (INT)offset_left_mm);
     return true;
 }
 
