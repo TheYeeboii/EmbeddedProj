@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="styles.css?v=19">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -230,7 +230,31 @@
         </section>
 
         <section id="barcode-visual" class="card" aria-labelledby="barcode-title">
-          <header class="card-header"><h2 id="barcode-title">Barcode scan evidence</h2><span data-barcode="status" class="badge" data-tone="muted">Waiting for reader…</span></header>
+          <header class="card-header"><h2 id="barcode-title">IR / barcode evidence</h2><span data-barcode="status" class="badge" data-tone="muted">Waiting for reader…</span></header>
+          <div class="trace-controls ir-mode-tabs" role="tablist" aria-label="Side IR evidence view">
+            <button id="ir-continuous-tab" class="btn btn-outline btn-sm" type="button" role="tab" aria-selected="true" aria-controls="ir-continuous-panel" data-ir-mode="continuous">Continuous IR</button>
+            <button id="ir-attempts-tab" class="btn btn-outline btn-sm" type="button" role="tab" aria-selected="false" aria-controls="ir-attempts-panel" data-ir-mode="attempts" tabindex="-1">Barcode attempts</button>
+          </div>
+          <div id="ir-continuous-panel" data-ir="continuous-panel" class="ir-evidence-panel" role="tabpanel" aria-labelledby="ir-continuous-tab">
+            <div class="ir-continuous-heading"><strong>Everything the side sensor sees</strong><span data-ir="live" class="badge" data-color="unknown" role="status">Waiting for IR samples…</span></div>
+            <p class="muted small trace-notice">This view records black and white even when barcode detection is disabled, suspended or misses a pattern. It also works with stationary paper tests. Decoder status above does not gate this stream.</p>
+            <div class="trace-controls">
+              <button data-ir="freeze" class="btn btn-outline btn-sm" type="button" aria-pressed="false">Freeze IR history</button>
+              <button data-ir="clear" class="btn btn-ghost btn-sm" type="button">Clear IR history</button>
+              <button data-ir="export" class="btn btn-ghost btn-sm" type="button">Export IR</button>
+              <label class="btn btn-ghost btn-sm">Import IR<input data-ir="import" type="file" accept="application/json,.json" class="trace-file"></label>
+            </div>
+            <p data-ir="notice" class="muted small trace-notice"></p>
+            <label class="barcode-field">Time window <select data-ir="window"><option value="2000">2 seconds</option><option value="5000" selected>5 seconds</option><option value="10000">10 seconds</option><option value="30000">30 seconds</option><option value="60000">60 seconds</option></select></label>
+            <svg data-ir="strip" class="ir-stream-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Continuous black and white sensor observations over time"></svg>
+            <p data-ir="axis" class="muted small trace-notice"></p>
+            <p class="muted small trace-notice">Blue = raw signal /4095 · green = normalized /1000 · dashed = classification thresholds. Grey gaps mean missing or delayed sampling, never assumed white.</p>
+            <svg data-ir="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Continuous raw and normalized side IR signals"></svg>
+            <label class="trace-cursor">Inspect history <input data-ir="cursor" type="range" min="0" max="0" value="0" disabled></label>
+            <pre data-ir="detail" class="trace-detail" tabindex="0"></pre>
+          </div>
+          <div id="ir-attempts-panel" data-ir="attempts-panel" class="ir-evidence-panel" role="tabpanel" aria-labelledby="ir-attempts-tab" hidden>
+
           <div class="trace-controls">
             <button data-barcode="pause" class="btn btn-outline btn-sm" type="button" aria-pressed="false">Freeze scans</button>
             <button data-barcode="clear" class="btn btn-ghost btn-sm" type="button">Clear history</button>
@@ -271,6 +295,7 @@
           <svg data-barcode="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Side IR signal history"></svg>
           <label class="trace-cursor">Inspect sample <input data-barcode="sample" type="range" min="0" max="0" value="0" disabled></label>
           <pre data-barcode="sample-detail" class="trace-detail" tabindex="0"></pre>
+          </div>
         </section>
 
         <section class="card" aria-labelledby="serial-title">
@@ -469,8 +494,10 @@
   <script src="action-log.js?v=2"></script>
   <script src="steering-view.js?v=2"></script>
   <script src="barcode-model.js?v=2"></script>
-  <script src="barcode-view.js?v=3"></script>
+  <script src="barcode-view.js?v=4"></script>
   <script src="barcode-config.js?v=1"></script>
-  <script src="app.js?v=24"></script>
+  <script src="ir-stream-model.js?v=1"></script>
+  <script src="ir-stream-view.js?v=1"></script>
+  <script src="app.js?v=25"></script>
 </body>
 </html>

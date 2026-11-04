@@ -28,7 +28,8 @@
 #define COMMS_TOPIC_ACTIONS     (4u)   /* rover/actions (non-retained) */
 #define COMMS_TOPIC_STEERING    (5u)   /* rover/steering (non-retained) */
 #define COMMS_TOPIC_BARCODE     (6u)   /* rover/barcode (non-retained) */
-#define COMMS_TOPIC_COUNT       (7u)
+#define COMMS_TOPIC_IR_STREAM   (7u)   /* rover/ir (non-retained) */
+#define COMMS_TOPIC_COUNT       (8u)
 
 #define COMMS_PAYLOAD_MAX       (512u) /* longest outgoing JSON, incl. NUL; keep >= ROBOT_TELEMETRY_BUFFER_SIZE */
 #define COMMS_COMMAND_MAX       (128u) /* longest incoming command, incl. NUL */

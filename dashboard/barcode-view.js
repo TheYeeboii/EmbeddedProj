@@ -26,12 +26,13 @@
         }catch(error){this.find('notice').textContent=error.message;}e.target.value='';
       });
       this.timer=setInterval(()=>{if(this.history.state!==null&&Date.now()-this.history.receivedAt>2500)this.unavailable();},1000);
+      element.addEventListener('ir-view-change',event=>{if(event.detail.mode==='attempts')this.render();});
       this.render();
     }
     handle(data){
       if(!this.history.accept(data))return false;
       this.renderLive();
-      if(!this.frozen&&!this.scheduled){this.scheduled=true;requestAnimationFrame(()=>{this.scheduled=false;this.render();});}
+      if(!this.frozen&&!this.element.querySelector('[data-ir="attempts-panel"]').hidden&&!this.scheduled){this.scheduled=true;requestAnimationFrame(()=>{this.scheduled=false;this.render();});}
       return true;
     }
     unavailable(){this.history.unavailable();this.renderLive();}
@@ -41,9 +42,10 @@
         `Side-sensor snapshot: raw ${r[0]}, normalized ${r[1]}/1000, ${r[2]?'black':'white'}. White lead-in observed: ${mm(r[3])} mm. Sensor travel this observation: ${mm(r[4])} mm; allowed ≤${mm(r[5])} mm. Oversized steps rejected: ${r[7]} (last ${mm(r[6])} mm).`:
         'Pre-scan sensor/encoder readings are unavailable in this firmware. Rebuild the current barcode branch to report why capture is waiting.';
       const state=this.history.state,blocked=this.history.last?.blocked??0;
-      this.find('status').textContent=state===null?'Reader state unavailable / buffered history':
+      const label=state===null?'Reader state unavailable / buffered history':
         state===6?(blocked&32?'Suspended: sampling too coarse — slow down':blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
           blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21 to start':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
+      this.find('status').textContent='Decoder: '+label;
     }
     frames(){return this.frozen||this.history.frames;}
     frame(){const frames=this.frames();return frames.find(f=>`${f.boot}:${f.id}`===this.selected)||frames[frames.length-1];}
@@ -103,11 +105,11 @@
         const title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent=`Element ${i+1}, ${i%2===0?'black':'white'}, ${width.toFixed(2)} mm`;rect.append(title);
         rect.addEventListener('click',()=>{this.elementIndex=i;this.render();});position+=width;
       }
-      if(partial>0)this.add(observed,'rect',{x:x(position),y:6,width:Math.max(1,partial/extent*990),height:62,class:'barcode-partial'});
+      if(partial>0)this.add(observed,'rect',{x:x(position),y:6,width:Math.max(1,partial/extent*990),height:62,class:'barcode-partial','data-black':String(closed%2===0)});
       const expectedCount=f.end?.count??f.progress?.count??closed;
       if(closed<expectedCount)this.add(observed,'rect',{x:x(position),y:6,width:Math.max(1,1000-x(position)),height:62,class:'barcode-unknown'});
       this.find('scale').textContent=est?
-        `Shared distance scale: ${extent.toFixed(2)} mm across. Estimated narrow ${est.narrow.toFixed(2)} mm, wide ${est.wide.toFixed(2)} mm. Grey outline = unfinished; orange = unknown. White quiet zones are reported above.`:
+        `Shared distance scale: ${extent.toFixed(2)} mm across. Estimated narrow ${est.narrow.toFixed(2)} mm, wide ${est.wide.toFixed(2)} mm. Dashed outline = unfinished observed black/white segment; orange = unknown. White quiet zones are reported above.`:
         'Reference is normalized until nine measured elements establish scale. Observed widths remain in mm; incomplete/missing elements are not reconstructed.';
     }
     renderElements(f){

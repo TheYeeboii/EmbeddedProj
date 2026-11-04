@@ -39,6 +39,7 @@
 #include "robot_action_log.h"
 #include "robot_steering_trace.h"
 #include "robot_barcode_trace.h"
+#include "robot_ir_stream.h"
 #include "usb_console_compat.h"
 
 /* ------------------------------------------------------------------ *
@@ -179,6 +180,7 @@ static void controller_task(INT stacd, void *p_exinf)
         robot_action_publish(app_now_ms());
         robot_steering_publish(app_now_ms());
         robot_barcode_publish(app_now_ms());
+        robot_ir_stream_publish(app_now_ms());
     }
 }
 

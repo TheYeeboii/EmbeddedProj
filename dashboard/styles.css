@@ -462,3 +462,14 @@ kbd {
 .barcode-configuration .barcode-reference-controls { margin: .75rem 0; }
 .barcode-configuration input { max-width: 100%; }
 .barcode-configuration p { margin: .6rem 0; }
+
+.ir-evidence-panel[hidden] { display: none; }
+.ir-mode-tabs { margin: .75rem 0; }
+.ir-mode-tabs [aria-selected="true"] { color: var(--accent); border-color: var(--accent); }
+.ir-continuous-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin: 1rem 1.25rem; }
+[data-ir="live"][data-color="black"] { background: #111; color: #fff; border: 1px solid #94a3b8; }
+[data-ir="live"][data-color="white"] { background: #fff; color: #111; border: 1px solid #94a3b8; }
+.ir-stream-strip { display: block; width: calc(100% - 2.5rem); margin: .75rem 1.25rem; height: 80px; background: var(--muted); border: 1px solid var(--border); border-radius: .3rem; }
+.barcode-strip:empty { background: var(--muted); }
+.barcode-partial[data-black="true"] { fill: #111; }
+.barcode-partial[data-black="false"] { fill: #fff; }
