@@ -1,170 +1,316 @@
+/** @file code39.c
+ *
+ * @brief Decoder for a single framed Code 39 letter (*A* to *Z*) from a list
+ *        of measured element widths.
+ */
 #include "code39.h"
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
+
+/* Each character is nine elements: six narrow and three wide. Characters
+ * are separated by one narrow gap, so they start every ten elements. */
+#define CHAR_ELEMENTS   9u
+#define CHAR_NARROW     6u
+#define CHAR_WIDE       3u
+#define CHAR_STRIDE     10u
+#define FRAME_CHARS     3u
+#define LETTER_COUNT    26u
+#define STAR            0x094u
+#define REVERSE_STAR    0x052u
+#define QUIET_NARROWS   10.0f
+#define GAP_TOLERANCE   0.3f
+#define NARROW_SPREAD   1.3f
+#define ELEMENT_TOLERANCE 0.25f
+#define MIN_WIDE_RATIO  1.6f
+#define MAX_WIDE_RATIO  3.8f
 
 /* Code 39 encodings: wide=1, nine elements, first bar in bit 8.
  * Reference: ZXing Code39Reader CHARACTER_ENCODINGS (A through Z). */
-static const uint16_t letters[26] = {
-    0x109, 0x049, 0x148, 0x019, 0x118, 0x058, 0x00d, 0x10c, 0x04c,
-    0x01c, 0x103, 0x043, 0x142, 0x013, 0x112, 0x052, 0x007, 0x106,
-    0x046, 0x016, 0x181, 0x0c1, 0x1c0, 0x091, 0x190, 0x0d0};
-#define STAR         0x094u
-#define REVERSE_STAR 0x052u
+static const uint16_t g_letters[LETTER_COUNT] = {
+    0x109u, 0x049u, 0x148u, 0x019u, 0x118u, 0x058u, 0x00du, 0x10cu, 0x04cu,
+    0x01cu, 0x103u, 0x043u, 0x142u, 0x013u, 0x112u, 0x052u, 0x007u, 0x106u,
+    0x046u, 0x016u, 0x181u, 0x0c1u, 0x1c0u, 0x091u, 0x190u, 0x0d0u};
 
-static bool classify (const float * widths, uint16_t * pattern, float * narrow,
-                      float * wide)
-{
-    float    sorted[9];
-    unsigned i, j;
-    for (i = 0; i < 9; ++i)
-    {
-        if (!isfinite(widths[i]) || !(widths[i] > 0.0f))
-        {
-            return false;
-        }
-        sorted[i] = widths[i];
-    }
-    for (i = 1; i < 9; ++i)
-    {
-        float value = sorted[i];
-        for (j = i; j > 0 && sorted[j - 1] > value; --j)
-        {
-            sorted[j] = sorted[j - 1];
-        }
-        sorted[j] = value;
-    }
-    *narrow = *wide = 0.0f;
-    for (i = 0; i < 6; ++i)
-    {
-        *narrow += sorted[i] / 6.0f;
-    }
-    for (i = 6; i < 9; ++i)
-    {
-        *wide += sorted[i] / 3.0f;
-    }
-    /* Allow measurement noise around nominal 2:1 and 3:1 print ratios. */
-    if (*wide < 1.6f * *narrow || *wide > 3.8f * *narrow)
-    {
-        return false;
-    }
-    *pattern = 0;
-    for (i = 0; i < 9; ++i)
-    {
-        bool  is_wide  = widths[i] > (sorted[5] + sorted[6]) * 0.5f;
-        float expected = is_wide ? *wide : *narrow;
-        if (fabsf(widths[i] - expected) > 0.25f * expected)
-        {
-            return false;
-        }
-        *pattern = (uint16_t) ((*pattern << 1) | is_wide);
-    }
-    return true;
-}
+static bool code39_classify (const float * p_widths, uint16_t * p_pattern,
+                             float * p_narrow, float * p_wide);
+static code39_status_t code39_check_frame (const float * p_widths,
+                                           const float * p_narrow,
+                                           const float * p_wide,
+                                           float leading_quiet,
+                                           float trailing_quiet,
+                                           code39_result_t * p_decoded);
 
-code39_status_t code39_decode (const float * widths, unsigned count,
+code39_status_t code39_decode (const float * p_widths, uint32_t count,
                                float leading_quiet, float trailing_quiet,
-                               code39_result_t * result)
+                               code39_result_t * p_result)
 {
     code39_result_t decoded = {0};
-    uint16_t        patterns[3];
-    float           narrow[3], wide[3], canonical[CODE39_FRAME_ELEMENTS];
-    float           max_narrow = 0.0f, min_narrow = INFINITY;
-    unsigned        i, letter;
-    if (!result)
+    code39_status_t status  = CODE39_OK;
+    uint16_t        patterns[FRAME_CHARS] = {0u};
+    float           narrow[FRAME_CHARS]   = {0.0f};
+    float           wide[FRAME_CHARS]     = {0.0f};
+    float           canonical[CODE39_FRAME_ELEMENTS];
+    uint32_t        index  = 0u;
+    uint32_t        letter = 0u;
+
+    if (NULL == p_result)
     {
-        return CODE39_BAD_FRAME;
+        status = CODE39_BAD_FRAME;
     }
-    *result = decoded;
-    if (!widths || count != CODE39_FRAME_ELEMENTS)
+    else if ((NULL == p_widths) || (CODE39_FRAME_ELEMENTS != count))
     {
-        return CODE39_BAD_COUNT;
+        status = CODE39_BAD_COUNT;
     }
-    for (i = 0; i < 3; ++i)
+    else
     {
-        if (!classify(widths + i * 10, &patterns[i], &narrow[i], &wide[i]))
+        for (index = 0u; (CODE39_OK == status) && (index < FRAME_CHARS);
+             ++index)
         {
-            return CODE39_BAD_WIDTH;
+            if (!code39_classify(p_widths + (index * CHAR_STRIDE),
+                                 &patterns[index], &narrow[index],
+                                 &wide[index]))
+            {
+                status = CODE39_BAD_WIDTH;
+            }
         }
     }
-    if (REVERSE_STAR == patterns[0] && REVERSE_STAR == patterns[2])
+
+    /* A frame read right-to-left starts and ends with a reversed star. */
+    if ((CODE39_OK == status) && (REVERSE_STAR == patterns[0]) &&
+        (REVERSE_STAR == patterns[2]))
     {
         decoded.reversed = true;
-        for (i = 0; i < CODE39_FRAME_ELEMENTS; ++i)
+        for (index = 0u; index < CODE39_FRAME_ELEMENTS; ++index)
         {
-            canonical[i] = widths[CODE39_FRAME_ELEMENTS - 1 - i];
+            canonical[index] = p_widths[CODE39_FRAME_ELEMENTS - 1u - index];
         }
-        widths = canonical;
-        for (i = 0; i < 3; ++i)
+        p_widths = canonical;
+        for (index = 0u; index < FRAME_CHARS; ++index)
         {
-            (void) classify(widths + i * 10, &patterns[i], &narrow[i],
-                            &wide[i]);
-        }
-    }
-    if (patterns[0] != STAR || patterns[2] != STAR)
-    {
-        return CODE39_BAD_FRAME;
-    }
-    for (i = 0; i < 3; ++i)
-    {
-        if (narrow[i] > max_narrow)
-        {
-            max_narrow = narrow[i];
-        }
-        if (narrow[i] < min_narrow)
-        {
-            min_narrow = narrow[i];
-        }
-        decoded.narrow_width += narrow[i] / 3.0f;
-        decoded.wide_ratio += (wide[i] / narrow[i]) / 3.0f;
-    }
-    if (max_narrow > 1.3f * min_narrow)
-    {
-        return CODE39_BAD_WIDTH;
-    }
-    for (i = 9; i <= 19; i += 10)
-    {
-        if (!isfinite(widths[i]) || fabsf(widths[i] - decoded.narrow_width) >
-                                        0.3f * decoded.narrow_width)
-        {
-            return CODE39_BAD_WIDTH;
+            (void) code39_classify(p_widths + (index * CHAR_STRIDE),
+                                   &patterns[index], &narrow[index],
+                                   &wide[index]);
         }
     }
-    if (!isfinite(leading_quiet) || !isfinite(trailing_quiet) ||
-        leading_quiet < 10.0f * max_narrow ||
-        trailing_quiet < 10.0f * max_narrow)
+
+    if ((CODE39_OK == status) &&
+        ((STAR != patterns[0]) || (STAR != patterns[2])))
     {
-        return CODE39_BAD_QUIET;
+        status = CODE39_BAD_FRAME;
     }
-    for (letter = 0; letter < 26; ++letter)
+
+    if (CODE39_OK == status)
     {
-        if (letters[letter] == patterns[1])
+        status = code39_check_frame(p_widths, narrow, wide, leading_quiet,
+                                    trailing_quiet, &decoded);
+    }
+
+    if (CODE39_OK == status)
+    {
+        letter = 0u;
+        while ((letter < LETTER_COUNT) && (g_letters[letter] != patterns[1]))
         {
-            break;
+            ++letter;
+        }
+        if (LETTER_COUNT == letter)
+        {
+            status = CODE39_BAD_SYMBOL;
+        }
+        else
+        {
+            /* letter < 26, so 'A' + letter is an uppercase ASCII letter. */
+            decoded.symbol = (char) ('A' + letter);
         }
     }
-    if (26 == letter)
+
+    if (CODE39_OK == status)
     {
-        return CODE39_BAD_SYMBOL;
+        for (index = 0u; index < CODE39_FRAME_ELEMENTS; ++index)
+        {
+            decoded.frame_width += p_widths[index];
+        }
+        if (!isfinite(decoded.frame_width))
+        {
+            status = CODE39_BAD_WIDTH;
+        }
     }
-    decoded.symbol = (char) ('A' + letter);
-    for (i = 0; i < CODE39_FRAME_ELEMENTS; ++i)
+
+    /* The output is cleared on rejection and only filled on success. */
+    if (NULL != p_result)
     {
-        decoded.frame_width += widths[i];
+        if (CODE39_OK == status)
+        {
+            *p_result = decoded;
+        }
+        else
+        {
+            code39_result_t empty = {0};
+
+            *p_result = empty;
+        }
     }
-    if (!isfinite(decoded.frame_width))
-    {
-        return CODE39_BAD_WIDTH;
-    }
-    *result = decoded;
-    return CODE39_OK;
+
+    return status;
 }
 
 const char * code39_status_name (code39_status_t status)
 {
     static const char * const names[] = {
         "ok", "element_count", "width", "markers", "symbol", "quiet_zone"};
-    return (unsigned) status < sizeof(names) / sizeof(names[0]) ? names[status]
-                                                                : "unknown";
+    const char * p_name = "unknown";
+
+    /* The enum is non-negative, so the unsigned compare is a range check. */
+    if ((uint32_t) status < (sizeof(names) / sizeof(names[0])))
+    {
+        p_name = names[status];
+    }
+
+    return p_name;
+}
+
+/* Split nine element widths into narrow and wide and build the 9-bit
+ * pattern (wide=1). Returns false when the widths are not a clean 2:1 to
+ * 3:1 character. */
+static bool code39_classify (const float * p_widths, uint16_t * p_pattern,
+                             float * p_narrow, float * p_wide)
+{
+    float    sorted[CHAR_ELEMENTS];
+    uint32_t index   = 0u;
+    uint32_t slot    = 0u;
+    bool     b_valid = true;
+
+    for (index = 0u; b_valid && (index < CHAR_ELEMENTS); ++index)
+    {
+        if (!isfinite(p_widths[index]) || !(p_widths[index] > 0.0f))
+        {
+            b_valid = false;
+        }
+        else
+        {
+            sorted[index] = p_widths[index];
+        }
+    }
+
+    if (b_valid)
+    {
+        /* Insertion sort: nine elements, ascending. */
+        for (index = 1u; index < CHAR_ELEMENTS; ++index)
+        {
+            float value = sorted[index];
+
+            for (slot = index; (slot > 0u) && (sorted[slot - 1u] > value);
+                 --slot)
+            {
+                sorted[slot] = sorted[slot - 1u];
+            }
+            sorted[slot] = value;
+        }
+
+        *p_narrow = 0.0f;
+        *p_wide   = 0.0f;
+        for (index = 0u; index < CHAR_NARROW; ++index)
+        {
+            *p_narrow += sorted[index] / (float) CHAR_NARROW;
+        }
+        for (index = CHAR_NARROW; index < CHAR_ELEMENTS; ++index)
+        {
+            *p_wide += sorted[index] / (float) CHAR_WIDE;
+        }
+
+        /* Allow measurement noise around nominal 2:1 and 3:1 print ratios. */
+        if ((*p_wide < (MIN_WIDE_RATIO * *p_narrow)) ||
+            (*p_wide > (MAX_WIDE_RATIO * *p_narrow)))
+        {
+            b_valid = false;
+        }
+    }
+
+    if (b_valid)
+    {
+        float threshold = (sorted[CHAR_NARROW - 1u] + sorted[CHAR_NARROW]) *
+                          0.5f;
+
+        *p_pattern = 0u;
+        for (index = 0u; b_valid && (index < CHAR_ELEMENTS); ++index)
+        {
+            bool  b_wide   = (p_widths[index] > threshold);
+            float expected = b_wide ? *p_wide : *p_narrow;
+
+            if (fabsf(p_widths[index] - expected) >
+                (ELEMENT_TOLERANCE * expected))
+            {
+                b_valid = false;
+            }
+            else
+            {
+                /* At most nine bits are ever set, so the pattern fits. */
+                *p_pattern = (uint16_t) ((uint32_t) (*p_pattern << 1u) |
+                                         (b_wide ? 1u : 0u));
+            }
+        }
+    }
+
+    return b_valid;
+}
+
+/* Frame checks that need all three characters: consistent narrow width,
+ * narrow inter-character gaps and quiet zones of at least ten narrows.
+ * Fills the averaged widths in p_decoded. */
+static code39_status_t code39_check_frame (const float * p_widths,
+                                           const float * p_narrow,
+                                           const float * p_wide,
+                                           float leading_quiet,
+                                           float trailing_quiet,
+                                           code39_result_t * p_decoded)
+{
+    code39_status_t status     = CODE39_OK;
+    float           max_narrow = 0.0f;
+    float           min_narrow = INFINITY;
+    uint32_t        index      = 0u;
+
+    for (index = 0u; index < FRAME_CHARS; ++index)
+    {
+        if (p_narrow[index] > max_narrow)
+        {
+            max_narrow = p_narrow[index];
+        }
+        if (p_narrow[index] < min_narrow)
+        {
+            min_narrow = p_narrow[index];
+        }
+        p_decoded->narrow_width += p_narrow[index] / (float) FRAME_CHARS;
+        p_decoded->wide_ratio +=
+            (p_wide[index] / p_narrow[index]) / (float) FRAME_CHARS;
+    }
+
+    if (max_narrow > (NARROW_SPREAD * min_narrow))
+    {
+        status = CODE39_BAD_WIDTH;
+    }
+
+    /* The two gaps sit after the first and second characters. */
+    for (index = CHAR_ELEMENTS;
+         (CODE39_OK == status) && (index < (CHAR_STRIDE * 2u));
+         index += CHAR_STRIDE)
+    {
+        if (!isfinite(p_widths[index]) ||
+            (fabsf(p_widths[index] - p_decoded->narrow_width) >
+             (GAP_TOLERANCE * p_decoded->narrow_width)))
+        {
+            status = CODE39_BAD_WIDTH;
+        }
+    }
+
+    if ((CODE39_OK == status) &&
+        (!isfinite(leading_quiet) || !isfinite(trailing_quiet) ||
+         (leading_quiet < (QUIET_NARROWS * max_narrow)) ||
+         (trailing_quiet < (QUIET_NARROWS * max_narrow))))
+    {
+        status = CODE39_BAD_QUIET;
+    }
+
+    return status;
 }
 
 /*** end of file ***/

@@ -73,7 +73,7 @@ int main (int argc, char ** argv)
     assert(0 == batch.rows[1].left_x10 &&
            0 == batch.rows[1].right_x10); // Stationary pulse is retained.
     robot_ir_stream_publish(40);
-    assert(!count && 1 == published);
+    assert(!g_count && 1 == published);
     for (unsigned i = 0; i < 4; ++i)
     {
         o.ts_ms      = 1000 + i * 10;
@@ -84,7 +84,7 @@ int main (int argc, char ** argv)
         robot_ir_stream_record(&o, 2000, 2500, false);
     }
     robot_ir_stream_publish(1030);
-    assert(!count && 2 == published);
+    assert(!g_count && 2 == published);
     if (fixture)
     {
         fclose(fixture);
@@ -94,17 +94,17 @@ int main (int argc, char ** argv)
     o.ts_ms = 1100;
     robot_ir_stream_record(&o, 2000, 2500, false);
     robot_ir_stream_publish(1100);
-    assert(1 == count);
+    assert(1 == g_count);
     online = false;
     robot_ir_stream_publish(1200);
-    assert(1 == count);
+    assert(1 == g_count);
     online   = true;
     writable = false;
     robot_ir_stream_publish(1200);
-    assert(1 == count);
+    assert(1 == g_count);
     writable = true;
     robot_ir_stream_publish(1200);
-    assert(0 == count);
+    assert(0 == g_count);
     // Overflow does not permit a stale ack to consume unrelated newer rows.
     o.ts_ms = 1300;
     robot_ir_stream_record(&o, 2000, 2500, false);
@@ -114,16 +114,16 @@ int main (int argc, char ** argv)
         o.ts_ms += 10;
         robot_ir_stream_record(&o, 2000, 2500, false);
     }
-    assert(dropped > 0 && ROBOT_IR_STREAM_CAPACITY == count);
+    assert(g_dropped > 0 && ROBOT_IR_STREAM_CAPACITY == g_count);
     robot_ir_stream_ack(&batch);
-    assert(ROBOT_IR_STREAM_CAPACITY == count);
+    assert(ROBOT_IR_STREAM_CAPACITY == g_count);
     while (robot_ir_stream_peek(&batch))
     {
         robot_ir_stream_ack(&batch);
     }
     // Worst-case four-row JSON, unsigned sequence wrap and calibration values.
-    sequence     = UINT32_MAX - 3;
-    dropped      = UINT32_MAX;
+    g_sequence     = UINT32_MAX - 3;
+    g_dropped      = UINT32_MAX;
     boot         = UINT32_MAX;
     o.ts_ms      = UINT32_MAX;
     o.left_x10   = -INT32_MAX;
@@ -137,7 +137,7 @@ int main (int argc, char ** argv)
         robot_ir_stream_record(&o, 4095, 4095, true);
     }
     robot_ir_stream_publish(UINT32_MAX - 1);
-    assert(0 == count);
+    assert(0 == g_count);
     printf("PASS: independent IR capture while disabled/stationary, short "
            "pulses, final batch, offline/retry, overflow/stale ack, wrap; max "
            "packet %u bytes\n",
