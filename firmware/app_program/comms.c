@@ -32,135 +32,148 @@ static uint32_t comms_strlen (const char * p_text, uint32_t limit)
 
 int32_t comms_init (void)
 {
-    T_CMBF cmbf;
-    ID     id;
+    T_CMBF cmbf   = {0};
+    ID     id     = 0;
+    int32_t result = 0;
 
     cmbf.exinf  = NULL;
     cmbf.mbfatr = TA_TFIFO;
+    /* Sizes are small compile-time constants, well inside SZ and INT. */
     cmbf.bufsz  = (SZ) (COMMS_OUTBOX_MESSAGES *
                         (COMMS_PAYLOAD_MAX + 1u + COMMS_MSG_OVERHEAD));
     cmbf.maxmsz = (INT) (COMMS_PAYLOAD_MAX + 1u);
     id          = tk_cre_mbf(&cmbf);
     if (id < E_OK)
     {
-        return (int32_t) id;
+        result = (int32_t) id; /* Negative kernel error code. */
     }
-    g_outbox_id = id;
-
-    cmbf.bufsz =
-        (SZ) (COMMS_INBOX_MESSAGES * (COMMS_COMMAND_MAX + COMMS_MSG_OVERHEAD));
-    cmbf.maxmsz = (INT) COMMS_COMMAND_MAX;
-    id          = tk_cre_mbf(&cmbf);
-    if (id < E_OK)
+    else
     {
-        return (int32_t) id;
-    }
-    g_inbox_id = id;
+        g_outbox_id = id;
 
-    return 0;
+        cmbf.bufsz = (SZ) (COMMS_INBOX_MESSAGES *
+                           (COMMS_COMMAND_MAX + COMMS_MSG_OVERHEAD));
+        cmbf.maxmsz = (INT) COMMS_COMMAND_MAX;
+        id          = tk_cre_mbf(&cmbf);
+        if (id < E_OK)
+        {
+            result = (int32_t) id;
+        }
+        else
+        {
+            g_inbox_id = id;
+        }
+    }
+
+    return result;
 }
 
 bool comms_publish (uint32_t topic, const char * p_payload)
 {
     UB       message[COMMS_PAYLOAD_MAX + 1u];
-    uint32_t length;
-    uint32_t index;
+    uint32_t length   = 0u;
+    uint32_t index    = 0u;
+    bool     b_queued = false;
 
-    if ((g_outbox_id <= 0) || (NULL == p_payload) ||
-        (topic >= COMMS_TOPIC_COUNT) || (COMMS_LINK_MQTT_UP != g_link_state))
+    if ((g_outbox_id > 0) && (NULL != p_payload) &&
+        (topic < COMMS_TOPIC_COUNT) && (COMMS_LINK_MQTT_UP == g_link_state))
     {
-        return false;
+        length = comms_strlen(p_payload, COMMS_PAYLOAD_MAX - 1u);
+        /* topic < COMMS_TOPIC_COUNT and characters are stored as bytes. */
+        message[0] = (UB) topic;
+        for (index = 0u; index < length; index++)
+        {
+            message[index + 1u] = (UB) p_payload[index];
+        }
+        message[length + 1u] = (UB) '\0';
+
+        /* TMO_POL: never wait - if the network is slow, drop this message.
+         * length + 2 <= COMMS_PAYLOAD_MAX + 1, so it fits in INT. */
+        b_queued = (E_OK == tk_snd_mbf(g_outbox_id, message,
+                                       (INT) (length + 2u), TMO_POL));
     }
 
-    length     = comms_strlen(p_payload, COMMS_PAYLOAD_MAX - 1u);
-    message[0] = (UB) topic;
-    for (index = 0u; index < length; index++)
-    {
-        message[index + 1u] = (UB) p_payload[index];
-    }
-    message[length + 1u] = (UB) '\0';
-
-    /* TMO_POL: never wait - if the network is slow, drop this message. */
-    return (E_OK ==
-            tk_snd_mbf(g_outbox_id, message, (INT) (length + 2u), TMO_POL));
+    return b_queued;
 }
 
 bool comms_take_outgoing (uint32_t * p_topic, char * p_payload,
                           uint32_t buffer_size)
 {
     UB       message[COMMS_PAYLOAD_MAX + 1u];
-    INT      size;
-    uint32_t index;
+    INT      size    = 0;
+    uint32_t index   = 0u;
+    bool     b_taken = false;
 
-    if ((g_outbox_id <= 0) || (NULL == p_topic) || (NULL == p_payload) ||
-        (0u == buffer_size))
+    if ((g_outbox_id > 0) && (NULL != p_topic) && (NULL != p_payload) &&
+        (0u != buffer_size))
     {
-        return false;
+        size = tk_rcv_mbf(g_outbox_id, message, TMO_POL);
+        if (size >= 2)
+        {
+            *p_topic = (uint32_t) message[0];
+            /* size >= 2 here, so the unsigned conversion is exact. */
+            for (index = 0u; ((index + 1u) < (uint32_t) size) &&
+                             ((index + 1u) < buffer_size);
+                 index++)
+            {
+                p_payload[index] = (char) message[index + 1u];
+            }
+            p_payload[index] = '\0';
+            b_taken          = true;
+        }
     }
 
-    size = tk_rcv_mbf(g_outbox_id, message, TMO_POL);
-    if (size < 2)
-    {
-        return false;
-    }
-
-    *p_topic = (uint32_t) message[0];
-    for (index = 0u;
-         (index + 1u < (uint32_t) size) && (index + 1u < buffer_size); index++)
-    {
-        p_payload[index] = (char) message[index + 1u];
-    }
-    p_payload[index] = '\0';
-    return true;
+    return b_taken;
 }
 
 void comms_put_incoming (const char * p_data, uint32_t length)
 {
     UB       message[COMMS_COMMAND_MAX];
-    uint32_t index;
+    uint32_t index = 0u;
 
-    if ((g_inbox_id <= 0) || (NULL == p_data) || (0u == length))
+    if ((g_inbox_id > 0) && (NULL != p_data) && (0u != length))
     {
-        return;
-    }
-    if (length > (COMMS_COMMAND_MAX - 1u))
-    {
-        length = COMMS_COMMAND_MAX - 1u;
-    }
-    for (index = 0u; index < length; index++)
-    {
-        message[index] = (UB) p_data[index];
-    }
-    message[length] = (UB) '\0';
+        if (length > (COMMS_COMMAND_MAX - 1u))
+        {
+            length = COMMS_COMMAND_MAX - 1u;
+        }
+        for (index = 0u; index < length; index++)
+        {
+            message[index] = (UB) p_data[index];
+        }
+        message[length] = (UB) '\0';
 
-    (void) tk_snd_mbf(g_inbox_id, message, (INT) (length + 1u), TMO_POL);
+        /* length + 1 <= COMMS_COMMAND_MAX, so it fits in INT. */
+        (void) tk_snd_mbf(g_inbox_id, message, (INT) (length + 1u), TMO_POL);
+    }
 }
 
 bool comms_wait_command (char * p_buffer, uint32_t buffer_size,
                          int32_t timeout_ms)
 {
     UB       message[COMMS_COMMAND_MAX];
-    INT      size;
-    uint32_t index;
+    INT      size       = 0;
+    uint32_t index      = 0u;
+    bool     b_received = false;
 
-    if ((g_inbox_id <= 0) || (NULL == p_buffer) || (0u == buffer_size))
+    if ((g_inbox_id > 0) && (NULL != p_buffer) && (0u != buffer_size))
     {
-        return false;
+        size = tk_rcv_mbf(g_inbox_id, message, (TMO) timeout_ms);
+        if (size > 0)
+        {
+            /* size > 0 here, so the unsigned conversion is exact. */
+            for (index = 0u; (index < (uint32_t) size) &&
+                             ((index + 1u) < buffer_size);
+                 index++)
+            {
+                p_buffer[index] = (char) message[index];
+            }
+            p_buffer[index] = '\0';
+            b_received      = true;
+        }
     }
 
-    size = tk_rcv_mbf(g_inbox_id, message, (TMO) timeout_ms);
-    if (size <= 0)
-    {
-        return false;
-    }
-
-    for (index = 0u; (index < (uint32_t) size) && (index + 1u < buffer_size);
-         index++)
-    {
-        p_buffer[index] = (char) message[index];
-    }
-    p_buffer[index] = '\0';
-    return true;
+    return b_received;
 }
 
 uint32_t comms_get_link_state (void)

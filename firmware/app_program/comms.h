@@ -31,10 +31,11 @@
 #define COMMS_TOPIC_IR_STREAM (7u) /* rover/ir (non-retained) */
 #define COMMS_TOPIC_COUNT     (8u)
 
-#define COMMS_PAYLOAD_MAX                                                      \
-    (512u)                       /* longest outgoing JSON, incl. NUL; keep >=  \
-                                    ROBOT_TELEMETRY_BUFFER_SIZE */
-#define COMMS_COMMAND_MAX (128u) /* longest incoming command, incl. NUL */
+/* Longest outgoing JSON, including the NUL; keep it at least
+ * ROBOT_TELEMETRY_BUFFER_SIZE. */
+#define COMMS_PAYLOAD_MAX (512u)
+/* Longest incoming command, including the NUL. */
+#define COMMS_COMMAND_MAX (128u)
 
 /* Network state, for printing and telemetry. */
 #define COMMS_LINK_OFFLINE (0u) /* no Wi-Fi build, or not joined   */
@@ -52,12 +53,19 @@ bool comms_publish (uint32_t topic, const char * p_payload);
 bool comms_wait_command (char * p_buffer, uint32_t buffer_size,
                          int32_t timeout_ms);
 
+/** Current network state (COMMS_LINK_OFFLINE, _WIFI_UP or _MQTT_UP). */
 uint32_t comms_get_link_state (void);
 
 /* ---- Called by the network side (robot_mqtt.c) only ---- */
+/** Take the next queued message for publishing, without blocking.
+ *  @return True when p_topic and p_payload were filled. */
 bool comms_take_outgoing (uint32_t * p_topic, char * p_payload,
                           uint32_t buffer_size);
+
+/** Queue a command string received from the broker for the controller. */
 void comms_put_incoming (const char * p_data, uint32_t length);
+
+/** Record the network state reported by the radio task. */
 void comms_set_link_state (uint32_t state);
 
 #endif /* COMMS_H */

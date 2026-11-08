@@ -33,6 +33,9 @@ _Static_assert(HAL_IRQ_IO_BANK0 == IO_IRQ_BANK0, "IRQ number mismatch");
 /* Per-byte I2C timeout, so a missing or stuck sensor cannot hang a task. */
 #define HAL_I2C_TIMEOUT_US (2000u)
 
+/* Ring-oscillator bits mixed into the diagnostic boot identifier. */
+#define HAL_BOOT_ID_BITS (64u)
+
 /* ------------------------------------------------------------------ *
  *  SDK functions that normally come from the SDK runtime.
  *  micro T-Kernel replaces that runtime, so we provide them here.
@@ -43,23 +46,25 @@ _Static_assert(HAL_IRQ_IO_BANK0 == IO_IRQ_BANK0, "IRQ number mismatch");
 __attribute__((weak)) uint32_t clock_get_hz (clock_handle_t clock)
 {
     (void) clock;
+
     return HAL_CLK_SYS_HZ;
 }
 
 __attribute__((weak)) uint64_t time_us_64 (void)
 {
-    uint32_t hi0;
-    uint32_t lo;
-    uint32_t hi1;
+    uint32_t high_first  = 0u;
+    uint32_t low         = 0u;
+    uint32_t high_second = 0u;
 
+    /* Re-read if the low word wrapped between the two high-word reads. */
     do
     {
-        hi0 = timer_hw->timerawh;
-        lo  = timer_hw->timerawl;
-        hi1 = timer_hw->timerawh;
-    } while (hi0 != hi1);
+        high_first  = timer_hw->timerawh;
+        low         = timer_hw->timerawl;
+        high_second = timer_hw->timerawh;
+    } while (high_first != high_second);
 
-    return ((uint64_t) hi0 << 32) | lo;
+    return ((uint64_t) high_first << 32u) | low;
 }
 
 /* ---------------- Start-up ---------------- */
@@ -83,13 +88,16 @@ void hal_init (void)
 
 uint32_t hal_diagnostic_boot_id (void)
 {
+    /* Keep the low 32 bits of the boot time as the seed. */
     uint32_t value = (uint32_t) time_us_64();
-    unsigned i;
+    uint32_t bit   = 0u;
+
     /* Bounded startup-only sampling. Not an authentication token. */
-    for (i = 0; i < 64; ++i)
+    for (bit = 0u; bit < HAL_BOOT_ID_BITS; ++bit)
     {
-        value = (value << 1) ^ (value >> 31) ^ (rosc_hw->randombit & 1u);
+        value = (value << 1u) ^ (value >> 31u) ^ (rosc_hw->randombit & 1u);
     }
+
     return value;
 }
 
@@ -101,8 +109,8 @@ uint64_t hal_time_us (void)
 void hal_delay_us (uint32_t us)
 {
     uint64_t end   = time_us_64() + us;
-    uint32_t guard = (us + 1u) * 200u; /* never spin forever, even if the
-                                         timer were not running */
+    /* Never spin forever, even if the timer were not running. */
+    uint32_t guard = (us + 1u) * 200u;
 
     while ((time_us_64() < end) && (guard > 0u))
     {
@@ -182,6 +190,7 @@ uint32_t hal_gpio_irq_take_events (uint32_t pin, uint32_t mask)
     {
         gpio_acknowledge_irq(pin, events);
     }
+
     return events;
 }
 
@@ -231,6 +240,7 @@ uint16_t hal_adc_read (uint32_t channel)
 {
     adc_select_input(channel);
     (void) adc_read(); /* discard the first sample after switching */
+
     return adc_read();
 }
 
@@ -238,15 +248,22 @@ uint16_t hal_adc_read (uint32_t channel)
 
 static i2c_inst_t * hal_i2c_port (uint32_t port)
 {
+    i2c_inst_t * p_i2c = NULL;
+
     if (0u == port)
     {
-        return i2c0;
+        p_i2c = i2c0;
     }
-    if (1u == port)
+    else if (1u == port)
     {
-        return i2c1;
+        p_i2c = i2c1;
     }
-    return NULL;
+    else
+    {
+        p_i2c = NULL;
+    }
+
+    return p_i2c;
 }
 
 bool hal_i2c_init (uint32_t port, uint32_t baudrate, uint32_t sda_pin,
@@ -254,46 +271,60 @@ bool hal_i2c_init (uint32_t port, uint32_t baudrate, uint32_t sda_pin,
 {
     i2c_inst_t * p_i2c = hal_i2c_port(port);
 
-    if (NULL == p_i2c)
+    if (NULL != p_i2c)
     {
-        return false;
+        (void) i2c_init(p_i2c, baudrate); /* resets + configures the block */
+        gpio_set_function(sda_pin, GPIO_FUNC_I2C);
+        gpio_set_function(scl_pin, GPIO_FUNC_I2C);
+        gpio_pull_up(sda_pin);
+        gpio_pull_up(scl_pin);
     }
-    (void) i2c_init(p_i2c, baudrate); /* resets + configures the block */
-    gpio_set_function(sda_pin, GPIO_FUNC_I2C);
-    gpio_set_function(scl_pin, GPIO_FUNC_I2C);
-    gpio_pull_up(sda_pin);
-    gpio_pull_up(scl_pin);
-    return true;
+
+    return (NULL != p_i2c);
 }
 
 int32_t hal_i2c_write (uint32_t port, uint8_t address, const uint8_t * p_data,
                        uint32_t length, bool nostop)
 {
-    i2c_inst_t * p_i2c = hal_i2c_port(port);
-    int          result;
+    i2c_inst_t * p_i2c  = hal_i2c_port(port);
+    int32_t      status = HAL_I2C_ERROR;
+    int32_t      result = 0;
 
-    if ((NULL == p_i2c) || (NULL == p_data))
+    if ((NULL != p_i2c) && (NULL != p_data))
     {
-        return HAL_I2C_ERROR;
+        /* The SDK returns the byte count or a negative error as int. */
+        result = (int32_t) i2c_write_timeout_per_char_us(
+            p_i2c, address, p_data, length, nostop, HAL_I2C_TIMEOUT_US);
+        /* length is a short I2C transfer, so it fits in int32_t. */
+        if (result == (int32_t) length)
+        {
+            status = HAL_I2C_OK;
+        }
     }
-    result = i2c_write_timeout_per_char_us(p_i2c, address, p_data, length,
-                                           nostop, HAL_I2C_TIMEOUT_US);
-    return (result == (int) length) ? HAL_I2C_OK : HAL_I2C_ERROR;
+
+    return status;
 }
 
 int32_t hal_i2c_read (uint32_t port, uint8_t address, uint8_t * p_data,
                       uint32_t length, bool nostop)
 {
-    i2c_inst_t * p_i2c = hal_i2c_port(port);
-    int          result;
+    i2c_inst_t * p_i2c  = hal_i2c_port(port);
+    int32_t      status = HAL_I2C_ERROR;
+    int32_t      result = 0;
 
-    if ((NULL == p_i2c) || (NULL == p_data))
+    if ((NULL != p_i2c) && (NULL != p_data))
     {
-        return HAL_I2C_ERROR;
+        /* The SDK returns the byte count or a negative error as int. */
+        result = (int32_t) i2c_read_timeout_per_char_us(
+            p_i2c, address, p_data, length, nostop, HAL_I2C_TIMEOUT_US);
+        /* length is a short I2C transfer, so it fits in int32_t. */
+        if (result == (int32_t) length)
+        {
+            status = HAL_I2C_OK;
+        }
     }
-    result = i2c_read_timeout_per_char_us(p_i2c, address, p_data, length,
-                                          nostop, HAL_I2C_TIMEOUT_US);
-    return (result == (int) length) ? HAL_I2C_OK : HAL_I2C_ERROR;
+
+    return status;
 }
 
 /*** end of file ***/

@@ -19,15 +19,55 @@
 static gpio_irq_cb_t g_callbacks[GPIO_IRQ_PIN_COUNT];
 static uint32_t      g_event_masks[GPIO_IRQ_PIN_COUNT];
 
+static void gpio_irq_bank0_isr (UINT intno);
+
+int32_t gpio_irq_init (void)
+{
+    T_DINT dint   = {0};
+    ER     result = E_OK;
+
+    dint.intatr = TA_HLNG;
+    dint.inthdr = (FP) gpio_irq_bank0_isr;
+
+    result = tk_def_int((UINT) HAL_IRQ_IO_BANK0, &dint);
+    if (E_OK == result)
+    {
+        EnableInt((UINT) HAL_IRQ_IO_BANK0, GPIO_IRQ_NVIC_LEVEL);
+    }
+
+    return (int32_t) result;
+}
+
+int32_t gpio_irq_register (uint32_t gpio, uint32_t events,
+                           gpio_irq_cb_t callback)
+{
+    UINT    interrupt_state = 0u;
+    int32_t result          = -1;
+
+    if ((gpio < GPIO_IRQ_PIN_COUNT) && (NULL != callback) && (0u != events))
+    {
+        /* Publish the callback before the pin can fire. */
+        DI(interrupt_state);
+        g_callbacks[gpio]   = callback;
+        g_event_masks[gpio] = events;
+        EI(interrupt_state);
+
+        hal_gpio_irq_enable(gpio, events);
+        result = 0;
+    }
+
+    return result;
+}
+
 /**
  * @brief The one and only IO_IRQ_BANK0 handler.
  *
  * Walks the pins that have a callback, acknowledges their pending events
  * and forwards them.
  */
-static void gpio_irq_bank0_handler (UINT intno)
+static void gpio_irq_bank0_isr (UINT intno)
 {
-    uint32_t gpio;
+    uint32_t gpio = 0u;
 
     (void) intno;
 
@@ -44,44 +84,6 @@ static void gpio_irq_bank0_handler (UINT intno)
             }
         }
     }
-}
-
-int32_t gpio_irq_init (void)
-{
-    T_DINT dint;
-    ER     result;
-
-    dint.intatr = TA_HLNG;
-    dint.inthdr = (FP) gpio_irq_bank0_handler;
-
-    result = tk_def_int((UINT) HAL_IRQ_IO_BANK0, &dint);
-    if (E_OK == result)
-    {
-        EnableInt((UINT) HAL_IRQ_IO_BANK0, GPIO_IRQ_NVIC_LEVEL);
-    }
-
-    return (int32_t) result;
-}
-
-int32_t gpio_irq_register (uint32_t gpio, uint32_t events,
-                           gpio_irq_cb_t callback)
-{
-    UINT interrupt_state;
-
-    if ((gpio >= GPIO_IRQ_PIN_COUNT) || (NULL == callback) || (0u == events))
-    {
-        return -1;
-    }
-
-    /* Publish the callback before the pin can fire. */
-    DI(interrupt_state);
-    g_callbacks[gpio]   = callback;
-    g_event_masks[gpio] = events;
-    EI(interrupt_state);
-
-    hal_gpio_irq_enable(gpio, events);
-
-    return 0;
 }
 
 /*** end of file ***/
