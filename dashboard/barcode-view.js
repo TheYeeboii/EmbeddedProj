@@ -25,7 +25,7 @@
           this.frozen=BarcodeHistory.read(await file.text());this.selected=null;this.render();this.find('notice').textContent='Imported scan replay — live reader state still describes the connected rover.';
         }catch(error){this.find('notice').textContent=error.message;}e.target.value='';
       });
-      this.timer=setInterval(()=>{if(this.history.state!==null&&Date.now()-this.history.receivedAt>2500)this.unavailable();},1000);
+      this.timer=setInterval(()=>{if(this.history.state!==null&&Date.now()-this.history.receivedAt>2500)this.unavailable();else this.renderLive();},1000);
       element.addEventListener('ir-view-change',event=>{if(event.detail.mode==='attempts')this.render();});
       this.render();
     }
@@ -46,6 +46,33 @@
         state===6?(blocked&32?'Suspended: sampling too coarse — slow down':blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
           blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21 to start':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
       this.find('status').textContent='Decoder: '+label;
+      this.renderLetter(state,label);
+    }
+    renderLetter(state,label){
+      const card=document.getElementById('barcode-letter');if(!card)return;
+      const pick=name=>card.querySelector(`[data-letter="${name}"]`);
+      const reader=pick('reader');
+      reader.textContent=state===null?'Reader: offline':state===0?'Reader: off':'Reader: '+label;
+      reader.dataset.tone=state===null?'muted':state===0?'warning':state===2||state===3?'accent':'success';
+      const ended=this.history.frames.filter(f=>f.end);
+      const latest=ended[ended.length-1],good=[...ended].reverse().find(f=>f.end.reason===1);
+      if(latest&&`${latest.boot}:${latest.id}`!==this.letterKey){this.letterKey=`${latest.boot}:${latest.id}`;this.letterAt=Date.now();if(latest.end.reason===1)this.goodAt=this.letterAt;}
+      const ago=t=>{const s=Math.round((Date.now()-t)/1000);return s<2?'just now':s<60?`${s}s ago`:`${Math.round(s/60)} min ago`;};
+      if(good){
+        pick('symbol').textContent=String.fromCharCode(good.end.symbol);
+        pick('headline').textContent=`Read “${String.fromCharCode(good.end.symbol)}”`;
+        pick('detail').textContent=`${good.end.reversed?'Print was flipped (read in reverse)':'Read forward'} · scan ${good.id}${this.goodAt?` · ${ago(this.goodAt)}`:''}`;
+      }else{
+        pick('symbol').textContent='–';
+        pick('headline').textContent=latest?'No letter decoded yet':'No barcode read yet';
+        pick('detail').textContent=state===0||state===null?
+          'Reader off. Enable it in IR / barcode → Tools → Reader setup.':
+          'Press GP21, then drive slowly over the whole barcode.';
+      }
+      const rejected=latest&&latest.end.reason!==1;
+      pick('latest').textContent=rejected?`Latest attempt (scan ${latest.id}, ${ago(this.letterAt)}) rejected: ${reasons[latest.end.reason]}${latest.end.reason===2?` / ${formats[latest.end.format]}`:''}`:
+        state===2||state===3?'Scanning now…':'';
+      card.dataset.result=state===2||state===3?'scanning':good&&!rejected?'ok':rejected?'rejected':'none';
     }
     frames(){return this.frozen||this.history.frames;}
     frame(){const frames=this.frames();return frames.find(f=>`${f.boot}:${f.id}`===this.selected)||frames[frames.length-1];}
