@@ -43,21 +43,21 @@ int main (void)
     robot_steering_record(&e);
     e.ts_ms = 20;
     robot_steering_record(&e); // steady evidence coalesces
-    assert(1 == count);
+    assert(1 == g_count);
     e.ts_ms        = 30;
     e.requested[0] = 3000;
     robot_steering_record(&e);
-    assert(2 == count); // 20ms left pulse retained
+    assert(2 == g_count); // 20ms left pulse retained
     assert(robot_steering_peek(&out) && 1 == out.direction &&
            800 == out.applied[1]);
     robot_steering_publish(40);
-    assert(2 == count && !published);
+    assert(2 == g_count && !published);
     online = true;
     robot_steering_publish(40);
-    assert(2 == count && !published);
+    assert(2 == g_count && !published);
     writable = true;
     robot_steering_publish(40);
-    assert(0 == count && 2 == published);
+    assert(0 == g_count && 2 == published);
     robot_steering_publish(50);
     assert(strstr(last_payload, "steering_state"));
     assert(strstr(last_payload, "\"boot\":123"));
@@ -77,9 +77,9 @@ int main (void)
         e.ts_ms += 100;
         robot_steering_record(&e);
     }
-    assert(64 == count && dropped > 0);
+    assert(64 == g_count && g_dropped > 0);
     robot_steering_ack(stale);
-    assert(64 == count);
+    assert(64 == g_count);
     while (robot_steering_peek(&out))
     {
         robot_steering_ack(out.seq);
@@ -103,9 +103,9 @@ int main (void)
     e.input.dark  = 3;
     e.faults      = 3;
     e.input.phase = TRACE_DARK;
-    sequence      = UINT32_MAX - 1;
-    dropped       = UINT32_MAX;
-    session_id    = UINT32_MAX;
+    g_sequence      = UINT32_MAX - 1;
+    g_dropped       = UINT32_MAX;
+    g_session_id    = UINT32_MAX;
     robot_steering_record(&e);
     robot_steering_publish(UINT32_MAX - 1);
     puts("PASS: steering pulse capture, coalescing, ownership, drops, stale "
