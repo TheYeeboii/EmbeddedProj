@@ -3,7 +3,7 @@
  * @brief   Vehicle controller: decides what the robot does next.
  *
  * Takes the old main.c superloop logic and puts it in one place:
- *   - commands from the dashboard (MQTT "rover/commands"),
+ *   - packed commands from the dashboard (MQTT "rover/commands"),
  *   - barcode diagnostics (letters and rejected reads),
  *   - the GP21 button (start / stop line following),
  *   - the safety stop for raw "drive" commands that are not refreshed.
@@ -20,17 +20,29 @@
 /** Reset the controller to idle and set up the GP21 button. */
 void robot_controller_init (void);
 
-/** Execute one dashboard command: JSON like {"cmd":"drive","left":30000,
- *  "right":30000} or plain text like "drive 30000 30000".  Distance/turn
- *  moves are reserved for internal navigation. */
-void robot_controller_handle_command (const char * p_command, uint32_t now_ms);
+/**
+ * @brief Execute one packed dashboard command (robot_wire.h layout).
+ *
+ * A command with the wrong length, an unknown opcode or out-of-range values
+ * is ignored and reported on the USB console.  Distance/turn moves are
+ * reserved for internal navigation.
+ *
+ * @param p_data Command bytes from comms_wait_command().
+ * @param length Number of bytes.
+ * @param now_ms Current time, for the drive safety timeout.
+ */
+void robot_controller_handle_command (const uint8_t * p_data, uint32_t length,
+                                      uint32_t now_ms);
 /** Periodic work: barcodes, button, safety timeout. */
 void robot_controller_step (uint32_t now_ms);
 
 /** Last raw drive command in dashboard units (0..65535), for telemetry. */
 void robot_controller_get_drive (uint32_t * p_left, uint32_t * p_right);
-/** "idle", "drive", "motion", "line" or "avoid", for telemetry. */
+/** "idle", "drive", "motion", "line" or "avoid", for the USB console. */
 const char * robot_controller_mode_name (void);
+/** Mode index for telemetry (3 bits): 0 idle, 1 drive, 2 motion, 3 line,
+ *  4 avoid - the same order as robot_controller_mode_name(). */
+uint8_t robot_controller_get_mode (void);
 
 /** True while an existing forward/line/motion command may be protected by
  * the ultrasonic obstacle monitor. */

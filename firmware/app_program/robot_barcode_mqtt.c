@@ -47,7 +47,7 @@ void robot_barcode_publish (uint32_t now_ms)
         else
         {
             barcode_format(payload, &packet, now_ms);
-            if (comms_publish(COMMS_TOPIC_BARCODE, payload))
+            if (comms_publish_text(COMMS_TOPIC_BARCODE, payload))
             {
                 robot_barcode_packet_ack(&packet);
             }

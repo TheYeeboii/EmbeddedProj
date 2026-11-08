@@ -1,9 +1,9 @@
 /**
  * @file    robot_telemetry.h
- * @brief   Buddy 1: builds the JSON messages the dashboard shows.
+ * @brief   Buddy 1: builds the packed binary messages the dashboard shows.
  *
- * Same topics and field names as the old main.c, so the existing dashboard
- * works unchanged.  A few new fields (mode, pitch) are added at the end.
+ * Same topics as the old JSON messages; the layouts are in robot_wire.h and
+ * docs/MQTT_BINARY_FORMAT.md, and dashboard/rover-wire.js decodes them.
  */
 
 #ifndef ROBOT_TELEMETRY_H
@@ -12,13 +12,27 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Buffers passed in must be at least this big (tm_sprintf is unbounded). */
-#define ROBOT_TELEMETRY_BUFFER_SIZE (512u)
+#include "robot_wire.h"
 
-/** rover/telemetry: sensors, encoders, motors, mode. */
-void robot_telemetry_build (char * p_buffer, uint32_t now_ms);
-/** rover/debug: Buddy 3 IR / line / barcode detail. */
-void robot_telemetry_build_debug (char * p_buffer);
+/** Buffer size the build functions need (the longest packed message). */
+#define ROBOT_TELEMETRY_BUFFER_SIZE (ROBOT_WIRE_MESSAGE_MAX)
+
+/**
+ * @brief Pack rover/telemetry: sensors, encoders, motors, mode, faults.
+ * @param p_buffer Output, ROBOT_TELEMETRY_BUFFER_SIZE bytes.
+ * @param capacity Size of p_buffer.
+ * @param now_ms   Time since boot, sent as whole seconds.
+ * @return Message length in bytes (0 if it did not fit).
+ */
+uint32_t robot_telemetry_build (uint8_t * p_buffer, uint32_t capacity,
+                                uint32_t now_ms);
+/**
+ * @brief Pack rover/debug: Buddy 3 IR / line / barcode and Buddy 5 avoidance.
+ * @param p_buffer Output, ROBOT_TELEMETRY_BUFFER_SIZE bytes.
+ * @param capacity Size of p_buffer.
+ * @return Message length in bytes (0 if it did not fit).
+ */
+uint32_t robot_telemetry_build_debug (uint8_t * p_buffer, uint32_t capacity);
 /** Save and serially report the latest temporary Buddy 5 decision for
  * rover/debug. */
 void robot_telemetry_set_avoidance_scan (uint32_t ultra_left_cm,
@@ -27,7 +41,7 @@ void robot_telemetry_set_avoidance_scan (uint32_t ultra_left_cm,
 /** Save side-scan values before a route decision (including blocked scans). */
 void robot_telemetry_set_avoidance_scan_values (uint32_t ultra_left_cm,
                                                 uint32_t ultra_right_cm);
-/* Avoidance state sent to rover/debug for the dashboard Serial monitor. */
+/* Avoidance state sent to rover/debug (4 bits) for the dashboard. */
 #define ROBOT_AVOID_STATUS_IDLE            (0u)
 #define ROBOT_AVOID_STATUS_SCANNING        (1u)
 #define ROBOT_AVOID_STATUS_TURNING         (2u)
@@ -53,8 +67,14 @@ void robot_telemetry_set_avoidance_forward_progress (uint16_t progress_mm,
                                                      uint16_t target_mm);
 /** Clear the temporary avoidance decision after the turn has completed. */
 void robot_telemetry_clear_avoidance_scan (void);
-/** rover/heartbeat */
-void robot_telemetry_build_heartbeat (char * p_buffer);
+/**
+ * @brief Pack rover/heartbeat (one header byte).
+ * @param p_buffer Output, at least 1 byte.
+ * @param capacity Size of p_buffer.
+ * @return Message length in bytes (0 if it did not fit).
+ */
+uint32_t robot_telemetry_build_heartbeat (uint8_t * p_buffer,
+                                          uint32_t  capacity);
 
 #endif /* ROBOT_TELEMETRY_H */
 

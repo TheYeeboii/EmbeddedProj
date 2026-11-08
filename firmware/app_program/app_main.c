@@ -68,8 +68,11 @@
 #define APP_USB_POLL_MS       (100)
 #define APP_USB_ENUMERATED    (2u) /* tm_usb_state() once enumerated */
 #define APP_STATUS_EVERY_N    (2u) /* [status] line every 2 s   */
-/* 1 = also print the raw JSON (what the dashboard gets) on the console. */
-#define APP_CONSOLE_JSON (0)
+/* 1 = also print each packed message (what the dashboard gets) on the
+ * console as hex. */
+#define APP_CONSOLE_HEX (0)
+/* Longest message app_print_hex() shows in full. */
+#define APP_HEX_MAX_BYTES (32u)
 
 /* ------------------------------------------------------------------ *
  *  Helpers
@@ -87,6 +90,26 @@ uint32_t app_now_ms (void)
 
     /* The low word wraps every 49 days; callers use wrap-safe differences. */
     return (uint32_t) now.lo;
+}
+
+/**
+ * @brief Print a packed message as hex on the USB console.
+ *
+ * The console stays text (it is debug output, not application data), so the
+ * binary MQTT payloads are shown byte by byte.  Longer messages are cut at
+ * APP_HEX_MAX_BYTES.
+ */
+static void app_print_hex (const char * p_label, const uint8_t * p_data,
+                           uint32_t length)
+{
+    uint32_t index = 0u;
+
+    tm_printf((UB *) "%s (%u bytes):", p_label, (UINT) length);
+    for (index = 0u; (index < length) && (index < APP_HEX_MAX_BYTES); index++)
+    {
+        tm_printf((UB *) " %02x", (UINT) p_data[index]);
+    }
+    tm_printf((UB *) "\n");
 }
 
 /** @brief Print an initialisation error and report whether a kernel call
@@ -177,18 +200,19 @@ static void line_task (INT stacd, void * p_exinf)
  */
 static void controller_task (INT stacd, void * p_exinf)
 {
-    char command[COMMS_COMMAND_MAX];
+    uint8_t  command[COMMS_COMMAND_MAX];
+    uint32_t length = 0u;
 
     (void) stacd;
     (void) p_exinf;
     for (;;)
     {
         /* Sleeps until a command arrives or 20 ms pass, whichever first. */
-        if (comms_wait_command(command, sizeof(command),
+        if (comms_wait_command(command, sizeof(command), &length,
                                APP_CONTROLLER_PERIOD_MS))
         {
-            tm_printf((UB *) "[mqtt] command: %s\n", command);
-            robot_controller_handle_command(command, app_now_ms());
+            app_print_hex("[mqtt] command", command, length);
+            robot_controller_handle_command(command, length, app_now_ms());
         }
         robot_controller_step(app_now_ms());
         robot_action_publish(app_now_ms());
@@ -311,10 +335,11 @@ static void app_print_status (void)
  */
 static void telemetry_task (INT stacd, void * p_exinf)
 {
-    static char buffer[ROBOT_TELEMETRY_BUFFER_SIZE];
-    uint32_t    tick      = 0u;
-    uint32_t    last_link = 0xFFFFFFFFu;
-    INT         wait_step = 0;
+    static uint8_t buffer[ROBOT_TELEMETRY_BUFFER_SIZE];
+    uint32_t       length    = 0u;
+    uint32_t       tick      = 0u;
+    uint32_t       last_link = 0xFFFFFFFFu;
+    INT            wait_step = 0;
 
     (void) stacd;
     (void) p_exinf;
@@ -380,24 +405,26 @@ static void telemetry_task (INT stacd, void * p_exinf)
             app_print_status();
         }
 
-        /* JSON for the dashboard (MQTT).  Printed only if APP_CONSOLE_JSON. */
-        robot_telemetry_build_debug(buffer);
-        (void) comms_publish(COMMS_TOPIC_DEBUG, buffer);
-#if APP_CONSOLE_JSON && !BUDDY3_DEBUG
-        tm_printf((UB *) "[debug] %s\n", buffer);
+        /* Packed messages for the dashboard (MQTT).  A length of 0 (the
+         * message did not fit) is refused by comms_publish(). */
+        length = robot_telemetry_build_debug(buffer, sizeof(buffer));
+        (void) comms_publish(COMMS_TOPIC_DEBUG, buffer, length);
+#if APP_CONSOLE_HEX && !BUDDY3_DEBUG
+        app_print_hex("[debug]", buffer, length);
 #endif
         if (0u == (tick % APP_TELEMETRY_EVERY_N))
         {
-            robot_telemetry_build(buffer, app_now_ms());
-            (void) comms_publish(COMMS_TOPIC_TELEMETRY, buffer);
-#if APP_CONSOLE_JSON && !BUDDY3_DEBUG
-            tm_printf((UB *) "[telemetry] %s\n", buffer);
+            length =
+                robot_telemetry_build(buffer, sizeof(buffer), app_now_ms());
+            (void) comms_publish(COMMS_TOPIC_TELEMETRY, buffer, length);
+#if APP_CONSOLE_HEX && !BUDDY3_DEBUG
+            app_print_hex("[telemetry]", buffer, length);
 #endif
         }
         if (0u == (tick % APP_HEARTBEAT_EVERY_N))
         {
-            robot_telemetry_build_heartbeat(buffer);
-            (void) comms_publish(COMMS_TOPIC_HEARTBEAT, buffer);
+            length = robot_telemetry_build_heartbeat(buffer, sizeof(buffer));
+            (void) comms_publish(COMMS_TOPIC_HEARTBEAT, buffer, length);
         }
 
         tick++;

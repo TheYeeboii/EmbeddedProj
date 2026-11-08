@@ -4,6 +4,7 @@
 #include <string.h>
 /* Compile the real command/button/handoff controller against fake hardware. */
 #include "../firmware/app_program/robot_controller.c"
+#include "../firmware/app_program/robot_packed.h"
 
 static bool     g_b_following;
 static bool     g_b_motion;
@@ -175,14 +176,63 @@ static void reset (void)
     g_servo_angle                                        = 90;
     g_serial_log[0]                                      = 0;
 }
-static void command (const char * c, uint32_t written)
+/* Test-side packer for "name [value [value]]", the same layout the
+ * dashboard's rover-wire.js sends.  A value the field cannot carry is never
+ * sent (the dashboard refuses it too), so the robot's state is unchanged. */
+typedef struct
 {
-    robot_controller_handle_command(c, written);
+    const char * p_name;
+    uint8_t      opcode;
+    uint8_t      widths[2];
+    int32_t      offset;
+} test_command_t;
+
+static const test_command_t g_test_commands[] = {
+    {"stop", ROBOT_WIRE_OP_STOP, {0u, 0u}, 0},
+    {"line_follow", ROBOT_WIRE_OP_LINE_FOLLOW, {0u, 0u}, 0},
+    {"line_stop", ROBOT_WIRE_OP_LINE_STOP, {0u, 0u}, 0},
+    {"servo_angle", ROBOT_WIRE_OP_SERVO_ANGLE, {8u, 0u}, 0},
+    {"barcode_mode", ROBOT_WIRE_OP_BARCODE_MODE, {1u, 0u}, 0},
+    {"line_stage", ROBOT_WIRE_OP_LINE_STAGE, {2u, 0u}, 0},
+    {"motor_trim", ROBOT_WIRE_OP_MOTOR_TRIM, {6u, 6u}, 50}};
+
+static void command (const char * c, uint32_t now_ms)
+{
+    char                  name[24]  = {0};
+    int                   values[2] = {0, 0};
+    uint8_t               packed[ROBOT_WIRE_COMMAND_MAX];
+    robot_packed_writer_t writer;
+    size_t                entry = 0u;
+    int  count  = sscanf(c, "%23s %d %d", name, &values[0], &values[1]);
+    bool b_fits = true;
+
+    while (0 != strcmp(name, g_test_commands[entry].p_name))
+    {
+        entry++;
+        assert(entry < (sizeof(g_test_commands) / sizeof(g_test_commands[0])));
+    }
+    robot_packed_writer_init(&writer, packed, sizeof(packed));
+    robot_packed_put(&writer, g_test_commands[entry].opcode, 4u);
+    for (int index = 0;
+         (index < 2) && (0u != g_test_commands[entry].widths[index]); index++)
+    {
+        int32_t  value = values[index] - g_test_commands[entry].offset;
+        uint32_t width = g_test_commands[entry].widths[index];
+
+        assert(count > (index + 1));
+        b_fits = b_fits && (value >= 0) && ((uint32_t) value < (1u << width));
+        robot_packed_put(&writer, (uint32_t) value, width);
+    }
+    if (b_fits)
+    {
+        robot_controller_handle_command(packed, robot_packed_length(&writer),
+                                        now_ms);
+    }
 }
 int main (void)
 {
     reset();
-    command("{\"cmd\":\"servo_angle\",\"angle\":135}", 0);
+    command("servo_angle 135", 0);
     assert(135 == g_servo_angle);
     command("servo_angle 45", 0);
     assert(45 == g_servo_angle);

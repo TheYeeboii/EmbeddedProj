@@ -21,6 +21,14 @@ const SPARK_POINTS = 40;
 /* Buddy 4 BUDDY4_MOTION_* values (buddy4_processing.h). */
 const MOTION_NAMES = ['Unknown', 'Stationary', 'Cruising', 'Accelerating', 'Decelerating', 'Turning', 'On a hump', 'Sudden impact'];
 const MODE_TONES = { idle: 'muted', drive: 'accent', motion: 'accent', line: 'success' };
+/* Buddy 2 defaults (buddy2_motion.c): 65 mm wheel, 387 encoder ticks per turn. */
+const CM_PER_TICK = (Math.PI * 6.5) / 387;
+/* Buddy 5 avoid_status names (robot_telemetry.c) and the badge tone for each. */
+const AVOID_TONES = {
+  idle: 'muted', scanning: 'accent', turning: 'accent', forward: 'accent', recovering: 'accent', reversing: 'accent',
+  complete: 'success', cancelled: 'muted',
+  blocked: 'warning', imu_unavailable: 'destructive', imu_lost: 'destructive', timeout: 'destructive'
+};
 const KEY_COMMANDS = {
   w: 'forward', arrowup: 'forward',
   s: 'reverse', arrowdown: 'reverse',
@@ -49,6 +57,11 @@ let serialPaused = false;
 let robotOffline = false;
 let lastSeen = 0;
 let distanceHistory = [];
+/* Set when the rover's binary format version differs from rover-wire.js. */
+let wireMismatch = null;
+/* Telemetry sends the low 16 bits of each encoder count. */
+const leftTicks = new window.RoverWire.TickUnwrapper();
+const rightTicks = new window.RoverWire.TickUnwrapper();
 
 /* ---------- helpers ---------- */
 
@@ -95,6 +108,9 @@ function refreshRobotLink() {
     irStreamView.unavailable();
     barcodeConfiguration.unavailable();
     setBadge('robot-link', 'Offline', 'destructive');
+  } else if (wireMismatch) {
+    /* The rover runs another message layout: its values would be garbage. */
+    setBadge('robot-link', `Firmware format v${wireMismatch.version}, dashboard v${wireMismatch.expected}`, 'warning');
   } else if (!lastSeen) {
     setBadge('robot-link', 'Unknown', 'muted');
   } else if (Date.now() - lastSeen > STALE_AFTER_MS) {
@@ -153,6 +169,10 @@ function showTelemetry(data) {
   setText('pitch', fmt(data.pitch_deg));
   setText('left-ticks', fmt(data.left_ticks));
   setText('right-ticks', fmt(data.right_ticks));
+  setText('odo-left', typeof data.left_ticks === 'number' ? fmt(data.left_ticks * CM_PER_TICK) : '--');
+  setText('odo-right', typeof data.right_ticks === 'number' ? fmt(data.right_ticks * CM_PER_TICK) : '--');
+  showImuHealth(data.state);
+  setText('max-pitch', fmt(data.max_pitch_deg));
   setText('motor-left', fmt(data.motor_left));
   setText('motor-right', fmt(data.motor_right));
   setText('uptime', formatUptime(data.ts_ms));
@@ -186,6 +206,22 @@ function showTelemetry(data) {
   if (typeof data.distance_cm === 'number') {
     distanceHistory = [...distanceHistory, data.distance_cm].slice(-SPARK_POINTS);
     drawSpark();
+  }
+}
+
+/* Buddy 4 tab: the firmware reports "compass_error" when !mag_ok, else
+ * "imu_error" when !accel_ok, else "online"; accel is not checked when the
+ * compass has failed. */
+function showImuHealth(state) {
+  if (state === 'compass_error') {
+    setBadge('mag-ok', 'Error', 'destructive');
+    setBadge('accel-ok', 'Not checked', 'muted');
+  } else if (state === 'imu_error') {
+    setBadge('mag-ok', 'OK', 'success');
+    setBadge('accel-ok', 'Error', 'destructive');
+  } else if (state === 'online') {
+    setBadge('mag-ok', 'OK', 'success');
+    setBadge('accel-ok', 'OK', 'success');
   }
 }
 
@@ -245,7 +281,40 @@ function showDebug(data) {
     ? String.fromCharCode(data.command) : '';
   $('#barcode-cmd').textContent = data.barcode && barcodeName ? barcodeName : '';
 
+  showAvoidance(data);
   appendSerial(data);
+}
+
+/* Buddy 5 tab: obstacle avoidance fields of rover/debug. Same rules as the
+ * serial line: scan values only count once a decision was made or the
+ * avoidance is blocked, and 0 cm means no valid echo. */
+function showAvoidance(data) {
+  if (typeof data.avoid_status !== 'string') return;
+  setBadge('avoid-status', data.avoid_status.replace('_', ' '), AVOID_TONES[data.avoid_status] || 'muted');
+  const scanned = (data.decision && data.decision !== 'none') || data.avoid_status === 'blocked';
+  const distance = value => (value === 0 ? 'invalid' : fmt(value));
+  setText('avoid-left', scanned ? distance(data.ultra_left) : '--');
+  setText('avoid-right', scanned ? distance(data.ultra_right) : '--');
+  setText('avoid-decision', data.decision && data.decision !== 'none' ? `Turn ${data.decision}` : '--');
+  setText('avoid-pwm-left', fmt(data.avoid_motor_left_pwm));
+  setText('avoid-pwm-right', fmt(data.avoid_motor_right_pwm));
+
+  const change = typeof data.avoid_heading_change_x10 === 'number' ? data.avoid_heading_change_x10 / 10 : null;
+  const target = typeof data.avoid_heading_target_x10 === 'number' && data.avoid_heading_target_x10 > 0
+    ? data.avoid_heading_target_x10 / 10 : null;
+  const holding = data.avoid_status === 'forward' || data.avoid_status === 'recovering';
+  if (holding) {
+    setText('avoid-heading', `${fmt(change)}°`);
+    setText('avoid-heading-note', 'heading error');
+  } else {
+    setText('avoid-heading', target === null ? '--' : `${fmt(change ?? 0)} / ${fmt(target)}°`);
+    setText('avoid-heading-note', 'turned / target');
+  }
+
+  const goal = data.avoid_forward_target_mm;
+  const done = typeof goal === 'number' && goal > 0 && typeof data.avoid_forward_mm === 'number';
+  setText('avoid-forward', done ? `${data.avoid_forward_mm} / ${goal} mm` : '--');
+  $('#avoid-forward-bar').style.transform = `scaleX(${done ? Math.min(data.avoid_forward_mm / goal, 1) : 0})`;
 }
 
 function appendSerial(data) {
@@ -275,7 +344,8 @@ function appendSerial(data) {
       parts.push(['k', 'decision: '], [data.decision === 'left' ? 'y' : '', data.decision]);
     }
     if (data.avoid_status === 'blocked') {
-      parts.push(['k', 'reason: '], ['', 'no valid side has at least 20 cm clearance']);
+      /* The firmware does not send why; its USB console prints the cause. */
+      parts.push(['k', 'reason: '], ['', 'route stopped (cause in USB console)']);
     }
   }
   if (data.avoid_status && data.avoid_status !== 'idle') {
@@ -320,7 +390,15 @@ function sendCommand(command, values = {}, { quiet = false } = {}) {
     commandResult.style.color = 'var(--destructive)';
     return false;
   }
-  client.publish(topics.commands, JSON.stringify({ cmd: command, ...values }), { qos: 0 });
+  /* Packed binary command (rover-wire.js); null = a value the format cannot
+   * carry, which the input checks above should already have caught. */
+  const payload = window.RoverWire.encodeCommand(command, values);
+  if (!payload) {
+    commandResult.textContent = `Not sent: ${command.replace('_', ' ')} has an invalid value.`;
+    commandResult.style.color = 'var(--destructive)';
+    return false;
+  }
+  client.publish(topics.commands, payload, { qos: 0 });
   if (!quiet) {
     commandResult.textContent = `Sent ${command.replace('_', ' ')} at ${timeFormat.format(new Date())}`;
     commandResult.style.color = '';
@@ -443,7 +521,8 @@ function sendTrim() {
   }
 }
 
-/* Line-follow speed: percent of full power for straight driving and curves. */
+/* Line-follow speed: percent of full power for straight driving and curves.
+ * Returns false when a box holds an invalid value (nothing is sent then). */
 function sendLineSpeed() {
   const baseInput = $('#line-base');
   const turnInput = $('#line-turn');
@@ -451,12 +530,13 @@ function sendLineSpeed() {
   const turn = readInt(turnInput, 0, 60);
   if (base === null || turn === null) {
     showError('line-error', base === null ? 'Speed must be a whole number from 15 to 80.' : 'Curve power must be a whole number from 0 to 60.', base === null ? baseInput : turnInput);
-    return;
+    return false;
   }
   showError('line-error', '');
   if (sendCommand('line_speed', { base, turn })) {
     commandResult.textContent = `Line speed ${base}% curve ${turn}%`;
   }
+  return true;
 }
 
 /* Global speed limit: scales every motor command on the robot. Only sent on Apply. */
@@ -535,7 +615,21 @@ $('#trim-reset').addEventListener('click', () => {
   sendTrim();
 });
 
-$('#line-follow-command').addEventListener('click', () => sendCommand('line_follow'));
+/* Typed line speeds apply on Enter or when the box loses focus (−/+ already
+ * send at once). Start sends the boxes first, so the run always uses what is
+ * shown, even after a reboot reset the robot to its defaults. */
+['line-base', 'line-turn'].forEach((id) => {
+  $(`#${id}`).addEventListener('change', sendLineSpeed);
+  $(`#${id}`).addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      sendLineSpeed();
+    }
+  });
+});
+$('#line-follow-command').addEventListener('click', () => {
+  if (sendLineSpeed()) sendCommand('line_follow');
+});
 $('#line-stop-command').addEventListener('click', () => sendCommand('line_stop'));
 $('#imu-reset').addEventListener('click', () => sendCommand('imu_reset'));
 
@@ -557,12 +651,13 @@ document.querySelectorAll('#steering-visual, #barcode-visual').forEach((card) =>
 
 /* One button: rover back to boot defaults (stopped, faults/odometry/IMU
  * cleared) and every dashboard history, log and form field cleared. */
+const resetInputs = [...document.querySelectorAll('.col-side input:not([type="file"])')];
 $('#reset-all').addEventListener('click', () => {
   if (!window.confirm('Reset everything?\n\nStops the rover, clears encoder faults, odometry and IMU, restores default settings, and clears all histories and logs on this page (export first if you need them).')) return;
   sendCommand('reset_all');
   document.querySelectorAll('[data-steering="clear"], [data-ir="clear"], [data-barcode="clear"], #clear-serial')
     .forEach((button) => button.click());
-  document.querySelectorAll('.col-side input:not([type="file"])').forEach((input) => { input.value = input.defaultValue; });
+  resetInputs.forEach((input) => { input.value = input.defaultValue; });
 });
 
 /* ---------- serial controls ---------- */
@@ -604,6 +699,11 @@ if (document.documentElement.dataset.theme === 'light') {
   $('meta[name="theme-color"]').setAttribute('content', '#fbfbfc');
 }
 
+/* ---------- tabs ---------- */
+
+/* Built after every listener above, so moved cards keep their handlers. */
+const tabs = new window.RoverTabs($('#tabbar'), { onChange: () => window.scrollTo(0, 0) });
+
 /* ---------- MQTT ---------- */
 
 setText('broker-host', `${brokerHost}:9001`);
@@ -638,8 +738,19 @@ if (!window.mqtt) {
   });
   client.on('error', () => setConnection('offline', 'Broker error'));
   client.on('message', (topic, raw) => {
-    let data;
-    try { data = JSON.parse(raw.toString()); } catch { return; }
+    const message = window.RoverWire.decode(raw);
+    if (message.kind === 'version_mismatch') {
+      wireMismatch = message.data;
+      refreshRobotLink();
+      return;
+    }
+    if (message.kind === 'invalid') return;
+    if (message.kind !== 'json') wireMismatch = null;
+    const data = message.data;
+    if (message.kind === 'telemetry') {
+      data.left_ticks = leftTicks.update(data.left_ticks_raw);
+      data.right_ticks = rightTicks.update(data.right_ticks_raw);
+    }
     if (topic === topics.telemetry) showTelemetry(data);
     else if (topic === topics.actions) {
       if (actionLog.handle(data, serialPaused)) markSeen();

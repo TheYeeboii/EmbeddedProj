@@ -708,3 +708,51 @@ kbd {
   .col-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .layout { grid-template-columns: minmax(0, 1fr) 480px; }
 }
+
+/* ---------- Page tabs: Main plus one tab per buddy ----------
+ * The bar sits in the top bar so the Main tab keeps its original layout.
+ * Buddy panels borrow the main page's cards (tabs-view.js). */
+.tabbar {
+  display: flex; gap: 2px; min-width: 0; padding: 3px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--card);
+  overflow-x: auto; scrollbar-width: none;
+}
+.tabbar::-webkit-scrollbar { display: none; }
+.tab {
+  flex: none; height: 28px; padding: 0 12px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--muted-foreground);
+  font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
+}
+.tab:hover { color: var(--foreground); }
+.tab[aria-selected="true"] { background: var(--primary); color: var(--primary-foreground); }
+.tab-sub { opacity: 0.75; font-weight: 400; }
+@media (min-width: 1081px) and (max-width: 1399px) {
+  .tab-sub { display: none; }
+}
+@media (max-width: 1080px) {
+  .topbar { flex-wrap: wrap; row-gap: 10px; }
+  .tabbar { order: 3; flex: 1 1 100%; }
+  .tab { flex: 1 0 auto; }
+}
+@media (max-width: 520px) {
+  .tab { padding: 0 10px; }
+  .tab-sub { display: none; }
+}
+
+/* Slots vanish so the borrowed card or tile is the grid item itself. */
+.tab-slot { display: contents; }
+.buddy-grid {
+  display: grid; gap: 16px; align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+}
+.buddy-wide > *, .buddy-grid > .buddy-wide { grid-column: 1 / -1; }
+.buddy-panel .metrics.buddy-metrics { grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr)); }
+.buddy-panel .metrics.buddy-metrics .metric-wide { grid-column: 1 / -1; }
+.buddy-panel .metrics.buddy-metrics-single { grid-template-columns: 1fr; }
+.buddy-panel .metric .badge { text-transform: none; }
+.buddy-panel .metric .track { margin-top: 2px; background: var(--input); }
+@media (min-width: 1180px) and (min-height: 600px) {
+  .buddy-grid { gap: 10px; }
+  .buddy-panel .metric-value strong, .buddy-panel .metric-wide .metric-value strong { font-size: 22px; }
+  .buddy-panel .metric-text strong { font-size: 18px; }
+}

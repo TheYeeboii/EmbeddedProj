@@ -33,8 +33,10 @@
 #define BUDDY2_TRIM_DEFAULT_RIGHT (100u)
 #define BUDDY2_TRIM_MIN           (50u)
 
-/** Global speed limit, percent.  Scales EVERY motor command: arrows, raw
- *  drive, line following, distance/turn moves and barcode moves.
+/** Global speed limit, percent.  Scales motor commands from arrows, raw
+ *  drive, line following, distance/turn moves and barcode moves.  The
+ *  *_at_speed() calls use their own percentage instead (obstacle avoidance
+ *  uses them so the limit cannot starve its moves).
  *  Change at run time with buddy2_set_speed_limit(). */
 #define BUDDY2_SPEED_DEFAULT (40u)
 #define BUDDY2_SPEED_MIN     (20u)
@@ -101,6 +103,16 @@ void buddy2_stop_observed (const struct robot_steering_input * p_input);
 /** @brief Drive both motors open-loop (trim and speed limit applied). */
 void buddy2_set_motor_pwm (int16_t left_pwm, int16_t right_pwm);
 
+/**
+ * @brief Drive both motors open-loop at a fixed speed percentage instead of
+ *        the global speed limit (trim still applied).
+ * @param speed_pct Speed in percent, BUDDY2_SPEED_MIN..100.
+ * @return False (motors unchanged) if not initialised or speed_pct is out
+ *         of range.
+ */
+bool buddy2_set_motor_pwm_at_speed (int16_t left_pwm, int16_t right_pwm,
+                                    uint8_t speed_pct);
+
 /** @brief Stop both motors and cancel any distance/turn move. */
 void buddy2_stop (void);
 
@@ -134,6 +146,13 @@ bool buddy2_move_forward (float32_t distance_mm, int16_t max_pwm);
 /** @brief Start a closed-loop straight move backward.
  *  @return False if not initialised, max_pwm <= 0 or distance is 0. */
 bool buddy2_move_backward (float32_t distance_mm, int16_t max_pwm);
+
+/** @brief buddy2_move_backward() at a fixed speed percentage
+ *         (BUDDY2_SPEED_MIN..100) instead of the global speed limit.
+ *  @return False if not initialised, max_pwm <= 0, distance is 0 or
+ *          speed_pct is out of range. */
+bool buddy2_move_backward_at_speed (float32_t distance_mm, int16_t max_pwm,
+                                    uint8_t speed_pct);
 
 /** @brief Start an in-place left (anticlockwise) turn.
  *  @return False if not initialised, max_pwm <= 0 or angle is 0. */

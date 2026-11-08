@@ -42,7 +42,7 @@ void robot_ir_stream_publish (uint32_t now_ms)
         else
         {
             (void) ir_mqtt_format(payload, &batch, now_ms);
-            if (comms_publish(COMMS_TOPIC_IR_STREAM, payload))
+            if (comms_publish_text(COMMS_TOPIC_IR_STREAM, payload))
             {
                 robot_ir_stream_ack(&batch);
             }
