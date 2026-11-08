@@ -363,6 +363,13 @@ static void telemetry_task (INT stacd, void * p_exinf)
 #else
     tm_printf((UB *) " Wi-Fi:    not in this build\n");
 #endif
+#if defined(ROBOT_DIAGNOSTICS) && (ROBOT_DIAGNOSTICS == 0)
+    tm_printf((UB *) " Diagnostic streams: off (build with DIAGNOSTICS=1 "
+                     "for the tuning views)\n");
+#else
+    tm_printf((UB *) " Diagnostic streams: on (rover/actions, steering, "
+                     "barcode, ir)\n");
+#endif
     if (BUDDY3_DEBUG)
     {
         tm_printf((UB *) " Buddy 3 debug: routine console output muted; errors "

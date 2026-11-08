@@ -206,12 +206,40 @@ WIFI_DHCP=1 WIFI_MQTT=1`, Pico SDK 2.3.0, arm-none-eabi-gcc 15.2),
 | Command copy on the controller stack | 128 | 8 | -120 B |
 
 The outbox is still 4 x 521 bytes, and `g_outgoing` is still 512. Packed
-telemetry needs only 32, but the JSON diagnostic streams (`rover/actions`,
-`rover/steering`, `rover/barcode`, `rover/ir`, Buddy 4's IMU report) share
-the outbox and are up to 439 bytes. When those are packed,
+telemetry needs only 32, but Buddy 4's IMU report is still JSON (283 bytes)
+and shares the outbox. So do the diagnostic streams when they are built in
+(below; up to 439 bytes). Once those are packed or left out,
 `COMMS_PAYLOAD_MAX` can drop to 32. That saves about 1.9 KB of kernel pool
 and 480 B of `.bss`, and each publish stops copying 513 bytes onto the
 caller's stack.
+
+## Diagnostic streams: the `DIAGNOSTICS` build switch
+
+`rover/actions`, `rover/steering`, `rover/barcode` and `rover/ir` exist only
+for the dashboard's tuning views. They are JSON text, and `rover/ir` alone was
+most of the Wi-Fi traffic. Their eight modules (`robot_action_log`,
+`robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream` and the four
+`*_mqtt.c` publishers) only record what the robot did; no control code reads
+anything back from them.
+
+| Build | What is linked | MQTT |
+|---|---|---|
+| `make ... DIAGNOSTICS=0` (default) | `robot_diagnostics_off.c`: empty stand-ins with the same functions, so callers are unchanged | Packed binary only (plus Buddy 4's IMU report) |
+| `make ... DIAGNOSTICS=1` | The eight real modules | Adds the four JSON streams for tuning |
+
+The switch is part of the build profile, so changing it rebuilds everything.
+The USB banner prints which one is running. The host tests still compile the
+real modules.
+
+| Wi-Fi build | `.text` | `.data` | `.bss` |
+|---|---|---|---|
+| Before Change Requirement 1 | 386,417 | 3,264 | 90,064 |
+| Binary MQTT, `DIAGNOSTICS=1` | 385,133 | 3,264 | 89,464 |
+| Binary MQTT, `DIAGNOSTICS=0` | 377,197 | 3,256 | 49,792 |
+| Saving vs before | -9,220 B | -8 B | **-40,272 B (-45 %)** |
+
+Most of the RAM was the trace queues: `g_frames` (25.7 KB of barcode frames),
+two `g_queue` rings (4 KB and 7 KB), and the action and IR buffers.
 
 ## Correctness evidence
 
