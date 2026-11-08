@@ -65,6 +65,8 @@
 #define APP_TELEMETRY_EVERY_N (1u)  /* rover/telemetry every 1 s */
 #define APP_HEARTBEAT_EVERY_N (10u) /* rover/heartbeat every 10 s */
 #define APP_USB_WAIT_MS       (3000)
+#define APP_USB_POLL_MS       (100)
+#define APP_USB_ENUMERATED    (2u) /* tm_usb_state() once enumerated */
 #define APP_STATUS_EVERY_N    (2u) /* [status] line every 2 s   */
 /* 1 = also print the raw JSON (what the dashboard gets) on the console. */
 #define APP_CONSOLE_JSON (0)
@@ -79,9 +81,11 @@ static ID g_line_task_id   = 0;
 /** @brief Return the micro T-Kernel uptime in milliseconds. */
 uint32_t app_now_ms (void)
 {
-    SYSTIM now;
+    SYSTIM now = {0};
 
     (void) tk_get_otm(&now);
+
+    /* The low word wraps every 49 days; callers use wrap-safe differences. */
     return (uint32_t) now.lo;
 }
 
@@ -89,12 +93,14 @@ uint32_t app_now_ms (void)
  * succeeded. */
 static bool app_check (const char * p_what, ER result)
 {
-    if (result < E_OK)
+    bool b_ok = (result >= E_OK);
+
+    if (!b_ok)
     {
         tm_printf((UB *) "[init] %s FAILED, error %d\n", p_what, (INT) result);
-        return false;
     }
-    return true;
+
+    return b_ok;
 }
 
 /**
@@ -118,11 +124,10 @@ static void app_fail_forever (const char * p_what)
  *  Periodic tasks woken by cyclic handlers (exact period)
  * ------------------------------------------------------------------ */
 
-/** @brief Wake the task whose ID is stored in a cyclic handler's exinf field.
- */
-static void app_wake_handler (void * p_exinf)
+/** @brief Cyclic-handler ISR: wake the task whose ID is stored in exinf. */
+static void app_wake_isr (void * p_exinf)
 {
-    /* exinf holds a pointer to the task id to wake. */
+    /* exinf always points at one of the static task-ID variables below. */
     (void) tk_wup_tsk(*(ID *) p_exinf);
 }
 
@@ -202,15 +207,22 @@ static void controller_task (INT stacd, void * p_exinf)
 /** @brief Convert a communications-link state to console text. */
 static const char * app_link_name (uint32_t state)
 {
+    const char * p_name = "offline";
+
     if (COMMS_LINK_MQTT_UP == state)
     {
-        return "MQTT connected";
+        p_name = "MQTT connected";
     }
-    if (COMMS_LINK_WIFI_UP == state)
+    else if (COMMS_LINK_WIFI_UP == state)
     {
-        return "Wi-Fi connected, looking for the MQTT broker...";
+        p_name = "Wi-Fi connected, looking for the MQTT broker...";
     }
-    return "offline";
+    else
+    {
+        p_name = "offline";
+    }
+
+    return p_name;
 }
 
 /** @brief Convert a line-sensor Boolean reading to the status-line colour
@@ -228,15 +240,15 @@ static const char * app_color (bool black)
  */
 static void app_print_status (void)
 {
-    buddy4_imu_state_t imu;
-    buddy5_reading_t   sonar;
-    bool               left;
-    bool               right;
-    bool               side;
-    const char *       p_sign = "";
-    int32_t            pitch;
+    buddy4_imu_state_t imu     = {0};
+    buddy5_reading_t   sonar   = {0};
+    bool               b_left  = false;
+    bool               b_right = false;
+    bool               b_side  = false;
+    const char *       p_sign  = "";
+    int32_t            pitch   = 0;
 
-    buddy3_get_colors(&left, &right, &side);
+    buddy3_get_colors(&b_left, &b_right, &b_side);
     buddy4_get_state(&imu);
     buddy5_get_last(&sonar);
 
@@ -248,8 +260,8 @@ static void app_print_status (void)
     }
 
     tm_printf((UB *) "[status] %-6s | front L=%s R=%s | side=%s | ",
-              robot_controller_mode_name(), app_color(left), app_color(right),
-              app_color(side));
+              robot_controller_mode_name(), app_color(b_left),
+              app_color(b_right), app_color(b_side));
     if (BUDDY5_NO_ECHO == sonar.distance_cm)
     {
         tm_printf((UB *) "sonar --    | ");
@@ -272,7 +284,7 @@ static void app_print_status (void)
 
     /* Wiring check: which pins this build reads, and the live tick counts. */
     {
-        buddy2_motion_state_t motion;
+        buddy2_motion_state_t motion = {0};
 
         buddy2_get_motion_state(&motion);
         tm_printf((UB *) "[encoders] left GP%u = %d ticks %s | right GP%u = %d "
@@ -302,15 +314,17 @@ static void telemetry_task (INT stacd, void * p_exinf)
     static char buffer[ROBOT_TELEMETRY_BUFFER_SIZE];
     uint32_t    tick      = 0u;
     uint32_t    last_link = 0xFFFFFFFFu;
-    INT         i;
+    INT         wait_step = 0;
 
     (void) stacd;
     (void) p_exinf;
 
     /* Give the USB console a moment so the banner is not lost. */
-    for (i = 0; (i < (APP_USB_WAIT_MS / 100)) && (tm_usb_state() < 2u); i++)
+    for (wait_step = 0; (wait_step < (APP_USB_WAIT_MS / APP_USB_POLL_MS)) &&
+                        (tm_usb_state() < APP_USB_ENUMERATED);
+         wait_step++)
     {
-        (void) tk_dly_tsk(100);
+        (void) tk_dly_tsk(APP_USB_POLL_MS);
     }
     tm_printf((
         UB *) "\n==========================================================\n");
@@ -395,6 +409,9 @@ static void telemetry_task (INT stacd, void * p_exinf)
  *  Kernel object definitions
  * ------------------------------------------------------------------ */
 
+/* NOTE: a function-like macro is kept here (deviation from 6.3.a) because
+ * the task descriptors are static initialisers, which a function cannot
+ * produce.  Each parameter is used once and parenthesised. */
 #define APP_TASK(fn, pri)                                                      \
     {.tskatr  = TA_HLNG | TA_RNG3,                                             \
      .task    = (fn),                                                          \
@@ -411,7 +428,7 @@ static T_CTSK g_ctsk_telemetry = APP_TASK(telemetry_task, APP_PRI_TELEMETRY);
 static T_CCYC g_ccyc_motion = {
     .exinf  = &g_motion_task_id,
     .cycatr = TA_HLNG | TA_STA,
-    .cychdr = app_wake_handler,
+    .cychdr = app_wake_isr,
     .cyctim = BUDDY2_CONTROL_PERIOD_MS,
     .cycphs = BUDDY2_CONTROL_PERIOD_MS,
 };
@@ -419,7 +436,7 @@ static T_CCYC g_ccyc_motion = {
 static T_CCYC g_ccyc_line = {
     .exinf  = &g_line_task_id,
     .cycatr = TA_HLNG | TA_STA,
-    .cychdr = app_wake_handler,
+    .cychdr = app_wake_isr,
     .cyctim = BUDDY3_SAMPLE_PERIOD_MS,
     .cycphs = BUDDY3_SAMPLE_PERIOD_MS,
 };
@@ -432,14 +449,15 @@ static T_CCYC g_ccyc_line = {
  */
 static ID app_start_task (const char * p_name, T_CTSK * p_ctsk)
 {
-    ID id = tk_cre_tsk(p_ctsk);
+    ID task_id = tk_cre_tsk(p_ctsk);
 
-    if (!app_check(p_name, id))
+    if (!app_check(p_name, task_id))
     {
         app_fail_forever(p_name);
     }
-    (void) tk_sta_tsk(id, 0);
-    return id;
+    (void) tk_sta_tsk(task_id, 0);
+
+    return task_id;
 }
 
 /* ------------------------------------------------------------------ *
@@ -470,11 +488,13 @@ EXPORT INT usermain (void)
      * pins are set up by their own drivers.) */
     {
         static const uint8_t grove_pins[] = {0u, 1u, 2u, 3u, 16u, 17u};
-        uint32_t             i;
+        uint32_t             pin_index    = 0u;
 
-        for (i = 0u; i < (sizeof(grove_pins) / sizeof(grove_pins[0])); i++)
+        for (pin_index = 0u;
+             pin_index < (sizeof(grove_pins) / sizeof(grove_pins[0]));
+             pin_index++)
         {
-            hal_gpio_input_pulldown((uint32_t) grove_pins[i]);
+            hal_gpio_input_pulldown((uint32_t) grove_pins[pin_index]);
         }
     }
 

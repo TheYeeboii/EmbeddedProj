@@ -69,9 +69,34 @@
 #define BUDDY2_ENCODER_CHECK_MIN_PWM (3000)
 #define BUDDY2_ENCODER_FAULT_MS      (800u)
 
+
+/* Trace values are tenths and saturate just inside the integer ranges. */
+#define BUDDY2_TRACE_LIMIT     (2147480000.0f)
+#define BUDDY2_TRACE_SPEED_MAX (32767)
+/* Trim and speed limit are percentages; both scale an open-loop command. */
+#define BUDDY2_PERCENT         (100u)
+#define BUDDY2_PERCENT_SQUARED (10000)
+#define BUDDY2_DEG_PER_TURN    (360.0f)
+#define BUDDY2_MS_PER_S        (1000.0f)
+
 /* ------------------------------------------------------------------ *
  *  State
  * ------------------------------------------------------------------ */
+
+typedef struct
+{
+    bool    b_active;
+    float   target_distance_mm;
+    float   start_left_distance_mm;
+    float   start_right_distance_mm;
+    int16_t max_pwm;
+    int8_t  left_direction;
+    int8_t  right_direction;
+    float   left_integral;
+    float   right_integral;
+    float   left_previous_error;
+    float   right_previous_error;
+} buddy2_move_t;
 
 /* Written by the encoder interrupt, read by tasks. */
 static volatile int32_t g_left_ticks  = 0;
@@ -97,27 +122,348 @@ static int8_t   g_right_direction = 1;
 static int16_t g_left_applied_pwm  = 0;
 static int16_t g_right_applied_pwm = 0;
 /* How long each wheel has been driven without a tick. */
-static uint32_t g_left_no_tick_ms  = 0u;
-static uint32_t g_right_no_tick_ms = 0u;
-static bool     g_initialized      = false;
-static ID       g_mutex_id         = 0;
-
-typedef struct
-{
-    bool    active;
-    float   target_distance_mm;
-    float   start_left_distance_mm;
-    float   start_right_distance_mm;
-    int16_t max_pwm;
-    int8_t  left_direction;
-    int8_t  right_direction;
-    float   left_integral;
-    float   right_integral;
-    float   left_previous_error;
-    float   right_previous_error;
-} buddy2_move_t;
-
+static uint32_t      g_left_no_tick_ms  = 0u;
+static uint32_t      g_right_no_tick_ms = 0u;
+static bool          g_b_initialized    = false;
+static ID            g_mutex_id         = 0;
 static buddy2_move_t g_motion;
+
+static float   buddy2_absf (float value);
+static float   buddy2_clampf (float value, float limit);
+static void    buddy2_lock (void);
+static void    buddy2_unlock (void);
+static void    buddy2_encoder_isr (uint32_t gpio, uint32_t events);
+static float   buddy2_mm_per_tick (float ticks_per_rev);
+static int16_t buddy2_clamp_pwm (float value);
+static void    buddy2_apply_one (uint32_t pin_a, uint32_t pin_b, int16_t pwm);
+static void    buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm);
+static int32_t buddy2_trace_distance (float distance_mm);
+static int16_t buddy2_trace_speed (float speed);
+static void    buddy2_trace (int16_t left, int16_t right,
+                             const robot_steering_input_t * p_input);
+static void    buddy2_stop_locked (const robot_steering_input_t * p_input);
+static void    buddy2_encoder_pin_init (uint32_t pin);
+static bool    buddy2_start_motion (float left_distance_mm,
+                                    float right_distance_mm, int16_t max_pwm);
+static bool    buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
+                                     uint32_t elapsed_ms,
+                                     uint32_t * p_no_tick_ms, bool * p_fault);
+static void    buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
+                                       float dt_s);
+static void    buddy2_run_pid (float dt_s);
+
+/* ------------------------------------------------------------------ *
+ *  Public API
+ * ------------------------------------------------------------------ */
+
+int32_t buddy2_motion_init (void)
+{
+    T_CMTX  cmtx     = {0};
+    ID      mutex_id = 0;
+    int32_t result   = 0;
+
+    cmtx.exinf = NULL;
+    /* Priority inheritance.  Note: TA_TFIFO / TA_TPRI / TA_INHERIT /
+     * TA_CEILING are one 2-bit field, NOT flags - OR-ing two of them
+     * (e.g. TA_TPRI | TA_INHERIT == TA_CEILING) gives E_PAR. */
+    cmtx.mtxatr  = TA_INHERIT;
+    cmtx.ceilpri = 0;
+    mutex_id     = tk_cre_mtx(&cmtx);
+    if (mutex_id < E_OK)
+    {
+        result = (int32_t) mutex_id; /* Negative kernel error code. */
+    }
+    else
+    {
+        g_mutex_id = mutex_id;
+
+        /* micro T-Kernel leaves the PWM block in reset - release it. */
+        hal_pwm_release_reset();
+
+        /* Motor pins.  Pins A and B of a motor share one PWM slice. */
+        hal_pwm_pin_init(MOTOR_LEFT_PWM_A, BUDDY2_PWM_WRAP);
+        hal_pwm_pin_init(MOTOR_LEFT_PWM_B, BUDDY2_PWM_WRAP);
+        hal_pwm_pin_init(MOTOR_RIGHT_PWM_A, BUDDY2_PWM_WRAP);
+        hal_pwm_pin_init(MOTOR_RIGHT_PWM_B, BUDDY2_PWM_WRAP);
+
+        buddy2_encoder_pin_init(ENCODER_LEFT_A);
+        buddy2_encoder_pin_init(ENCODER_RIGHT_A);
+
+        buddy2_lock();
+        g_b_initialized = true;
+        buddy2_stop_locked(NULL);
+        buddy2_unlock();
+
+        buddy2_reset_encoders();
+    }
+
+    return result;
+}
+
+void buddy2_set_motor_pwm (int16_t left_pwm, int16_t right_pwm)
+{
+    buddy2_set_motor_pwm_observed(left_pwm, right_pwm, NULL);
+}
+
+void buddy2_set_motor_pwm_observed (int16_t left_pwm, int16_t right_pwm,
+                                    const robot_steering_input_t * p_input)
+{
+    if (g_b_initialized)
+    {
+        buddy2_lock();
+        /* trim and speed are at most 100 %, so each product divided by
+         * 100 * 100 stays within the int16_t command range. */
+        buddy2_set_motor_pwm_locked(
+            (int16_t) (((int32_t) left_pwm * (int32_t) g_left_trim_pct *
+                        (int32_t) g_speed_pct) /
+                       BUDDY2_PERCENT_SQUARED),
+            (int16_t) (((int32_t) right_pwm * (int32_t) g_right_trim_pct *
+                        (int32_t) g_speed_pct) /
+                       BUDDY2_PERCENT_SQUARED));
+        /* Observe requested steering before trim; trim alone is not a turn.
+         * Logging only queues transitions and never publishes while locked.
+         * The millisecond clock wraps; consumers use differences. */
+        robot_action_record(robot_action_direction_for_pwm(left_pwm, right_pwm),
+                            ROBOT_ACTION_PWM, left_pwm, right_pwm,
+                            (uint32_t) (hal_time_us() / 1000u));
+        buddy2_trace(left_pwm, right_pwm, p_input);
+        buddy2_unlock();
+    }
+}
+
+bool buddy2_set_speed_limit (uint8_t percent)
+{
+    bool b_valid = ((percent >= BUDDY2_SPEED_MIN) && (percent <= BUDDY2_PERCENT));
+
+    if (b_valid)
+    {
+        buddy2_lock();
+        g_speed_pct = percent;
+        buddy2_unlock();
+    }
+
+    return b_valid;
+}
+
+uint8_t buddy2_get_speed_limit (void)
+{
+    uint8_t percent = 0u;
+
+    buddy2_lock();
+    percent = g_speed_pct;
+    buddy2_unlock();
+
+    return percent;
+}
+
+bool buddy2_set_trim (uint8_t left_pct, uint8_t right_pct)
+{
+    bool b_valid = (left_pct >= BUDDY2_TRIM_MIN) &&
+                   (left_pct <= BUDDY2_PERCENT) &&
+                   (right_pct >= BUDDY2_TRIM_MIN) &&
+                   (right_pct <= BUDDY2_PERCENT);
+
+    if (b_valid)
+    {
+        buddy2_lock();
+        g_left_trim_pct  = left_pct;
+        g_right_trim_pct = right_pct;
+        buddy2_unlock();
+    }
+
+    return b_valid;
+}
+
+void buddy2_get_trim (uint8_t * p_left_pct, uint8_t * p_right_pct)
+{
+    if ((NULL != p_left_pct) && (NULL != p_right_pct))
+    {
+        buddy2_lock();
+        *p_left_pct  = g_left_trim_pct;
+        *p_right_pct = g_right_trim_pct;
+        buddy2_unlock();
+    }
+}
+
+void buddy2_stop (void)
+{
+    buddy2_stop_observed(NULL);
+}
+
+void buddy2_stop_observed (const robot_steering_input_t * p_input)
+{
+    if (g_b_initialized)
+    {
+        buddy2_lock();
+        buddy2_stop_locked(p_input);
+        buddy2_unlock();
+    }
+}
+
+void buddy2_reset_encoders (void)
+{
+    UINT interrupt_state = 0u;
+
+    buddy2_lock();
+    DI(interrupt_state);
+    g_left_ticks  = 0;
+    g_right_ticks = 0;
+    EI(interrupt_state);
+    g_state.left_ticks        = 0;
+    g_state.right_ticks       = 0;
+    g_state.left_distance_mm  = 0.0f;
+    g_state.right_distance_mm = 0.0f;
+    /* Keep an active move consistent with the zeroed odometry. */
+    g_motion.start_left_distance_mm  = 0.0f;
+    g_motion.start_right_distance_mm = 0.0f;
+    /* A reset also forgets latched encoder faults; a genuinely silent
+     * wheel is flagged again by the next powered check. */
+    g_state.left_encoder_fault  = false;
+    g_state.right_encoder_fault = false;
+    g_left_no_tick_ms           = 0u;
+    g_right_no_tick_ms          = 0u;
+    buddy2_unlock();
+}
+
+void buddy2_get_encoder_position (buddy2_encoder_position_t * p_position)
+{
+    UINT    interrupt_state = 0u;
+    int32_t left_ticks      = 0;
+    int32_t right_ticks     = 0;
+    int32_t left_delta      = 0;
+    int32_t right_delta     = 0;
+
+    if ((NULL != p_position) && g_b_initialized)
+    {
+        buddy2_lock();
+        DI(interrupt_state);
+        left_ticks  = g_left_ticks;
+        right_ticks = g_right_ticks;
+        EI(interrupt_state);
+        /* Wrap-safe tick differences: unsigned subtraction, then back to a
+         * signed delta that is small between two updates. */
+        left_delta =
+            (int32_t) ((uint32_t) left_ticks - (uint32_t) g_state.left_ticks);
+        right_delta =
+            (int32_t) ((uint32_t) right_ticks - (uint32_t) g_state.right_ticks);
+        p_position->left_distance_mm =
+            g_state.left_distance_mm +
+            ((float) left_delta *
+             buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev) *
+             (float) g_left_direction);
+        p_position->right_distance_mm =
+            g_state.right_distance_mm +
+            ((float) right_delta *
+             buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev) *
+             (float) g_right_direction);
+        p_position->left_encoder_fault  = g_state.left_encoder_fault;
+        p_position->right_encoder_fault = g_state.right_encoder_fault;
+        buddy2_unlock();
+    }
+}
+
+void buddy2_get_motion_state (buddy2_motion_state_t * p_state)
+{
+    if ((NULL != p_state) && g_b_initialized)
+    {
+        buddy2_lock();
+        *p_state = g_state;
+        buddy2_unlock();
+    }
+}
+
+bool buddy2_move_forward (float distance_mm, int16_t max_pwm)
+{
+    float distance = buddy2_absf(distance_mm);
+
+    return buddy2_start_motion(distance, distance, max_pwm);
+}
+
+bool buddy2_move_backward (float distance_mm, int16_t max_pwm)
+{
+    float distance = buddy2_absf(distance_mm);
+
+    return buddy2_start_motion(-distance, -distance, max_pwm);
+}
+
+bool buddy2_turn_left (float angle_deg, int16_t max_pwm)
+{
+    /* In-place turn: each wheel travels an arc of the track circle. */
+    float distance = (BUDDY2_PI * g_calibration.track_width_mm *
+                      buddy2_absf(angle_deg)) /
+                     BUDDY2_DEG_PER_TURN;
+
+    return buddy2_start_motion(-distance, distance, max_pwm);
+}
+
+bool buddy2_turn_right (float angle_deg, int16_t max_pwm)
+{
+    float distance = (BUDDY2_PI * g_calibration.track_width_mm *
+                      buddy2_absf(angle_deg)) /
+                     BUDDY2_DEG_PER_TURN;
+
+    return buddy2_start_motion(distance, -distance, max_pwm);
+}
+
+bool buddy2_motion_active (void)
+{
+    bool b_active = false;
+
+    buddy2_lock();
+    b_active = g_motion.b_active;
+    buddy2_unlock();
+
+    return b_active;
+}
+
+void buddy2_update (uint32_t now_ms)
+{
+    uint32_t elapsed_ms = 0u;
+    float    dt_s       = 0.0f;
+
+    if (g_b_initialized)
+    {
+        buddy2_lock();
+        elapsed_ms = now_ms - g_last_update_ms;
+        if ((elapsed_ms >= BUDDY2_CONTROL_PERIOD_MS) ||
+            (0u == g_last_update_ms))
+        {
+            dt_s             = (float) elapsed_ms / BUDDY2_MS_PER_S;
+            g_last_update_ms = now_ms;
+            buddy2_update_odometry(now_ms, elapsed_ms, dt_s);
+            if (g_motion.b_active)
+            {
+                buddy2_run_pid(dt_s);
+            }
+        }
+        buddy2_unlock();
+    }
+}
+
+void buddy2_set_calibration (const buddy2_calibration_t * p_calibration)
+{
+    if ((NULL != p_calibration) && (p_calibration->wheel_diameter_mm > 0.0f) &&
+        (p_calibration->track_width_mm > 0.0f) &&
+        (p_calibration->left_ticks_per_wheel_rev > 0.0f) &&
+        (p_calibration->right_ticks_per_wheel_rev > 0.0f) &&
+        (p_calibration->pwm_limit > 0u) &&
+        (p_calibration->pwm_limit <= (uint16_t) BUDDY2_PWM_MAX))
+    {
+        buddy2_lock();
+        g_calibration = *p_calibration;
+        buddy2_unlock();
+    }
+}
+
+void buddy2_get_calibration (buddy2_calibration_t * p_calibration)
+{
+    if (NULL != p_calibration)
+    {
+        buddy2_lock();
+        *p_calibration = g_calibration;
+        buddy2_unlock();
+    }
+}
 
 /* ------------------------------------------------------------------ *
  *  Small helpers (no libm needed)
@@ -130,15 +476,22 @@ static float buddy2_absf (float value)
 
 static float buddy2_clampf (float value, float limit)
 {
+    float result = value;
+
     if (value > limit)
     {
-        return limit;
+        result = limit;
     }
-    if (value < -limit)
+    else if (value < -limit)
     {
-        return -limit;
+        result = -limit;
     }
-    return value;
+    else
+    {
+        result = value;
+    }
+
+    return result;
 }
 
 static void buddy2_lock (void)
@@ -155,23 +508,22 @@ static void buddy2_unlock (void)
  *  Encoder interrupt (runs in interrupt context - keep it tiny)
  * ------------------------------------------------------------------ */
 
-static void buddy2_encoder_callback (uint32_t gpio, uint32_t events)
+static void buddy2_encoder_isr (uint32_t gpio, uint32_t events)
 {
-    if (0u == (events & HAL_GPIO_EDGE_RISE))
+    if (0u != (events & HAL_GPIO_EDGE_RISE))
     {
-        return;
-    }
-    if (ENCODER_LEFT_A == gpio)
-    {
-        g_left_ticks++;
-    }
-    else if (ENCODER_RIGHT_A == gpio)
-    {
-        g_right_ticks++;
-    }
-    else
-    {
-        /* Not ours - ignore. */
+        if (ENCODER_LEFT_A == gpio)
+        {
+            g_left_ticks++;
+        }
+        else if (ENCODER_RIGHT_A == gpio)
+        {
+            g_right_ticks++;
+        }
+        else
+        {
+            /* Not ours - ignore. */
+        }
     }
 }
 
@@ -181,25 +533,31 @@ static void buddy2_encoder_callback (uint32_t gpio, uint32_t events)
 
 static float buddy2_mm_per_tick (float ticks_per_rev)
 {
-    if (ticks_per_rev <= 0.0f)
+    float mm_per_tick = 0.0f;
+
+    if (ticks_per_rev > 0.0f)
     {
-        return 0.0f;
+        mm_per_tick = (BUDDY2_PI * g_calibration.wheel_diameter_mm) /
+                      ticks_per_rev;
     }
-    return (BUDDY2_PI * g_calibration.wheel_diameter_mm) / ticks_per_rev;
+
+    return mm_per_tick;
 }
 
 /* Clamp a float command to the calibrated limit, then convert. */
 static int16_t buddy2_clamp_pwm (float value)
 {
+    /* pwm_limit <= BUDDY2_PWM_MAX, so the clamped value fits int16_t. */
     return (int16_t) buddy2_clampf(value, (float) g_calibration.pwm_limit);
 }
 
 /* Drive one H-bridge.  pwm is in API units (-32767..32767). */
 static void buddy2_apply_one (uint32_t pin_a, uint32_t pin_b, int16_t pwm)
 {
+    /* |pwm| <= 32767, so the magnitude is exact as uint32_t. */
     uint32_t magnitude =
         (uint32_t) ((pwm < 0) ? -(int32_t) pwm : (int32_t) pwm);
-    uint32_t level;
+    uint32_t level = 0u;
 
     if ((magnitude > 0u) && (magnitude < g_calibration.pwm_deadband))
     {
@@ -244,33 +602,61 @@ static void buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm)
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, right_command);
 }
 
-/* Snapshot while the same mutex protects accepted output and odometry. */
-static int32_t buddy2_trace_distance (float mm)
+/* Distance in tenths of a millimetre, saturated; NaN gives 0. */
+static int32_t buddy2_trace_distance (float distance_mm)
 {
-    float value = mm * 10.0f;
-    if (!(value == value))
+    float   value  = distance_mm * 10.0f;
+    int32_t result = 0;
+
+    if (value > BUDDY2_TRACE_LIMIT)
     {
-        return 0;
+        result = INT32_MAX;
     }
-    if (value > 2147480000.0f)
+    else if (value < -BUDDY2_TRACE_LIMIT)
     {
-        return INT32_MAX;
+        result = -INT32_MAX;
     }
-    if (value < -2147480000.0f)
+    else if (value >= -BUDDY2_TRACE_LIMIT)
     {
-        return -INT32_MAX;
+        /* In range, so the conversion is defined. */
+        result = (int32_t) value;
     }
-    return (int32_t) value;
+    else
+    {
+        result = 0; /* NaN fails every comparison above. */
+    }
+
+    return result;
 }
+
+/* Speed in tenths of mm/s, saturated to int16_t. */
 static int16_t buddy2_trace_speed (float speed)
 {
     int32_t value = buddy2_trace_distance(speed);
-    return value > 32767 ? 32767 : value < -32767 ? -32767 : (int16_t) value;
+
+    if (value > BUDDY2_TRACE_SPEED_MAX)
+    {
+        value = BUDDY2_TRACE_SPEED_MAX;
+    }
+    else if (value < -BUDDY2_TRACE_SPEED_MAX)
+    {
+        value = -BUDDY2_TRACE_SPEED_MAX;
+    }
+    else
+    {
+        /* Already in range. */
+    }
+
+    /* Clamped to +/-32767 above. */
+    return (int16_t) value;
 }
+
+/* Snapshot while the same mutex protects accepted output and odometry. */
 static void buddy2_trace (int16_t left, int16_t right,
-                          const robot_steering_input_t * input)
+                          const robot_steering_input_t * p_input)
 {
     robot_steering_event_t event = {0};
+
     event.ts_ms = app_now_ms(); /* Same kernel clock as IR and odometry. */
     event.requested[0]    = left;
     event.requested[1]    = right;
@@ -281,319 +667,93 @@ static void buddy2_trace (int16_t left, int16_t right,
     event.speed_x10[0]    = buddy2_trace_speed(g_state.left_speed_mm_s);
     event.speed_x10[1]    = buddy2_trace_speed(g_state.right_speed_mm_s);
     event.encoder_ms      = g_state.timestamp_ms;
-    event.faults          = (uint8_t) (g_state.left_encoder_fault |
-                                       (g_state.right_encoder_fault << 1));
-    event.has_input       = input != NULL;
-    if (input)
+    /* Bit 0 left fault, bit 1 right fault. */
+    event.faults    = (uint8_t) ((g_state.left_encoder_fault ? 1u : 0u) |
+                              (g_state.right_encoder_fault ? 2u : 0u));
+    event.has_input = (NULL != p_input);
+    if (NULL != p_input)
     {
-        event.input = *input;
+        event.input = *p_input;
     }
     robot_steering_record(&event);
 }
 
 /* Caller must hold the mutex. */
-static void buddy2_stop_locked (const robot_steering_input_t * input)
+static void buddy2_stop_locked (const robot_steering_input_t * p_input)
 {
-    g_motion.active     = false;
+    g_motion.b_active   = false;
     g_left_applied_pwm  = 0;
     g_right_applied_pwm = 0;
     buddy2_apply_one(MOTOR_LEFT_PWM_A, MOTOR_LEFT_PWM_B, 0);
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, 0);
+    /* The millisecond clock wraps; consumers use differences. */
     robot_action_record(ROBOT_ACTION_NONE, ROBOT_ACTION_STOP, 0, 0,
                         (uint32_t) (hal_time_us() / 1000u));
-    buddy2_trace(0, 0, input);
+    buddy2_trace(0, 0, p_input);
 }
 
 static void buddy2_encoder_pin_init (uint32_t pin)
 {
     /* The encoders pull their output low, so the pin needs a pull-up. */
     hal_gpio_input_pullup(pin);
-    (void) gpio_irq_register(pin, HAL_GPIO_EDGE_RISE, buddy2_encoder_callback);
-}
-
-/* ------------------------------------------------------------------ *
- *  Public API
- * ------------------------------------------------------------------ */
-
-int32_t buddy2_motion_init (void)
-{
-    T_CMTX cmtx;
-    ID     mutex_id;
-
-    cmtx.exinf = NULL;
-    /* Priority inheritance.  Note: TA_TFIFO / TA_TPRI / TA_INHERIT /
-     * TA_CEILING are one 2-bit field, NOT flags - OR-ing two of them
-     * (e.g. TA_TPRI | TA_INHERIT == TA_CEILING) gives E_PAR. */
-    cmtx.mtxatr  = TA_INHERIT;
-    cmtx.ceilpri = 0;
-    mutex_id     = tk_cre_mtx(&cmtx);
-    if (mutex_id < E_OK)
-    {
-        return (int32_t) mutex_id;
-    }
-    g_mutex_id = mutex_id;
-
-    /* micro T-Kernel leaves the PWM block in reset - release it. */
-    hal_pwm_release_reset();
-
-    /* Motor pins.  Pins A and B of a motor share one PWM slice. */
-    hal_pwm_pin_init(MOTOR_LEFT_PWM_A, BUDDY2_PWM_WRAP);
-    hal_pwm_pin_init(MOTOR_LEFT_PWM_B, BUDDY2_PWM_WRAP);
-    hal_pwm_pin_init(MOTOR_RIGHT_PWM_A, BUDDY2_PWM_WRAP);
-    hal_pwm_pin_init(MOTOR_RIGHT_PWM_B, BUDDY2_PWM_WRAP);
-
-    buddy2_encoder_pin_init(ENCODER_LEFT_A);
-    buddy2_encoder_pin_init(ENCODER_RIGHT_A);
-
-    buddy2_lock();
-    g_initialized = true;
-    buddy2_stop_locked(NULL);
-    buddy2_unlock();
-
-    buddy2_reset_encoders();
-
-    return 0;
-}
-
-void buddy2_set_motor_pwm (int16_t left_pwm, int16_t right_pwm)
-{
-    buddy2_set_motor_pwm_observed(left_pwm, right_pwm, NULL);
-}
-void buddy2_set_motor_pwm_observed (int16_t left_pwm, int16_t right_pwm,
-                                    const robot_steering_input_t * input)
-{
-    if (!g_initialized)
-    {
-        return;
-    }
-    buddy2_lock();
-    buddy2_set_motor_pwm_locked(
-        (int16_t) (((int32_t) left_pwm * (int32_t) g_left_trim_pct *
-                    (int32_t) g_speed_pct) /
-                   10000),
-        (int16_t) (((int32_t) right_pwm * (int32_t) g_right_trim_pct *
-                    (int32_t) g_speed_pct) /
-                   10000));
-    /* Observe requested steering before trim; trim alone is not a turn.
-     * Logging only queues transitions and never publishes while locked. */
-    robot_action_record(robot_action_direction_for_pwm(left_pwm, right_pwm),
-                        ROBOT_ACTION_PWM, left_pwm, right_pwm,
-                        (uint32_t) (hal_time_us() / 1000u));
-    buddy2_trace(left_pwm, right_pwm, input);
-    buddy2_unlock();
-}
-
-bool buddy2_set_speed_limit (uint8_t percent)
-{
-    if ((percent < BUDDY2_SPEED_MIN) || (percent > 100u))
-    {
-        return false;
-    }
-    buddy2_lock();
-    g_speed_pct = percent;
-    buddy2_unlock();
-    return true;
-}
-
-uint8_t buddy2_get_speed_limit (void)
-{
-    uint8_t percent;
-
-    buddy2_lock();
-    percent = g_speed_pct;
-    buddy2_unlock();
-    return percent;
-}
-
-bool buddy2_set_trim (uint8_t left_pct, uint8_t right_pct)
-{
-    if ((left_pct < BUDDY2_TRIM_MIN) || (left_pct > 100u) ||
-        (right_pct < BUDDY2_TRIM_MIN) || (right_pct > 100u))
-    {
-        return false;
-    }
-    buddy2_lock();
-    g_left_trim_pct  = left_pct;
-    g_right_trim_pct = right_pct;
-    buddy2_unlock();
-    return true;
-}
-
-void buddy2_get_trim (uint8_t * p_left_pct, uint8_t * p_right_pct)
-{
-    if ((NULL != p_left_pct) && (NULL != p_right_pct))
-    {
-        buddy2_lock();
-        *p_left_pct  = g_left_trim_pct;
-        *p_right_pct = g_right_trim_pct;
-        buddy2_unlock();
-    }
-}
-
-void buddy2_stop (void)
-{
-    buddy2_stop_observed(NULL);
-}
-void buddy2_stop_observed (const robot_steering_input_t * input)
-{
-    if (!g_initialized)
-    {
-        return;
-    }
-    buddy2_lock();
-    buddy2_stop_locked(input);
-    buddy2_unlock();
-}
-
-void buddy2_reset_encoders (void)
-{
-    UINT interrupt_state;
-
-    buddy2_lock();
-    DI(interrupt_state);
-    g_left_ticks  = 0;
-    g_right_ticks = 0;
-    EI(interrupt_state);
-    g_state.left_ticks        = 0;
-    g_state.right_ticks       = 0;
-    g_state.left_distance_mm  = 0.0f;
-    g_state.right_distance_mm = 0.0f;
-    /* Keep an active move consistent with the zeroed odometry. */
-    g_motion.start_left_distance_mm  = 0.0f;
-    g_motion.start_right_distance_mm = 0.0f;
-    /* A reset also forgets latched encoder faults; a genuinely silent
-     * wheel is flagged again by the next powered check. */
-    g_state.left_encoder_fault  = false;
-    g_state.right_encoder_fault = false;
-    g_left_no_tick_ms           = 0u;
-    g_right_no_tick_ms          = 0u;
-    buddy2_unlock();
-}
-
-void buddy2_get_encoder_position (buddy2_encoder_position_t * position)
-{
-    UINT    state;
-    int32_t left, right, dl, dr;
-    if (!position || !g_initialized)
-    {
-        return;
-    }
-    buddy2_lock();
-    DI(state);
-    left  = g_left_ticks;
-    right = g_right_ticks;
-    EI(state);
-    dl = (int32_t) ((uint32_t) left - (uint32_t) g_state.left_ticks);
-    dr = (int32_t) ((uint32_t) right - (uint32_t) g_state.right_ticks);
-    position->left_distance_mm =
-        g_state.left_distance_mm +
-        (float) dl *
-            buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev) *
-            g_left_direction;
-    position->right_distance_mm =
-        g_state.right_distance_mm +
-        (float) dr *
-            buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev) *
-            g_right_direction;
-    position->left_encoder_fault  = g_state.left_encoder_fault;
-    position->right_encoder_fault = g_state.right_encoder_fault;
-    buddy2_unlock();
-}
-
-void buddy2_get_motion_state (buddy2_motion_state_t * p_state)
-{
-    if ((NULL == p_state) || !g_initialized)
-    {
-        return;
-    }
-    buddy2_lock();
-    *p_state = g_state;
-    buddy2_unlock();
+    (void) gpio_irq_register(pin, HAL_GPIO_EDGE_RISE, buddy2_encoder_isr);
 }
 
 static bool buddy2_start_motion (float left_distance_mm,
                                  float right_distance_mm, int16_t max_pwm)
 {
-    float left_abs;
-    float right_abs;
+    float   left_abs  = buddy2_absf(left_distance_mm);
+    float   right_abs = buddy2_absf(right_distance_mm);
+    uint8_t direction = ROBOT_ACTION_NONE;
+    bool    b_started = false;
 
-    if (!g_initialized || (max_pwm <= 0) ||
-        ((0.0f == left_distance_mm) && (0.0f == right_distance_mm)))
+    /* A zero-length move (both distances 0) is rejected. */
+    if (g_b_initialized && (max_pwm > 0) &&
+        ((left_abs > 0.0f) || (right_abs > 0.0f)))
     {
-        return false;
+        if (left_distance_mm < right_distance_mm)
+        {
+            direction = ROBOT_ACTION_LEFT;
+        }
+        else if (left_distance_mm > right_distance_mm)
+        {
+            direction = ROBOT_ACTION_RIGHT;
+        }
+        else
+        {
+            direction = ROBOT_ACTION_NONE;
+        }
+
+        buddy2_lock();
+        g_motion.b_active = true;
+        g_motion.target_distance_mm =
+            (left_abs > right_abs) ? left_abs : right_abs;
+        g_motion.start_left_distance_mm  = g_state.left_distance_mm;
+        g_motion.start_right_distance_mm = g_state.right_distance_mm;
+        g_motion.max_pwm = buddy2_clamp_pwm(
+            ((float) max_pwm * (float) g_speed_pct) / (float) BUDDY2_PERCENT);
+        g_motion.left_direction       = (left_distance_mm < 0.0f) ? -1 : 1;
+        g_motion.right_direction      = (right_distance_mm < 0.0f) ? -1 : 1;
+        g_motion.left_integral        = 0.0f;
+        g_motion.right_integral       = 0.0f;
+        g_motion.left_previous_error  = 0.0f;
+        g_motion.right_previous_error = 0.0f;
+        /* Direction is +/-1 and max_pwm is clamped, so the products fit. */
+        buddy2_set_motor_pwm_locked(
+            (int16_t) (g_motion.left_direction * g_motion.max_pwm),
+            (int16_t) (g_motion.right_direction * g_motion.max_pwm));
+        /* Record the planned direction, not straight-move PID adjustments. */
+        robot_action_record(direction, ROBOT_ACTION_MOTION,
+                            (int16_t) (g_motion.left_direction * max_pwm),
+                            (int16_t) (g_motion.right_direction * max_pwm),
+                            (uint32_t) (hal_time_us() / 1000u));
+        buddy2_trace((int16_t) (g_motion.left_direction * max_pwm),
+                     (int16_t) (g_motion.right_direction * max_pwm), NULL);
+        buddy2_unlock();
+        b_started = true;
     }
 
-    left_abs  = buddy2_absf(left_distance_mm);
-    right_abs = buddy2_absf(right_distance_mm);
-
-    buddy2_lock();
-    g_motion.active             = true;
-    g_motion.target_distance_mm = (left_abs > right_abs) ? left_abs : right_abs;
-    g_motion.start_left_distance_mm  = g_state.left_distance_mm;
-    g_motion.start_right_distance_mm = g_state.right_distance_mm;
-    g_motion.max_pwm =
-        buddy2_clamp_pwm(((float) max_pwm * (float) g_speed_pct) / 100.0f);
-    g_motion.left_direction       = (left_distance_mm < 0.0f) ? -1 : 1;
-    g_motion.right_direction      = (right_distance_mm < 0.0f) ? -1 : 1;
-    g_motion.left_integral        = 0.0f;
-    g_motion.right_integral       = 0.0f;
-    g_motion.left_previous_error  = 0.0f;
-    g_motion.right_previous_error = 0.0f;
-    buddy2_set_motor_pwm_locked(
-        (int16_t) (g_motion.left_direction * g_motion.max_pwm),
-        (int16_t) (g_motion.right_direction * g_motion.max_pwm));
-    /* Record the planned direction, not straight-move PID adjustments. */
-    robot_action_record(
-        left_distance_mm < right_distance_mm
-            ? ROBOT_ACTION_LEFT
-            : (left_distance_mm > right_distance_mm ? ROBOT_ACTION_RIGHT
-                                                    : ROBOT_ACTION_NONE),
-        ROBOT_ACTION_MOTION, (int16_t) (g_motion.left_direction * max_pwm),
-        (int16_t) (g_motion.right_direction * max_pwm),
-        (uint32_t) (hal_time_us() / 1000u));
-    buddy2_trace((int16_t) (g_motion.left_direction * max_pwm),
-                 (int16_t) (g_motion.right_direction * max_pwm), NULL);
-    buddy2_unlock();
-
-    return true;
-}
-
-bool buddy2_move_forward (float distance_mm, int16_t max_pwm)
-{
-    float distance = buddy2_absf(distance_mm);
-    return buddy2_start_motion(distance, distance, max_pwm);
-}
-
-bool buddy2_move_backward (float distance_mm, int16_t max_pwm)
-{
-    float distance = buddy2_absf(distance_mm);
-    return buddy2_start_motion(-distance, -distance, max_pwm);
-}
-
-bool buddy2_turn_left (float angle_deg, int16_t max_pwm)
-{
-    /* In-place turn: each wheel travels an arc of the track circle. */
-    float distance = BUDDY2_PI * g_calibration.track_width_mm *
-                     buddy2_absf(angle_deg) / 360.0f;
-    return buddy2_start_motion(-distance, distance, max_pwm);
-}
-
-bool buddy2_turn_right (float angle_deg, int16_t max_pwm)
-{
-    float distance = BUDDY2_PI * g_calibration.track_width_mm *
-                     buddy2_absf(angle_deg) / 360.0f;
-    return buddy2_start_motion(distance, -distance, max_pwm);
-}
-
-bool buddy2_motion_active (void)
-{
-    bool active;
-
-    buddy2_lock();
-    active = g_motion.active;
-    buddy2_unlock();
-
-    return active;
+    return b_started;
 }
 
 /*
@@ -606,181 +766,136 @@ static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
 {
     int32_t magnitude =
         (applied_pwm < 0) ? -(int32_t) applied_pwm : (int32_t) applied_pwm;
+    bool b_new_fault = false;
 
     if (0 != tick_delta)
     {
         *p_no_tick_ms = 0u;
         *p_fault      = false;
-        return false;
     }
-    if (magnitude < BUDDY2_ENCODER_CHECK_MIN_PWM)
+    else if (magnitude < BUDDY2_ENCODER_CHECK_MIN_PWM)
     {
         /* Too little power to expect movement: restart the timer, keep the
          * last verdict. */
         *p_no_tick_ms = 0u;
-        return false;
     }
-    if (*p_no_tick_ms < BUDDY2_ENCODER_FAULT_MS)
+    else if (*p_no_tick_ms < BUDDY2_ENCODER_FAULT_MS)
     {
         *p_no_tick_ms += elapsed_ms;
         if ((*p_no_tick_ms >= BUDDY2_ENCODER_FAULT_MS) && !*p_fault)
         {
-            *p_fault = true;
-            return true;
+            *p_fault    = true;
+            b_new_fault = true;
         }
     }
-    return false;
+    else
+    {
+        /* Already timed out: the fault stays latched. */
+    }
+
+    return b_new_fault;
 }
 
-void buddy2_update (uint32_t now_ms)
+/* Update distances, speeds and the encoder checks.  Caller holds the
+ * mutex. */
+static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
+                                    float dt_s)
 {
-    uint32_t elapsed_ms;
-    float    dt;
-    int32_t  left_ticks;
-    int32_t  right_ticks;
-
-    if (!g_initialized)
-    {
-        return;
-    }
-
-    buddy2_lock();
-
-    elapsed_ms = now_ms - g_last_update_ms;
-    if ((elapsed_ms < BUDDY2_CONTROL_PERIOD_MS) && (0u != g_last_update_ms))
-    {
-        buddy2_unlock();
-        return;
-    }
-    dt               = (float) elapsed_ms / 1000.0f;
-    g_last_update_ms = now_ms;
-
     /* 32-bit reads are atomic on the Cortex-M0+, so no interrupt lock.
      * Each wheel uses its OWN encoder; a dead one is reported below. */
-    left_ticks  = g_left_ticks;
-    right_ticks = g_right_ticks;
+    int32_t left_ticks    = g_left_ticks;
+    int32_t right_ticks   = g_right_ticks;
+    int32_t left_delta    = left_ticks - g_state.left_ticks;
+    int32_t right_delta   = right_ticks - g_state.right_ticks;
+    float   left_mm_tick  =
+        buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev);
+    float right_mm_tick =
+        buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev);
+    float left_distance =
+        (float) left_delta * left_mm_tick * (float) g_left_direction;
+    float right_distance =
+        (float) right_delta * right_mm_tick * (float) g_right_direction;
+    bool b_left_new  = false;
+    bool b_right_new = false;
 
+    g_state.left_speed_mm_s  = left_distance / dt_s;
+    g_state.right_speed_mm_s = right_distance / dt_s;
+    g_state.left_distance_mm += left_distance;
+    g_state.right_distance_mm += right_distance;
+    g_state.left_ticks   = left_ticks;
+    g_state.right_ticks  = right_ticks;
+    g_state.timestamp_ms = now_ms;
+
+    b_left_new  = buddy2_check_encoder(g_left_applied_pwm, left_delta,
+                                       elapsed_ms, &g_left_no_tick_ms,
+                                       &g_state.left_encoder_fault);
+    b_right_new = buddy2_check_encoder(g_right_applied_pwm, right_delta,
+                                       elapsed_ms, &g_right_no_tick_ms,
+                                       &g_state.right_encoder_fault);
+
+    /* A distance/turn move cannot finish correctly without both encoders
+     * (its PID would drive the silent wheel flat out), so stop it.  Raw
+     * drive and line following only report it. */
+    if ((b_left_new || b_right_new) && g_motion.b_active)
     {
-        int32_t left_delta  = left_ticks - g_state.left_ticks;
-        int32_t right_delta = right_ticks - g_state.right_ticks;
-        float   left_mm_tick =
-            buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev);
-        float right_mm_tick =
-            buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev);
-        float left_distance =
-            (float) left_delta * left_mm_tick * (float) g_left_direction;
-        float right_distance =
-            (float) right_delta * right_mm_tick * (float) g_right_direction;
-
-        g_state.left_speed_mm_s  = left_distance / dt;
-        g_state.right_speed_mm_s = right_distance / dt;
-        g_state.left_distance_mm += left_distance;
-        g_state.right_distance_mm += right_distance;
-        g_state.left_ticks   = left_ticks;
-        g_state.right_ticks  = right_ticks;
-        g_state.timestamp_ms = now_ms;
-
-        {
-            bool left_new = buddy2_check_encoder(g_left_applied_pwm, left_delta,
-                                                 elapsed_ms, &g_left_no_tick_ms,
-                                                 &g_state.left_encoder_fault);
-            bool right_new = buddy2_check_encoder(
-                g_right_applied_pwm, right_delta, elapsed_ms,
-                &g_right_no_tick_ms, &g_state.right_encoder_fault);
-
-            /* A distance/turn move cannot finish correctly without both
-             * encoders (its PID would drive the silent wheel flat out), so
-             * stop it.  Raw drive and line following only report it. */
-            if ((left_new || right_new) && g_motion.active)
-            {
-                buddy2_stop_locked(NULL);
-            }
-        }
-    }
-
-    if (g_motion.active)
-    {
-        float left_progress  = buddy2_absf(g_state.left_distance_mm -
-                                           g_motion.start_left_distance_mm);
-        float right_progress = buddy2_absf(g_state.right_distance_mm -
-                                           g_motion.start_right_distance_mm);
-        float progress       = (left_progress + right_progress) * 0.5f;
-
-        if (progress >=
-            (g_motion.target_distance_mm - BUDDY2_POSITION_TOLERANCE_MM))
-        {
-            buddy2_stop_locked(NULL);
-        }
-        else
-        {
-            float target_speed =
-                BUDDY2_MAX_SPEED_MM_S *
-                ((float) g_motion.max_pwm / (float) g_calibration.pwm_limit);
-            float left_target = target_speed * (float) g_motion.left_direction;
-            float right_target =
-                target_speed * (float) g_motion.right_direction;
-            float left_error  = left_target - g_state.left_speed_mm_s;
-            float right_error = right_target - g_state.right_speed_mm_s;
-            float left_derivative =
-                (left_error - g_motion.left_previous_error) / dt;
-            float right_derivative =
-                (right_error - g_motion.right_previous_error) / dt;
-            float left_output;
-            float right_output;
-
-            g_motion.left_previous_error  = left_error;
-            g_motion.right_previous_error = right_error;
-            g_motion.left_integral =
-                buddy2_clampf(g_motion.left_integral + (left_error * dt),
-                              BUDDY2_PID_INTEGRAL_LIMIT);
-            g_motion.right_integral =
-                buddy2_clampf(g_motion.right_integral + (right_error * dt),
-                              BUDDY2_PID_INTEGRAL_LIMIT);
-
-            left_output = ((float) g_motion.left_direction *
-                           (float) g_motion.max_pwm * BUDDY2_FEEDFORWARD_GAIN) +
-                          (BUDDY2_KP * left_error) +
-                          (BUDDY2_KI * g_motion.left_integral) +
-                          (BUDDY2_KD * left_derivative);
-            right_output =
-                ((float) g_motion.right_direction * (float) g_motion.max_pwm *
-                 BUDDY2_FEEDFORWARD_GAIN) +
-                (BUDDY2_KP * right_error) +
-                (BUDDY2_KI * g_motion.right_integral) +
-                (BUDDY2_KD * right_derivative);
-
-            buddy2_set_motor_pwm_locked(buddy2_clamp_pwm(left_output),
-                                        buddy2_clamp_pwm(right_output));
-            buddy2_trace(buddy2_clamp_pwm(left_output),
-                         buddy2_clamp_pwm(right_output), NULL);
-        }
-    }
-
-    buddy2_unlock();
-}
-
-void buddy2_set_calibration (const buddy2_calibration_t * p_calibration)
-{
-    if ((NULL != p_calibration) && (p_calibration->wheel_diameter_mm > 0.0f) &&
-        (p_calibration->track_width_mm > 0.0f) &&
-        (p_calibration->left_ticks_per_wheel_rev > 0.0f) &&
-        (p_calibration->right_ticks_per_wheel_rev > 0.0f) &&
-        (p_calibration->pwm_limit > 0u) &&
-        (p_calibration->pwm_limit <= (uint16_t) BUDDY2_PWM_MAX))
-    {
-        buddy2_lock();
-        g_calibration = *p_calibration;
-        buddy2_unlock();
+        buddy2_stop_locked(NULL);
     }
 }
 
-void buddy2_get_calibration (buddy2_calibration_t * p_calibration)
+/* Speed PID for an active distance/turn move.  Caller holds the mutex. */
+static void buddy2_run_pid (float dt_s)
 {
-    if (NULL != p_calibration)
+    float left_progress  = buddy2_absf(g_state.left_distance_mm -
+                                       g_motion.start_left_distance_mm);
+    float right_progress = buddy2_absf(g_state.right_distance_mm -
+                                       g_motion.start_right_distance_mm);
+    float progress       = (left_progress + right_progress) * 0.5f;
+
+    if (progress >=
+        (g_motion.target_distance_mm - BUDDY2_POSITION_TOLERANCE_MM))
     {
-        buddy2_lock();
-        *p_calibration = g_calibration;
-        buddy2_unlock();
+        buddy2_stop_locked(NULL);
+    }
+    else
+    {
+        float target_speed =
+            BUDDY2_MAX_SPEED_MM_S *
+            ((float) g_motion.max_pwm / (float) g_calibration.pwm_limit);
+        float left_target  = target_speed * (float) g_motion.left_direction;
+        float right_target = target_speed * (float) g_motion.right_direction;
+        float left_error   = left_target - g_state.left_speed_mm_s;
+        float right_error  = right_target - g_state.right_speed_mm_s;
+        float left_derivative =
+            (left_error - g_motion.left_previous_error) / dt_s;
+        float right_derivative =
+            (right_error - g_motion.right_previous_error) / dt_s;
+        float left_output  = 0.0f;
+        float right_output = 0.0f;
+
+        g_motion.left_previous_error  = left_error;
+        g_motion.right_previous_error = right_error;
+        g_motion.left_integral =
+            buddy2_clampf(g_motion.left_integral + (left_error * dt_s),
+                          BUDDY2_PID_INTEGRAL_LIMIT);
+        g_motion.right_integral =
+            buddy2_clampf(g_motion.right_integral + (right_error * dt_s),
+                          BUDDY2_PID_INTEGRAL_LIMIT);
+
+        left_output = ((float) g_motion.left_direction *
+                       (float) g_motion.max_pwm * BUDDY2_FEEDFORWARD_GAIN) +
+                      (BUDDY2_KP * left_error) +
+                      (BUDDY2_KI * g_motion.left_integral) +
+                      (BUDDY2_KD * left_derivative);
+        right_output = ((float) g_motion.right_direction *
+                        (float) g_motion.max_pwm * BUDDY2_FEEDFORWARD_GAIN) +
+                       (BUDDY2_KP * right_error) +
+                       (BUDDY2_KI * g_motion.right_integral) +
+                       (BUDDY2_KD * right_derivative);
+
+        buddy2_set_motor_pwm_locked(buddy2_clamp_pwm(left_output),
+                                    buddy2_clamp_pwm(right_output));
+        buddy2_trace(buddy2_clamp_pwm(left_output),
+                     buddy2_clamp_pwm(right_output), NULL);
     }
 }
 
