@@ -37,7 +37,7 @@ void robot_ir_stream_record (const robot_barcode_observation_t * p_observation,
         --g_count;
         ++g_dropped;
     }
-    sample.seq = ++g_sequence;
+    sample.seq                                             = ++g_sequence;
     g_queue[(g_head + g_count) % ROBOT_IR_STREAM_CAPACITY] = sample;
     ++g_count;
     EI(lock);
@@ -50,14 +50,13 @@ bool robot_ir_stream_peek (robot_ir_stream_batch_t * p_batch)
 
     DI(lock);
     /* The ternary result is at most ROBOT_IR_STREAM_BATCH, so it fits. */
-    p_batch->count = (uint8_t) ((g_count > ROBOT_IR_STREAM_BATCH)
-                                    ? ROBOT_IR_STREAM_BATCH
-                                    : g_count);
+    p_batch->count =
+        (uint8_t) ((g_count > ROBOT_IR_STREAM_BATCH) ? ROBOT_IR_STREAM_BATCH
+                                                     : g_count);
     p_batch->dropped = g_dropped;
     for (row = 0u; row < p_batch->count; ++row)
     {
-        p_batch->rows[row] =
-            g_queue[(g_head + row) % ROBOT_IR_STREAM_CAPACITY];
+        p_batch->rows[row] = g_queue[(g_head + row) % ROBOT_IR_STREAM_CAPACITY];
     }
     EI(lock);
 

@@ -122,7 +122,7 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS,
 /* Steering gains are stored per 1000 position units. */
 #define BUDDY3_GAIN_SCALE (1000.0f)
 /* g_test_last_phase value meaning "no phase printed yet". */
-#define BUDDY3_PHASE_NONE    (255u)
+#define BUDDY3_PHASE_NONE     (255u)
 #define BUDDY3_TEST_STAGE_MAX (3u)
 
 #define BUDDY3_PI        (3.14159265f)
@@ -164,14 +164,14 @@ typedef struct
  * one-sided detection. Junction crossing uses the base and encoder hold. */
 /* Sensor order: front right, front left, side barcode. */
 static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] = {
-    {200u, 3000u, false},  /* right sensor */
-    {200u, 1300u, false},  /* left sensor */
-    {2000u, 2500u, false}  /* side sensor */
+    {200u, 3000u, false}, /* right sensor */
+    {200u, 1300u, false}, /* left sensor */
+    {2000u, 2500u, false} /* side sensor */
 };
 
 static line_follow_configs_t g_steering_configs = {
     /* Default: 27 percentage-point curve power. */
-    (27.0f * (float) BUDDY2_PWM_MAX) / 100000.0f,
+    (27.0f * (float32_t) BUDDY2_PWM_MAX) / 100000.0f,
     2.5f, /* derivative gain: 2.5f = 2500 / 1000 */
     11469 /* base PWM: 11469 = 35 % duty */
 };
@@ -194,12 +194,12 @@ static uint32_t                 g_line_lost_since_ms = 0u;
 static buddy3_barcode_decoder_t g_barcode_decoder;
 static buddy3_barcode_config_t  g_barcode_config = {
     BUDDY3_BARCODE_MIN_ELEMENT_MM};
-static float                  g_barcode_offset           = BUDDY3_BARCODE_OFFSET_LEFT_MM;
+static float32_t              g_barcode_offset = BUDDY3_BARCODE_OFFSET_LEFT_MM;
 static bool                   g_b_barcode_calibrated     = false;
 static bool                   g_b_barcode_odometry_valid = false;
-static float                  g_barcode_last_left        = 0.0f;
-static float                  g_barcode_last_right       = 0.0f;
-static float                  g_barcode_yaw              = 0.0f;
+static float32_t              g_barcode_last_left        = 0.0f;
+static float32_t              g_barcode_last_right       = 0.0f;
+static float32_t              g_barcode_yaw              = 0.0f;
 static buddy3_barcode_event_t g_pending_barcode;
 static uint32_t               g_barcode_dropped    = 0u;
 static bool                   g_b_barcode_black    = false;
@@ -208,61 +208,63 @@ static bool                   g_b_reported_lost    = false;
 static bool                   g_b_seen_since_start = false;
 static bool                   g_b_start_pending    = false;
 static uint32_t               g_last_touch_ms      = 0u;
-static uint8_t  g_last_touch_side      = 0u; /* 0 none, 1 L, 2 R, 3 both */
-static uint32_t g_all_black_since_ms   = 0u;
-static bool     g_b_reported_black     = false;
-static uint32_t g_side_since_ms        = 0u; /* current L/R pattern start */
-static uint8_t  g_last_single_side     = 0u; /* 1 L, 2 R: last seen alone */
-static bool     g_b_straight_hold      = false;
-static float    g_straight_hold_left_mm  = 0.0f;
-static float    g_straight_hold_right_mm = 0.0f;
-static uint8_t  g_trace_phase            = TRACE_LEGACY;
+static uint8_t   g_last_touch_side        = 0u; /* 0 none, 1 L, 2 R, 3 both */
+static uint32_t  g_all_black_since_ms     = 0u;
+static bool      g_b_reported_black       = false;
+static uint32_t  g_side_since_ms          = 0u; /* current L/R pattern start */
+static uint8_t   g_last_single_side       = 0u; /* 1 L, 2 R: last seen alone */
+static bool      g_b_straight_hold        = false;
+static float32_t g_straight_hold_left_mm  = 0.0f;
+static float32_t g_straight_hold_right_mm = 0.0f;
+static uint8_t   g_trace_phase            = TRACE_LEGACY;
 
-static uint8_t  g_search_step       = BUDDY3_SEARCH_IDLE;
-static int8_t   g_search_dir        = 1;    /* +1 left, -1 right (step)  */
-static uint32_t g_search_step_ms    = 0u;   /* when the current step began */
-static float    g_search_step_deg   = 0.0f; /* encoder angle when it began */
-static float    g_search_origin_deg = 0.0f; /* heading when search began  */
-static bool     g_b_reported_behind = false;
+static uint8_t   g_search_step       = BUDDY3_SEARCH_IDLE;
+static int8_t    g_search_dir        = 1;    /* +1 left, -1 right (step)  */
+static uint32_t  g_search_step_ms    = 0u;   /* when the current step began */
+static float32_t g_search_step_deg   = 0.0f; /* encoder angle when it began */
+static float32_t g_search_origin_deg = 0.0f; /* heading when search began  */
+static bool      g_b_reported_behind = false;
 
-static int16_t  buddy3_clamp_pwm (float value);
-static uint16_t buddy3_normalize (uint16_t raw, uint16_t minimum,
-                                  uint16_t maximum, bool b_line_is_dark);
-static float    buddy3_encoder_angle_deg (void);
-static void     buddy3_search_begin_step (uint8_t step, int8_t direction,
-                                          uint32_t now_ms);
-static void     buddy3_apply_straight_heading_hold (
-    buddy3_steering_output_t * p_output, uint8_t side);
-static void     buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
-                                       uint32_t now_ms);
-static bool     buddy3_barcode_permitted (
-    const buddy2_encoder_position_t * p_motion, float left_step,
-    float right_step);
-static uint8_t  buddy3_barcode_blocked (
-    const buddy2_encoder_position_t * p_motion, float left_step,
-    float right_step, float travel, bool b_permitted);
-static robot_steering_input_t buddy3_trace_input (void);
-static void     buddy3_drive_observed (int16_t left, int16_t right);
-static void     buddy3_stop_observed (bool b_disable);
-static void     buddy3_stop_with_input (const robot_steering_input_t * p_input);
-static void     buddy3_read_sensors (ir_processing_state_t * p_next,
-                                     uint32_t now_ms);
-static void     buddy3_follow_line (const ir_processing_state_t * p_next,
-                                    int16_t previous_position, uint32_t now_ms);
-#if BUDDY3_LINE_BETWEEN_SENSORS
-static void     buddy3_track_side (const ir_processing_state_t * p_next,
+static int16_t   buddy3_clamp_pwm (float32_t value);
+static uint16_t  buddy3_normalize (uint16_t raw, uint16_t minimum,
+                                   uint16_t maximum, bool b_line_is_dark);
+static float32_t buddy3_encoder_angle_deg (void);
+static void      buddy3_search_begin_step (uint8_t step, int8_t direction,
+                                           uint32_t now_ms);
+static void
+buddy3_apply_straight_heading_hold (buddy3_steering_output_t * p_output,
+                                    uint8_t                    side);
+static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
                                    uint32_t now_ms);
-static uint8_t  buddy3_ignore_line_behind (uint8_t side);
-static void     buddy3_log_side (uint8_t side, uint32_t now_ms);
-static bool     buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
-                                          uint32_t now_ms);
-static void     buddy3_staged_step (uint32_t now_ms);
-static void     buddy3_steer_three_way (uint32_t now_ms);
-static void     buddy3_search_step (uint32_t now_ms, int32_t base,
-                                    int32_t * p_left_pwm, int32_t * p_right_pwm);
+static bool
+buddy3_barcode_permitted (const buddy2_encoder_position_t * p_motion,
+                          float32_t left_step, float32_t right_step);
+static uint8_t
+buddy3_barcode_blocked (const buddy2_encoder_position_t * p_motion,
+                        float32_t left_step, float32_t right_step,
+                        float32_t travel, bool b_permitted);
+static robot_steering_input_t buddy3_trace_input (void);
+static void buddy3_drive_observed (int16_t left, int16_t right);
+static void buddy3_stop_observed (bool b_disable);
+static void buddy3_stop_with_input (const robot_steering_input_t * p_input);
+static void buddy3_read_sensors (ir_processing_state_t * p_next,
+                                 uint32_t                now_ms);
+static void buddy3_follow_line (const ir_processing_state_t * p_next,
+                                int16_t previous_position, uint32_t now_ms);
+#if BUDDY3_LINE_BETWEEN_SENSORS
+static void    buddy3_track_side (const ir_processing_state_t * p_next,
+                                  uint32_t                      now_ms);
+static uint8_t buddy3_ignore_line_behind (uint8_t side);
+static void    buddy3_log_side (uint8_t side, uint32_t now_ms);
+static bool    buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
+                                         uint32_t                      now_ms);
+static void    buddy3_staged_step (uint32_t now_ms);
+static void    buddy3_steer_three_way (uint32_t now_ms);
+static void    buddy3_search_step (uint32_t now_ms, int32_t base,
+                                   int32_t * p_left_pwm, int32_t * p_right_pwm);
 #endif
-static bool     buddy3_lost_stop (const ir_processing_state_t * p_next,
-                                  uint32_t now_ms);
+static bool buddy3_lost_stop (const ir_processing_state_t * p_next,
+                              uint32_t                      now_ms);
 
 /* ------------------------------------------------------------------ *
  *  Public API
@@ -386,16 +388,16 @@ void buddy3_start_line_follow (void)
     g_b_barcode_ready          = false;
     g_state.b_barcode_ready    = false;
     buddy3_steering_reset(&g_test_steering);
-    g_test_last_phase      = BUDDY3_PHASE_NONE;
-    g_b_reported_lost      = false;
-    g_b_seen_since_start   = false;
-    g_b_start_pending      = true;
-    g_line_lost_since_ms   = 0u;
-    g_last_single_side     = 0u;
-    g_search_step          = BUDDY3_SEARCH_IDLE;
-    g_side_since_ms        = g_last_update_ms;
-    g_b_straight_hold      = false;
-    g_b_line_following     = true;
+    g_test_last_phase    = BUDDY3_PHASE_NONE;
+    g_b_reported_lost    = false;
+    g_b_seen_since_start = false;
+    g_b_start_pending    = true;
+    g_line_lost_since_ms = 0u;
+    g_last_single_side   = 0u;
+    g_search_step        = BUDDY3_SEARCH_IDLE;
+    g_side_since_ms      = g_last_update_ms;
+    g_b_straight_hold    = false;
+    g_b_line_following   = true;
 }
 
 void buddy3_stop_line_follow (void)
@@ -528,9 +530,9 @@ bool buddy3_take_barcode (buddy3_barcode_event_t * p_event)
 bool buddy3_configure_barcode (uint16_t min_element_mm, int16_t offset_left_mm)
 {
     buddy2_calibration_t geometry     = {0};
-    float                left_tick    = 0.0f;
-    float                right_tick   = 0.0f;
-    float                minimum_cell = 0.0f;
+    float32_t            left_tick    = 0.0f;
+    float32_t            right_tick   = 0.0f;
+    float32_t            minimum_cell = 0.0f;
     bool                 b_ok         = false;
 
     if (!g_b_line_following)
@@ -565,13 +567,13 @@ bool buddy3_configure_barcode (uint16_t min_element_mm, int16_t offset_left_mm)
         }
         else
         {
-            left_tick  = (BUDDY3_PI * geometry.wheel_diameter_mm) /
-                        geometry.left_ticks_per_wheel_rev;
-            right_tick = (BUDDY3_PI * geometry.wheel_diameter_mm) /
-                         geometry.right_ticks_per_wheel_rev;
+            left_tick    = (BUDDY3_PI * geometry.wheel_diameter_mm) /
+                           geometry.left_ticks_per_wheel_rev;
+            right_tick   = (BUDDY3_PI * geometry.wheel_diameter_mm) /
+                           geometry.right_ticks_per_wheel_rev;
             minimum_cell = BUDDY3_BARCODE_TICKS_PER_ELEMENT *
                            ((left_tick > right_tick) ? left_tick : right_tick);
-            if (((float) min_element_mm < minimum_cell) ||
+            if (((float32_t) min_element_mm < minimum_cell) ||
                 (min_element_mm > BUDDY3_BARCODE_ELEMENT_MAX_MM) ||
                 (offset_left_mm < -BUDDY3_BARCODE_OFFSET_MAX_MM) ||
                 (offset_left_mm > BUDDY3_BARCODE_OFFSET_MAX_MM))
@@ -599,8 +601,8 @@ bool buddy3_configure_barcode (uint16_t min_element_mm, int16_t offset_left_mm)
                     robot_barcode_scaled(geometry.right_ticks_per_wheel_rev,
                                          10.0f)};
 
-                g_barcode_config.min_element_mm = (float) min_element_mm;
-                g_barcode_offset                = (float) offset_left_mm;
+                g_barcode_config.min_element_mm = (float32_t) min_element_mm;
+                g_barcode_offset                = (float32_t) offset_left_mm;
                 g_b_barcode_calibrated          = true;
                 robot_barcode_trace_configure(trace_config);
                 tm_printf((UB *) "[barcode] configured minimum-element=%u mm "
@@ -623,15 +625,15 @@ bool buddy3_barcode_calibrated (void)
  *  Helpers
  * ------------------------------------------------------------------ */
 
-static int16_t buddy3_clamp_pwm (float value)
+static int16_t buddy3_clamp_pwm (float32_t value)
 {
     int16_t result = 0;
 
-    if (value > (float) BUDDY2_PWM_MAX)
+    if (value > (float32_t) BUDDY2_PWM_MAX)
     {
         result = (int16_t) BUDDY2_PWM_MAX;
     }
-    else if (value < -(float) BUDDY2_PWM_MAX)
+    else if (value < -(float32_t) BUDDY2_PWM_MAX)
     {
         result = (int16_t) (-BUDDY2_PWM_MAX);
     }
@@ -673,11 +675,11 @@ static uint16_t buddy3_normalize (uint16_t raw, uint16_t minimum,
 /* Car heading from the wheel encoders, in degrees (only differences are
  * used, so the sign convention and any left/right encoder mix-up do not
  * matter: the sweep compares the SIZE of the turn). */
-static float buddy3_encoder_angle_deg (void)
+static float32_t buddy3_encoder_angle_deg (void)
 {
     buddy2_motion_state_t motion      = {0};
     buddy2_calibration_t  calibration = {0};
-    float                 angle_deg   = 0.0f;
+    float32_t             angle_deg   = 0.0f;
 
     buddy2_get_motion_state(&motion);
     buddy2_get_calibration(&calibration);
@@ -704,14 +706,15 @@ static void buddy3_search_begin_step (uint8_t step, int8_t direction,
  * Preserve the current heading using the encoders so unequal motors do not
  * silently carry the car off the line before either sensor can see an edge.
  * A one-sided line reading always takes priority and resets this hold. */
-static void buddy3_apply_straight_heading_hold (
-    buddy3_steering_output_t * p_output, uint8_t side)
+static void
+buddy3_apply_straight_heading_hold (buddy3_steering_output_t * p_output,
+                                    uint8_t                    side)
 {
     buddy2_motion_state_t motion     = {0};
-    float                 left       = 0.0f;
-    float                 right      = 0.0f;
-    float                 error      = 0.0f;
-    float                 correction = 0.0f;
+    float32_t             left       = 0.0f;
+    float32_t             right      = 0.0f;
+    float32_t             error      = 0.0f;
+    float32_t             correction = 0.0f;
     int16_t               base       = 0;
 
     if ((NULL != p_output) && (B3_TRACK == p_output->phase) &&
@@ -749,9 +752,9 @@ static void buddy3_apply_straight_heading_hold (
                          BUDDY3_STRAIGHT_HEADING_PWM_PER_MM;
             base       = (p_output->left < p_output->right) ? p_output->left
                                                             : p_output->right;
-            if (correction > ((float) base / BUDDY3_HOLD_MAX_DIVISOR))
+            if (correction > ((float32_t) base / BUDDY3_HOLD_MAX_DIVISOR))
             {
-                correction = (float) base / BUDDY3_HOLD_MAX_DIVISOR;
+                correction = (float32_t) base / BUDDY3_HOLD_MAX_DIVISOR;
             }
             /* 0 <= correction <= base / 3, so it fits int16_t. */
             if (error > 0.0f)
@@ -774,15 +777,15 @@ static void buddy3_apply_straight_heading_hold (
 static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
                                    uint32_t now_ms)
 {
-    buddy2_encoder_position_t   motion      = {0};
-    buddy2_calibration_t        geometry    = {0};
-    float                       left_step   = 0.0f;
-    float                       right_step  = 0.0f;
-    float                       travel      = 0.0f;
-    buddy3_barcode_event_t      event       = {0};
-    robot_barcode_observation_t observation = {0};
+    buddy2_encoder_position_t   motion       = {0};
+    buddy2_calibration_t        geometry     = {0};
+    float32_t                   left_step    = 0.0f;
+    float32_t                   right_step   = 0.0f;
+    float32_t                   travel       = 0.0f;
+    buddy3_barcode_event_t      event        = {0};
+    robot_barcode_observation_t observation  = {0};
     bool                        b_was_active = g_barcode_decoder.active;
-    float                       unfinished =
+    float32_t                   unfinished =
         g_barcode_decoder.position - g_barcode_decoder.edge_position;
     bool b_emitted       = false;
     bool b_permitted     = false;
@@ -809,9 +812,8 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
         g_barcode_yaw += (right_step - left_step) / geometry.track_width_mm;
     }
     b_permitted = buddy3_barcode_permitted(&motion, left_step, right_step);
-    travel      = buddy3_barcode_travel(left_step, right_step,
-                                        geometry.track_width_mm,
-                                        g_barcode_offset);
+    travel = buddy3_barcode_travel(left_step, right_step,
+                                   geometry.track_width_mm, g_barcode_offset);
 
     /* Hysteresis avoids adding transitions near a noisy threshold. */
     if (sensor_value >= BUDDY3_BARCODE_BLACK_ON)
@@ -830,14 +832,13 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
     observation.ts_ms      = now_ms;
     observation.raw        = raw;
     observation.normalized = sensor_value;
-    observation.left_x10   = robot_barcode_scaled(motion.left_distance_mm, 10.0f);
+    observation.left_x10 = robot_barcode_scaled(motion.left_distance_mm, 10.0f);
     observation.right_x10 =
         robot_barcode_scaled(motion.right_distance_mm, 10.0f);
     observation.black       = g_b_barcode_black ? 1u : 0u;
     observation.travel_x100 = robot_barcode_scaled(travel, 100.0f);
-    observation.blocked     = buddy3_barcode_blocked(&motion, left_step,
-                                                     right_step, travel,
-                                                     b_permitted);
+    observation.blocked = buddy3_barcode_blocked(&motion, left_step, right_step,
+                                                 travel, b_permitted);
     if (travel > 0.0f)
     {
         unfinished += travel;
@@ -871,25 +872,26 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
 
 /* The reader may only run while tracking straight-ish along the line with
  * healthy encoders, forward travel and a small heading change. */
-static bool buddy3_barcode_permitted (
-    const buddy2_encoder_position_t * p_motion, float left_step,
-    float right_step)
+static bool
+buddy3_barcode_permitted (const buddy2_encoder_position_t * p_motion,
+                          float32_t left_step, float32_t right_step)
 {
-    return (g_b_line_following && !buddy3_junction_active(&g_junction) &&
-            g_b_barcode_calibrated &&
-            ((B3_TRACK == g_test_last_phase) ||
-             (B3_MICRO == g_test_last_phase)) &&
-            !p_motion->left_encoder_fault && !p_motion->right_encoder_fault &&
-            /* Large turns, reverse and recovery invalidate a barcode. */
-            !(left_step < 0.0f) && !(right_step < 0.0f) &&
-            !(g_barcode_yaw > BUDDY3_BARCODE_MAX_YAW_RAD) &&
-            !(g_barcode_yaw < -BUDDY3_BARCODE_MAX_YAW_RAD));
+    return (
+        g_b_line_following && !buddy3_junction_active(&g_junction) &&
+        g_b_barcode_calibrated &&
+        ((B3_TRACK == g_test_last_phase) || (B3_MICRO == g_test_last_phase)) &&
+        !p_motion->left_encoder_fault && !p_motion->right_encoder_fault &&
+        /* Large turns, reverse and recovery invalidate a barcode. */
+        !(left_step < 0.0f) && !(right_step < 0.0f) &&
+        !(g_barcode_yaw > BUDDY3_BARCODE_MAX_YAW_RAD) &&
+        !(g_barcode_yaw < -BUDDY3_BARCODE_MAX_YAW_RAD));
 }
 
 /* Why the reader is suspended, as BARCODE_BLOCKED_* bits. */
-static uint8_t buddy3_barcode_blocked (
-    const buddy2_encoder_position_t * p_motion, float left_step,
-    float right_step, float travel, bool b_permitted)
+static uint8_t
+buddy3_barcode_blocked (const buddy2_encoder_position_t * p_motion,
+                        float32_t left_step, float32_t right_step,
+                        float32_t travel, bool b_permitted)
 {
     uint8_t blocked = 0u;
 
@@ -910,9 +912,8 @@ static uint8_t buddy3_barcode_blocked (
     {
         blocked |= BARCODE_BLOCKED_REVERSE;
     }
-    if (b_permitted &&
-        (travel > (g_barcode_config.min_element_mm *
-                   BUDDY3_BARCODE_STEP_FRACTION)))
+    if (b_permitted && (travel > (g_barcode_config.min_element_mm *
+                                  BUDDY3_BARCODE_STEP_FRACTION)))
     {
         blocked |= BARCODE_BLOCKED_SAMPLE_GAP;
     }
@@ -940,9 +941,9 @@ static robot_steering_input_t buddy3_trace_input (void)
     {
         uint32_t sensor = front[slot];
 
-        input.raw[slot]                    = g_state.sensors[sensor].raw;
-        input.norm[slot]                   = g_state.sensors[sensor].normalized;
-        input.calibration[slot * 2u]       = g_sensor_configs[sensor].minimum;
+        input.raw[slot]              = g_state.sensors[sensor].raw;
+        input.norm[slot]             = g_state.sensors[sensor].normalized;
+        input.calibration[slot * 2u] = g_sensor_configs[sensor].minimum;
         input.calibration[(slot * 2u) + 1u] = g_sensor_configs[sensor].maximum;
         if (g_sensor_configs[sensor].line_is_dark)
         {
@@ -989,7 +990,7 @@ static void buddy3_stop_with_input (const robot_steering_input_t * p_input)
 
 /* Read and normalise the sensors, then find the line. */
 static void buddy3_read_sensors (ir_processing_state_t * p_next,
-                                 uint32_t now_ms)
+                                 uint32_t                now_ms)
 {
     uint16_t raw[BUDDY3_SENSOR_COUNT];
     uint32_t index = 0u;
@@ -1018,7 +1019,7 @@ static void buddy3_read_sensors (ir_processing_state_t * p_next,
      * side so the line goes back between them.  position = right - left:
      * > 0 -> line under the right-front sensor -> turn right. */
     {
-        int32_t left  = (int32_t) p_next->sensors[BUDDY3_FRONT_LEFT].normalized;
+        int32_t left = (int32_t) p_next->sensors[BUDDY3_FRONT_LEFT].normalized;
         int32_t right =
             (int32_t) p_next->sensors[BUDDY3_FRONT_RIGHT].normalized;
 
@@ -1036,8 +1037,8 @@ static void buddy3_read_sensors (ir_processing_state_t * p_next,
     }
 #else
     /* Original algorithm: the line runs UNDER the two front sensors. */
-    weighted_total = (uint32_t) p_next->sensors[0].normalized +
-                     (uint32_t) p_next->sensors[1].normalized;
+    weighted_total      = (uint32_t) p_next->sensors[0].normalized +
+                          (uint32_t) p_next->sensors[1].normalized;
     p_next->b_line_seen = (weighted_total >= BUDDY3_LINE_THRESHOLD);
     p_next->b_junction_seen =
         (p_next->sensors[0].normalized >= BUDDY3_JUNCTION_THRESHOLD) &&
@@ -1091,15 +1092,18 @@ static void buddy3_follow_line (const ir_processing_state_t * p_next,
 #if BUDDY3_LINE_BETWEEN_SENSORS
         buddy3_steer_three_way(now_ms);
 #else
-        float derivative =
-            (float) p_next->line_position - (float) previous_position;
-        float correction = (g_steering_configs.proportional_gain *
-                            (float) p_next->line_position) +
-                           (g_steering_configs.derivative_gain * derivative);
+        float32_t derivative =
+            (float32_t) p_next->line_position - (float32_t) previous_position;
+        float32_t correction =
+            (g_steering_configs.proportional_gain *
+             (float32_t) p_next->line_position) +
+            (g_steering_configs.derivative_gain * derivative);
 
         buddy3_drive_observed(
-            buddy3_clamp_pwm((float) g_steering_configs.base_pwm + correction),
-            buddy3_clamp_pwm((float) g_steering_configs.base_pwm - correction));
+            buddy3_clamp_pwm((float32_t) g_steering_configs.base_pwm +
+                             correction),
+            buddy3_clamp_pwm((float32_t) g_steering_configs.base_pwm -
+                             correction));
 #endif
     }
 }
@@ -1108,17 +1112,18 @@ static void buddy3_follow_line (const ir_processing_state_t * p_next,
 /* Track which front sensors see the line, log changes, and maintain the
  * touch timers used by the search and stop rules. */
 static void buddy3_track_side (const ir_processing_state_t * p_next,
-                               uint32_t now_ms)
+                               uint32_t                      now_ms)
 {
     /* Which front sensor(s) are on black right now: 1 left, 2 right. */
-    uint8_t side = (uint8_t) (((p_next->sensors[BUDDY3_FRONT_LEFT].normalized >=
-                                BUDDY3_EDGE_THRESHOLD)
-                                   ? BUDDY3_SIDE_LEFT
-                                   : 0u) |
-                              ((p_next->sensors[BUDDY3_FRONT_RIGHT].normalized >=
-                                BUDDY3_EDGE_THRESHOLD)
-                                   ? BUDDY3_SIDE_RIGHT
-                                   : 0u));
+    uint8_t side =
+        (uint8_t) (((p_next->sensors[BUDDY3_FRONT_LEFT].normalized >=
+                     BUDDY3_EDGE_THRESHOLD)
+                        ? BUDDY3_SIDE_LEFT
+                        : 0u) |
+                   ((p_next->sensors[BUDDY3_FRONT_RIGHT].normalized >=
+                     BUDDY3_EDGE_THRESHOLD)
+                        ? BUDDY3_SIDE_RIGHT
+                        : 0u));
 
     side = buddy3_ignore_line_behind(side);
 
@@ -1160,7 +1165,7 @@ static uint8_t buddy3_ignore_line_behind (uint8_t side)
         g_b_line_following && (BUDDY3_SEARCH_IDLE != g_search_step) &&
         (BUDDY3_SEARCH_GAVE_UP != g_search_step))
     {
-        float offset = buddy3_encoder_angle_deg() - g_search_origin_deg;
+        float32_t offset = buddy3_encoder_angle_deg() - g_search_origin_deg;
 
         while (offset > BUDDY3_HALF_TURN)
         {
@@ -1195,14 +1200,13 @@ static uint8_t buddy3_ignore_line_behind (uint8_t side)
 static void buddy3_log_side (uint8_t side, uint32_t now_ms)
 {
     static const char * const color[] = {"white", "BLACK"};
-    static const char * const steer[] = {"straight", "steer LEFT",
-                                         "steer RIGHT",
-                                         "both black (junction check)"};
-    const char *              p_left     = color[side & 1u];
-    const char *              p_right    = color[(side >> 1u) & 1u];
-    const char *              p_decision = buddy3_junction_active(&g_junction)
-                                               ? "junction straight (branch ignored)"
-                                               : steer[side];
+    static const char * const steer[] = {
+        "straight", "steer LEFT", "steer RIGHT", "both black (junction check)"};
+    const char * p_left     = color[side & 1u];
+    const char * p_right    = color[(side >> 1u) & 1u];
+    const char * p_decision = buddy3_junction_active(&g_junction)
+                                  ? "junction straight (branch ignored)"
+                                  : steer[side];
 
     if (g_b_line_following)
     {
@@ -1220,7 +1224,7 @@ static void buddy3_log_side (uint8_t side, uint32_t now_ms)
 /* Lifted / dark surface: every sensor reads "black".  Returns true when the
  * car was stopped for it. */
 static bool buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
-                                      uint32_t now_ms)
+                                      uint32_t                      now_ms)
 {
     bool b_stopped = false;
 
@@ -1257,15 +1261,15 @@ static bool buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
 /* Staged steering (stage 1..3) with junction handling. */
 static void buddy3_staged_step (uint32_t now_ms)
 {
-    static const char * const phases[] = {"straight",   "micro", "corner",
-                                          "seek",       "align", "both-black",
+    static const char * const phases[] = {"straight", "micro", "corner",
+                                          "seek",     "align", "both-black",
                                           "stopped"};
     static const char * const names[]  = {"idle", "confirm", "straight",
                                           "cleared", "stopped"};
     buddy2_motion_state_t     motion   = {0};
     buddy3_junction_output_t  junction = {0};
     buddy3_steering_output_t  output   = {0};
-    bool b_was_crossing = buddy3_junction_active(&g_junction);
+    bool b_was_crossing                = buddy3_junction_active(&g_junction);
     /* A long curve may legitimately lead straight into a junction. The
      * junction's own both-black debounce then owns that crossing; only a
      * genuine line-loss recovery or an already stopped run blocks entry. */
@@ -1337,7 +1341,7 @@ static void buddy3_staged_step (uint32_t now_ms)
 
 /* Stop while no line is found.  Returns true when the car was stopped. */
 static bool buddy3_lost_stop (const ir_processing_state_t * p_next,
-                              uint32_t now_ms)
+                              uint32_t                      now_ms)
 {
     bool b_stopped = false;
 
@@ -1414,7 +1418,7 @@ static void buddy3_steer_three_way (uint32_t now_ms)
 {
     int32_t base = (int32_t) g_steering_configs.base_pwm;
     /* The gain scaled per 1000 position units is a PWM difference. */
-    int32_t  turn =
+    int32_t turn =
         (int32_t) (g_steering_configs.proportional_gain * BUDDY3_GAIN_SCALE);
     int32_t  left_pwm  = base;
     int32_t  right_pwm = base;
@@ -1465,8 +1469,8 @@ static void buddy3_steer_three_way (uint32_t now_ms)
     {
         g_trace_phase = TRACE_SEEK;
     }
-    buddy3_drive_observed(buddy3_clamp_pwm((float) left_pwm),
-                          buddy3_clamp_pwm((float) right_pwm));
+    buddy3_drive_observed(buddy3_clamp_pwm((float32_t) left_pwm),
+                          buddy3_clamp_pwm((float32_t) right_pwm));
 }
 
 /* Advance the line search and give the spin-on-the-spot wheel commands. */
@@ -1476,8 +1480,8 @@ static void buddy3_search_step (uint32_t now_ms, int32_t base,
     uint32_t limit_ms    = BUDDY3_SEARCH_SWEEP_STEP_MS;
     bool     b_step_done = false;
 #if BUDDY3_SEARCH_USE_ENCODER_ANGLE
-    float target_deg = BUDDY3_SEARCH_SWEEP_DEG;
-    float turned     = 0.0f;
+    float32_t target_deg = BUDDY3_SEARCH_SWEEP_DEG;
+    float32_t turned     = 0.0f;
 #endif
 
     if (BUDDY3_SEARCH_IDLE == g_search_step)

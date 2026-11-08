@@ -1,7 +1,9 @@
 # Layout rules from the Barr Group Embedded C Coding Standard (BARR-C:2018).
-# Applies to our code in firmware/app_program only; the kernel keeps its own
-# style.  Rules clang-format cannot express (naming, constant-left equality
-# tests, break aligned with case, end-of-file marker) are kept by hand.
+# Applies to our code in firmware/app_program (and tests/); the kernel keeps
+# its own style.  Run tools/barr_c_format.sh rather than clang-format alone:
+# it also applies what clang-format cannot express (constant-left equality
+# tests, break aligned with case, end-of-file marker).  See
+# docs/CODING_STANDARD.md.
 Language: Cpp
 BasedOnStyle: LLVM
 

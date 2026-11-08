@@ -16,28 +16,27 @@
  * its %u/%d conversion expects.  Up to four bounded rows per message; the
  * host test exercises the integer limits. */
 
-static INT barcode_append_config (char * p_out,
-                                  const robot_barcode_packet_t * p_packet);
-static INT barcode_append_rows (char * p_out,
-                                const robot_barcode_packet_t * p_packet);
-static INT barcode_append_summary (char * p_out,
+static INT  barcode_append_config (char *                         p_out,
                                    const robot_barcode_packet_t * p_packet);
-static void barcode_format (char * p_payload,
+static INT  barcode_append_rows (char *                         p_out,
+                                 const robot_barcode_packet_t * p_packet);
+static INT  barcode_append_summary (char *                         p_out,
+                                    const robot_barcode_packet_t * p_packet);
+static void barcode_format (char *                         p_payload,
                             const robot_barcode_packet_t * p_packet,
-                            uint32_t now);
+                            uint32_t                       now);
 
 /* Names indexed by robot_barcode_packet_type_t. */
 static const char * const g_type_names[] = {
-    "barcode_start", "barcode_edges", "barcode_samples",
-    "barcode_progress", "barcode_end", "barcode_state"};
+    "barcode_start",    "barcode_edges", "barcode_samples",
+    "barcode_progress", "barcode_end",   "barcode_state"};
 
 void robot_barcode_publish (uint32_t now_ms)
 {
     static char            payload[COMMS_PAYLOAD_MAX];
     robot_barcode_packet_t packet = {0};
     uint32_t               sent   = 0u;
-    bool                   b_more = (COMMS_LINK_MQTT_UP ==
-                                     comms_get_link_state());
+    bool b_more = (COMMS_LINK_MQTT_UP == comms_get_link_state());
 
     for (sent = 0u; b_more && (sent < BARCODE_PACKETS_PER_CALL); ++sent)
     {
@@ -61,9 +60,9 @@ void robot_barcode_publish (uint32_t now_ms)
 }
 
 /* Build the whole JSON object for one packet. */
-static void barcode_format (char * p_payload,
+static void barcode_format (char *                         p_payload,
                             const robot_barcode_packet_t * p_packet,
-                            uint32_t now)
+                            uint32_t                       now)
 {
     INT length = tm_sprintf(
         (UB *) p_payload,
@@ -75,8 +74,8 @@ static void barcode_format (char * p_payload,
 
     if (BC_PACKET_START == p_packet->type)
     {
-        length += tm_sprintf((UB *) p_payload + length, (UB *) ",\"leading\":%d",
-                             (INT) p_packet->leading);
+        length += tm_sprintf((UB *) p_payload + length,
+                             (UB *) ",\"leading\":%d", (INT) p_packet->leading);
         length += barcode_append_config(p_payload + length, p_packet);
     }
     else if ((BC_PACKET_EDGES == p_packet->type) ||
@@ -104,21 +103,21 @@ static void barcode_format (char * p_payload,
 }
 
 /* ,"config":[...] with the eleven reader settings. */
-static INT barcode_append_config (char * p_out,
+static INT barcode_append_config (char *                         p_out,
                                   const robot_barcode_packet_t * p_packet)
 {
-    return tm_sprintf(
-        (UB *) p_out, (UB *) ",\"config\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
-        (INT) p_packet->config[0], (INT) p_packet->config[1],
-        (INT) p_packet->config[2], (INT) p_packet->config[3],
-        (INT) p_packet->config[4], (INT) p_packet->config[5],
-        (INT) p_packet->config[6], (INT) p_packet->config[7],
-        (INT) p_packet->config[8], (INT) p_packet->config[9],
-        (INT) p_packet->config[10]);
+    return tm_sprintf((UB *) p_out,
+                      (UB *) ",\"config\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
+                      (INT) p_packet->config[0], (INT) p_packet->config[1],
+                      (INT) p_packet->config[2], (INT) p_packet->config[3],
+                      (INT) p_packet->config[4], (INT) p_packet->config[5],
+                      (INT) p_packet->config[6], (INT) p_packet->config[7],
+                      (INT) p_packet->config[8], (INT) p_packet->config[9],
+                      (INT) p_packet->config[10]);
 }
 
 /* ,"rows":[...] with the edges or samples of the packet. */
-static INT barcode_append_rows (char * p_out,
+static INT barcode_append_rows (char *                         p_out,
                                 const robot_barcode_packet_t * p_packet)
 {
     INT      length = tm_sprintf((UB *) p_out, (UB *) ",\"rows\":[");
@@ -132,11 +131,11 @@ static INT barcode_append_rows (char * p_out,
         {
             const robot_barcode_edge_t * p_edge = &p_packet->edges[row];
 
-            length += tm_sprintf(
-                (UB *) p_out + length, (UB *) "%s[%u,%u,%d,%d,%d]", p_comma,
-                (UINT) (p_packet->offset + row), (UINT) p_edge->ts_ms,
-                (INT) p_edge->width_x100, (INT) p_edge->left_x10,
-                (INT) p_edge->right_x10);
+            length +=
+                tm_sprintf((UB *) p_out + length, (UB *) "%s[%u,%u,%d,%d,%d]",
+                           p_comma, (UINT) (p_packet->offset + row),
+                           (UINT) p_edge->ts_ms, (INT) p_edge->width_x100,
+                           (INT) p_edge->left_x10, (INT) p_edge->right_x10);
         }
         else
         {
@@ -157,7 +156,7 @@ static INT barcode_append_rows (char * p_out,
 }
 
 /* Scan summary for progress, end and state packets. */
-static INT barcode_append_summary (char * p_out,
+static INT barcode_append_summary (char *                         p_out,
                                    const robot_barcode_packet_t * p_packet)
 {
     INT length = tm_sprintf(
@@ -170,16 +169,16 @@ static INT barcode_append_summary (char * p_out,
 
     if (BC_PACKET_END == p_packet->type)
     {
-        length += tm_sprintf(
-            (UB *) p_out + length,
-            (UB *) ",\"reason\":%u,\"format\":%u,\"symbol\":%u,"
-                   "\"reversed\":%u,\"leading\":%d,\"trailing\":%d,"
-                   "\"narrow\":%d,\"ratio\":%d,\"max_gap\":%d",
-            (UINT) p_packet->reason, (UINT) p_packet->format,
-            (UINT) p_packet->symbol, (UINT) p_packet->reversed,
-            (INT) p_packet->leading, (INT) p_packet->trailing,
-            (INT) p_packet->narrow, (INT) p_packet->ratio,
-            (INT) p_packet->max_gap);
+        length +=
+            tm_sprintf((UB *) p_out + length,
+                       (UB *) ",\"reason\":%u,\"format\":%u,\"symbol\":%u,"
+                              "\"reversed\":%u,\"leading\":%d,\"trailing\":%d,"
+                              "\"narrow\":%d,\"ratio\":%d,\"max_gap\":%d",
+                       (UINT) p_packet->reason, (UINT) p_packet->format,
+                       (UINT) p_packet->symbol, (UINT) p_packet->reversed,
+                       (INT) p_packet->leading, (INT) p_packet->trailing,
+                       (INT) p_packet->narrow, (INT) p_packet->ratio,
+                       (INT) p_packet->max_gap);
     }
 
     return length;

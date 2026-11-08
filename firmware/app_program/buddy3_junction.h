@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "robot_types.h"
 
 /* Initial track settings: qualify with the physical junction width. */
 #define B3_JUNCTION_CONFIRM_MS           30u
@@ -31,12 +32,12 @@ typedef enum
 /** Junction memory kept between calls to buddy3_junction_step(). */
 typedef struct
 {
-    uint8_t  phase;
-    uint32_t started_ms;
-    float    start_left;
-    float    start_right;
-    float    clear_start;
-    bool     clear_pending;
+    uint8_t   phase;
+    uint32_t  started_ms;
+    float32_t start_left;
+    float32_t start_right;
+    float32_t clear_start;
+    bool      clear_pending;
 } buddy3_junction_t;
 
 /** Wheel commands and status produced by one junction step. */
@@ -81,8 +82,8 @@ bool buddy3_junction_active (const buddy3_junction_t * p_state);
  */
 buddy3_junction_output_t
 buddy3_junction_step (buddy3_junction_t * p_state, uint8_t side, uint32_t now,
-                      float left_mm, float right_mm, bool encoders_healthy,
-                      bool entry_allowed, int16_t base);
+                      float32_t left_mm, float32_t right_mm,
+                      bool encoders_healthy, bool entry_allowed, int16_t base);
 
 #endif /* BUDDY3_JUNCTION_H */
 

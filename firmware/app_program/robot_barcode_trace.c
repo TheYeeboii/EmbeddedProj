@@ -14,17 +14,17 @@
 /* A spacing failure stays visible this long before a scan starts. */
 #define GAP_HOLD_MS 1000u
 /* Readiness slots: raw, normalized, black, quiet, travel, limit, gap. */
-#define READY_RAW       0u
-#define READY_NORM      1u
-#define READY_BLACK     2u
-#define READY_QUIET     3u
-#define READY_TRAVEL    4u
-#define READY_STEP_MAX  5u
-#define READY_GAP       6u
+#define READY_RAW      0u
+#define READY_NORM     1u
+#define READY_BLACK    2u
+#define READY_QUIET    3u
+#define READY_TRAVEL   4u
+#define READY_STEP_MAX 5u
+#define READY_GAP      6u
 /* Config slot holding the minimum element width (x100). */
 #define CONFIG_MIN_ELEMENT 5u
 /* Values are sent in hundredths of a millimetre. */
-#define X100 100.0f
+#define X100    100.0f
 #define NO_SLOT (-1)
 
 /* Capture storage and transport cursors are private to this module. */
@@ -76,24 +76,24 @@ static uint32_t              g_rejected_steps = 0u;
 static uint32_t              g_last_gap_ms    = 0u;
 static bool                  g_b_have_gap     = false;
 
-static void trace_update_reader (const buddy3_barcode_decoder_t * p_decoder,
+static void trace_update_reader (const buddy3_barcode_decoder_t *    p_decoder,
                                  const robot_barcode_observation_t * p_obs);
-static void trace_start_frame (const buddy3_barcode_decoder_t * p_decoder,
+static void trace_start_frame (const buddy3_barcode_decoder_t *    p_decoder,
                                const robot_barcode_observation_t * p_obs);
-static void trace_record_step (robot_barcode_frame_t * p_frame,
-                               const buddy3_barcode_decoder_t * p_decoder,
+static void trace_record_step (robot_barcode_frame_t *             p_frame,
+                               const buddy3_barcode_decoder_t *    p_decoder,
                                const robot_barcode_observation_t * p_obs,
-                               float unfinished_before,
+                               float32_t                      unfinished_before,
                                const buddy3_barcode_event_t * p_result);
 static bool trace_state_packet (robot_barcode_packet_t * p_packet,
-                                uint32_t now);
-static bool trace_frame_packet (robot_barcode_packet_t * p_packet,
+                                uint32_t                 now);
+static bool trace_frame_packet (robot_barcode_packet_t *      p_packet,
                                 const robot_barcode_frame_t * p_frame);
 
-int32_t robot_barcode_scaled (float value, float scale)
+int32_t robot_barcode_scaled (float32_t value, float32_t scale)
 {
-    float   scaled = value * scale;
-    int32_t result = 0;
+    float32_t scaled = value * scale;
+    int32_t   result = 0;
 
     /* NaN fails every comparison and falls through to 0. This avoids libc
      * headers that conflict with T-Kernel. */
@@ -176,9 +176,9 @@ void robot_barcode_trace_cancel (uint32_t now)
 }
 
 void robot_barcode_trace_observe (
-    const buddy3_barcode_decoder_t * p_decoder,
+    const buddy3_barcode_decoder_t *    p_decoder,
     const robot_barcode_observation_t * p_observation, bool was_active,
-    float unfinished_before, const buddy3_barcode_event_t * p_result)
+    float32_t unfinished_before, const buddy3_barcode_event_t * p_result)
 {
     UINT lock = 0u;
 
@@ -196,8 +196,7 @@ void robot_barcode_trace_observe (
     EI(lock);
 }
 
-bool robot_barcode_packet_peek (robot_barcode_packet_t * p_packet,
-                                uint32_t now)
+bool robot_barcode_packet_peek (robot_barcode_packet_t * p_packet, uint32_t now)
 {
     UINT                   lock    = 0u;
     uint32_t               index   = 0u;
@@ -289,16 +288,16 @@ void robot_barcode_packet_ack (const robot_barcode_packet_t * p_packet)
 }
 
 /* Update the readiness evidence and reader state.  Caller holds the lock. */
-static void trace_update_reader (const buddy3_barcode_decoder_t * p_decoder,
+static void trace_update_reader (const buddy3_barcode_decoder_t *    p_decoder,
                                  const robot_barcode_observation_t * p_obs)
 {
     g_readiness[READY_RAW]   = p_obs->raw;
     g_readiness[READY_NORM]  = p_obs->normalized;
     g_readiness[READY_BLACK] = p_obs->black;
-    g_readiness[READY_QUIET] = robot_barcode_scaled(
-        p_decoder->active ? p_decoder->leading_quiet
-                          : p_decoder->white_distance,
-        X100);
+    g_readiness[READY_QUIET] =
+        robot_barcode_scaled(p_decoder->active ? p_decoder->leading_quiet
+                                               : p_decoder->white_distance,
+                             X100);
     g_readiness[READY_TRAVEL] = p_obs->travel_x100;
     /* A step may move at most a quarter of the minimum element. */
     g_readiness[READY_STEP_MAX] = g_configuration[CONFIG_MIN_ELEMENT] / 4;
@@ -348,7 +347,7 @@ static void trace_update_reader (const buddy3_barcode_decoder_t * p_decoder,
 
 /* Claim a free slot (or overwrite the older scan) for a new frame.  Caller
  * holds the lock. */
-static void trace_start_frame (const buddy3_barcode_decoder_t * p_decoder,
+static void trace_start_frame (const buddy3_barcode_decoder_t *    p_decoder,
                                const robot_barcode_observation_t * p_obs)
 {
     robot_barcode_frame_t * p_frame = NULL;
@@ -389,8 +388,8 @@ static void trace_start_frame (const buddy3_barcode_decoder_t * p_decoder,
     p_frame->narrow_x100   = 0;
     p_frame->ratio_x100    = 0;
     p_frame->max_gap_x100  = 0;
-    p_frame->leading_x100  = robot_barcode_scaled(p_decoder->leading_quiet,
-                                                  X100);
+    p_frame->leading_x100 =
+        robot_barcode_scaled(p_decoder->leading_quiet, X100);
     for (index = 0u; index < BARCODE_CONFIG_COUNT; ++index)
     {
         p_frame->config[index] = g_configuration[index];
@@ -401,10 +400,10 @@ static void trace_start_frame (const buddy3_barcode_decoder_t * p_decoder,
 
 /* Copy new edges, the sample and any result into the active frame.  Caller
  * holds the lock. */
-static void trace_record_step (robot_barcode_frame_t * p_frame,
-                               const buddy3_barcode_decoder_t * p_decoder,
+static void trace_record_step (robot_barcode_frame_t *             p_frame,
+                               const buddy3_barcode_decoder_t *    p_decoder,
                                const robot_barcode_observation_t * p_obs,
-                               float unfinished_before,
+                               float32_t                      unfinished_before,
                                const buddy3_barcode_event_t * p_result)
 {
     uint32_t index   = 0u;
@@ -430,9 +429,8 @@ static void trace_record_step (robot_barcode_frame_t * p_frame,
         p_frame->count = p_decoder->count;
     }
     p_frame->partial_x100 = robot_barcode_scaled(
-        p_decoder->active
-            ? (p_decoder->position - p_decoder->edge_position)
-            : unfinished_before,
+        p_decoder->active ? (p_decoder->position - p_decoder->edge_position)
+                          : unfinished_before,
         X100);
     if (max_gap > p_frame->max_gap_x100)
     {
@@ -466,7 +464,7 @@ static void trace_record_step (robot_barcode_frame_t * p_frame,
     if (NULL != p_result)
     {
         p_frame->done   = true;
-        p_frame->reason = (uint8_t) p_result->kind;   /* Enum fits a byte. */
+        p_frame->reason = (uint8_t) p_result->kind; /* Enum fits a byte. */
         p_frame->format = (uint8_t) p_result->format_status;
         if (B3BC_VALID == p_result->kind)
         {
@@ -497,12 +495,10 @@ static void trace_record_step (robot_barcode_frame_t * p_frame,
 
 /* Reader-state packet, at most once a second while no scan is queued.
  * Returns true when the packet is due.  Caller holds the lock. */
-static bool trace_state_packet (robot_barcode_packet_t * p_packet,
-                                uint32_t now)
+static bool trace_state_packet (robot_barcode_packet_t * p_packet, uint32_t now)
 {
-    uint32_t index   = 0u;
-    bool     b_ready = !(g_b_have_state &&
-                         ((now - g_last_state_ms) < STATE_MS));
+    uint32_t index = 0u;
+    bool b_ready   = !(g_b_have_state && ((now - g_last_state_ms) < STATE_MS));
 
     if (b_ready)
     {
@@ -526,7 +522,7 @@ static bool trace_state_packet (robot_barcode_packet_t * p_packet,
 
 /* Next packet of a scan: start, edges, progress, samples, then end.
  * Returns true when there is something to send.  Caller holds the lock. */
-static bool trace_frame_packet (robot_barcode_packet_t * p_packet,
+static bool trace_frame_packet (robot_barcode_packet_t *      p_packet,
                                 const robot_barcode_frame_t * p_frame)
 {
     uint32_t index     = 0u;

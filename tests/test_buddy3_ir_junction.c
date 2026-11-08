@@ -64,7 +64,7 @@ void buddy2_stop_observed (const struct robot_steering_input * input)
     }
     buddy2_stop();
 }
-static void observe (unsigned side, uint32_t now, float l, float r)
+static void observe (unsigned side, uint32_t now, float32_t l, float32_t r)
 {
     /* Express inputs as black/white, independent of the active calibration. */
     adc[0] =
@@ -103,11 +103,11 @@ int main (void)
     robot_ir_stream_ack(&stream);
     /* Exercise real ADC normalization, encoder adapter and event handoff. */
     const char * patterns[] = {"010010100", "001011000", "010010100"};
-    float        boundaries[30];
+    float32_t    boundaries[30];
     boundaries[0] = 60;
     for (unsigned i = 0; i < 29; ++i)
     {
-        float width       = (9 == i || 19 == i)
+        float32_t width   = (9 == i || 19 == i)
                                 ? 4
                                 : (patterns[i / 10][i % 10] == '1' ? 12 : 4);
         boundaries[i + 1] = boundaries[i] + width;
@@ -120,8 +120,8 @@ int main (void)
     unsigned reads = 0;
     for (unsigned i = 1; i < 700; ++i)
     {
-        float pos   = (float) i * 0.5f;
-        bool  black = false;
+        float32_t pos   = (float32_t) i * 0.5f;
+        bool      black = false;
         for (unsigned e = 0; e < 29; ++e)
         {
             if (pos >= boundaries[e] && pos < boundaries[e + 1])

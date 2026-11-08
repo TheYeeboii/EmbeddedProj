@@ -177,8 +177,8 @@ static bool buddy5_wait_while (bool level, uint64_t started_us,
  */
 static bool buddy5_wait_for_echo_idle (void)
 {
-    bool b_idle = buddy5_wait_while(true, hal_time_us(),
-                                    BUDDY5_ECHO_IDLE_TIMEOUT_US);
+    bool b_idle =
+        buddy5_wait_while(true, hal_time_us(), BUDDY5_ECHO_IDLE_TIMEOUT_US);
 
     if (!b_idle)
     {
@@ -186,8 +186,9 @@ static bool buddy5_wait_for_echo_idle (void)
          * a previous peripheral setup changed it.  This cannot pull down
          * a sensor that is electrically driving Echo high. */
         hal_gpio_input(ULTRASONIC_ECHO_PIN);
-        tm_printf((UB *) "[sonar] Echo GP%u HIGH before trigger; skipped ping\n",
-                  (UINT) ULTRASONIC_ECHO_PIN);
+        tm_printf(
+            (UB *) "[sonar] Echo GP%u HIGH before trigger; skipped ping\n",
+            (UINT) ULTRASONIC_ECHO_PIN);
     }
 
     return b_idle;

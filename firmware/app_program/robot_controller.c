@@ -31,10 +31,12 @@
 #define ROBOT_LEGACY_MAX (65535)
 
 /* Limits for the dashboard "line_speed" command, percent of full power. */
-#define ROBOT_LINE_BASE_MIN_PCT     (15)
-#define ROBOT_LINE_BASE_MAX_PCT     (80)
-#define ROBOT_LINE_TURN_MAX_PCT     (60)
-#define ROBOT_LINE_BASE_DEFAULT_PCT (35) /* boot line speed, see buddy3_ir.c */
+#define ROBOT_LINE_BASE_MIN_PCT (15)
+#define ROBOT_LINE_BASE_MAX_PCT (80)
+#define ROBOT_LINE_TURN_MAX_PCT (60)
+#define ROBOT_LINE_BASE_DEFAULT_PCT                                            \
+    (35) /* boot line speed, see buddy3_ir.c                                   \
+          */
 #define ROBOT_LINE_TURN_DEFAULT_PCT (27)
 
 #define ROBOT_FORWARD_SPEED       (30000u) /* dashboard units */
@@ -115,9 +117,8 @@ static uint32_t g_line_button_count   = 0u;
 /* Read-only until the demo mapping is known. */
 static uint8_t g_barcode_mode = ROBOT_BARCODE_MODE_OBSERVE;
 
-static bool         robot_is_space (char character);
-static bool         robot_str_equal (const char * p_first,
-                                     const char * p_second);
+static bool robot_is_space (char character);
+static bool robot_str_equal (const char * p_first, const char * p_second);
 static const char * robot_find (const char * p_text, const char * p_needle);
 static bool         robot_parse_int (const char * p_text, int32_t * p_value,
                                      const char ** pp_end);
@@ -140,14 +141,12 @@ static void         robot_set_line_stage (int32_t stage);
 static void         robot_set_barcode_mode (int32_t mode);
 static void         robot_reset_all (void);
 static bool         robot_simple_command (const char * p_name, uint32_t now_ms);
-static bool         robot_command_args (const robot_command_t * p_entry,
-                                        bool b_json, const char * p_command,
-                                        const char * p_rest,
-                                        int32_t values[2]);
-static void         robot_run_command (robot_command_id_t id,
-                                       const int32_t values[2],
-                                       uint32_t now_ms);
-static void         robot_log_barcode (const buddy3_barcode_event_t * p_event);
+static bool robot_command_args (const robot_command_t * p_entry, bool b_json,
+                                const char * p_command, const char * p_rest,
+                                int32_t values[2]);
+static void robot_run_command (robot_command_id_t id, const int32_t values[2],
+                               uint32_t now_ms);
+static void robot_log_barcode (const buddy3_barcode_event_t * p_event);
 
 /* ------------------------------------------------------------------ *
  *  Public API
@@ -371,8 +370,8 @@ void robot_controller_abort_obstacle_avoidance (void)
 
 static bool robot_is_space (char character)
 {
-    return ((' ' == character) || ('\t' == character) ||
-            ('\r' == character) || ('\n' == character));
+    return ((' ' == character) || ('\t' == character) || ('\r' == character) ||
+            ('\n' == character));
 }
 
 static bool robot_str_equal (const char * p_first, const char * p_second)
@@ -685,7 +684,7 @@ static void robot_set_line_speed (int32_t base_pct, int32_t turn_pct)
         calibration.base_pwm =
             (int16_t) ((base_pct * BUDDY2_PWM_MAX) / ROBOT_PERCENT_MAX);
         calibration.proportional_gain =
-            ((float) turn_pct * (float) BUDDY2_PWM_MAX) / 100000.0f;
+            ((float32_t) turn_pct * (float32_t) BUDDY2_PWM_MAX) / 100000.0f;
         buddy3_set_calibration(&calibration);
         tm_printf((UB *) "[cmd] line speed base %d turn %d (percent)\n",
                   (INT) base_pct, (INT) turn_pct);

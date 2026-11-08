@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "robot_types.h"
 #include "code39.h"
 
 /* Decode by default; 0 disables. */
@@ -23,7 +24,8 @@
 /** Reader settings. */
 typedef struct
 {
-    float min_element_mm; /* Resolution bound, NOT the actual printed width. */
+    float32_t
+        min_element_mm; /* Resolution bound, NOT the actual printed width. */
 } buddy3_barcode_config_t;
 
 /** What a call to buddy3_barcode_step() reported. */
@@ -52,19 +54,19 @@ typedef struct
 /** Reader memory kept between calls to buddy3_barcode_step(). */
 typedef struct
 {
-    float    position;
-    float    edge_position;
-    float    white_distance;
-    float    leading_quiet;
-    float    max_sample_gap;
-    float    widths[CODE39_FRAME_ELEMENTS];
-    uint32_t edge_ms[CODE39_FRAME_ELEMENTS];
-    uint32_t last_progress_ms;
-    uint32_t started_ms;
-    uint8_t  count;
-    bool     active;
-    bool     previous_black;
-    bool     have_sample;
+    float32_t position;
+    float32_t edge_position;
+    float32_t white_distance;
+    float32_t leading_quiet;
+    float32_t max_sample_gap;
+    float32_t widths[CODE39_FRAME_ELEMENTS];
+    uint32_t  edge_ms[CODE39_FRAME_ELEMENTS];
+    uint32_t  last_progress_ms;
+    uint32_t  started_ms;
+    uint8_t   count;
+    bool      active;
+    bool      previous_black;
+    bool      have_sample;
 } buddy3_barcode_decoder_t;
 
 /**
@@ -87,9 +89,9 @@ void buddy3_barcode_reset (buddy3_barcode_decoder_t * p_state);
  * @param p_event   Receives the event, if any.
  * @return True when p_event holds a new event.
  */
-bool buddy3_barcode_step (buddy3_barcode_decoder_t * p_state,
+bool buddy3_barcode_step (buddy3_barcode_decoder_t *      p_state,
                           const buddy3_barcode_config_t * p_cfg, bool black,
-                          float travel_mm, uint32_t now, bool permitted,
+                          float32_t travel_mm, uint32_t now, bool permitted,
                           buddy3_barcode_event_t * p_event);
 
 /**
@@ -100,8 +102,8 @@ bool buddy3_barcode_step (buddy3_barcode_decoder_t * p_state,
  * @param offset_left_mm Sensor offset, left positive.
  * @return Sensor travel in millimetres.
  */
-float buddy3_barcode_travel (float left_mm, float right_mm, float track_mm,
-                             float offset_left_mm);
+float32_t buddy3_barcode_travel (float32_t left_mm, float32_t right_mm,
+                                 float32_t track_mm, float32_t offset_left_mm);
 
 /**
  * @brief Short log name for an event kind.

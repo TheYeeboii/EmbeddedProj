@@ -32,8 +32,8 @@ static uint32_t comms_strlen (const char * p_text, uint32_t limit)
 
 int32_t comms_init (void)
 {
-    T_CMBF cmbf   = {0};
-    ID     id     = 0;
+    T_CMBF  cmbf   = {0};
+    ID      id     = 0;
     int32_t result = 0;
 
     cmbf.exinf  = NULL;
@@ -51,8 +51,8 @@ int32_t comms_init (void)
     {
         g_outbox_id = id;
 
-        cmbf.bufsz = (SZ) (COMMS_INBOX_MESSAGES *
-                           (COMMS_COMMAND_MAX + COMMS_MSG_OVERHEAD));
+        cmbf.bufsz  = (SZ) (COMMS_INBOX_MESSAGES *
+                            (COMMS_COMMAND_MAX + COMMS_MSG_OVERHEAD));
         cmbf.maxmsz = (INT) COMMS_COMMAND_MAX;
         id          = tk_cre_mbf(&cmbf);
         if (id < E_OK)
@@ -162,8 +162,8 @@ bool comms_wait_command (char * p_buffer, uint32_t buffer_size,
         if (size > 0)
         {
             /* size > 0 here, so the unsigned conversion is exact. */
-            for (index = 0u; (index < (uint32_t) size) &&
-                             ((index + 1u) < buffer_size);
+            for (index = 0u;
+                 (index < (uint32_t) size) && ((index + 1u) < buffer_size);
                  index++)
             {
                 p_buffer[index] = (char) message[index];

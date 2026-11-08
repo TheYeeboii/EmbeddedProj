@@ -154,9 +154,9 @@ static void action_enqueue (uint8_t action)
         g_count--;
         g_dropped++;
     }
-    event.action  = action;
-    event.seq     = ++g_sequence;
-    event.dropped = g_dropped;
+    event.action                                          = action;
+    event.seq                                             = ++g_sequence;
+    event.dropped                                         = g_dropped;
     g_queue[(g_head + g_count) % ROBOT_ACTION_QUEUE_SIZE] = event;
     g_count++;
 }

@@ -41,9 +41,9 @@ static robot_avoidance_debug_t g_avoidance_debug;
 
 /* Names indexed by the ROBOT_AVOID_STATUS_* values in robot_telemetry.h. */
 static const char * const g_avoid_status_names[] = {
-    "idle",     "scanning", "turning",  "complete",
-    "blocked",  "imu_unavailable", "imu_lost", "timeout",
-    "cancelled", "forward", "recovering", "reversing"};
+    "idle",      "scanning",        "turning",    "complete",
+    "blocked",   "imu_unavailable", "imu_lost",   "timeout",
+    "cancelled", "forward",         "recovering", "reversing"};
 
 static void         robot_format_x10 (UB * p_out, int32_t value_x10);
 static const char * robot_bool (bool value);
@@ -139,14 +139,14 @@ void robot_telemetry_clear_avoidance_scan (void)
 
 void robot_telemetry_build (char * p_buffer, uint32_t now_ms)
 {
-    buddy2_motion_state_t motion        = {0};
-    buddy3_ir_state_t     ir_state      = {0};
-    buddy4_imu_state_t    imu           = {0};
-    buddy5_reading_t      sonar         = {0};
-    buddy3_calibration_t  line          = {0};
-    uint32_t              drive_left    = 0u;
-    uint32_t              drive_right   = 0u;
-    const char *          p_state       = "online";
+    buddy2_motion_state_t motion      = {0};
+    buddy3_ir_state_t     ir_state    = {0};
+    buddy4_imu_state_t    imu         = {0};
+    buddy5_reading_t      sonar       = {0};
+    buddy3_calibration_t  line        = {0};
+    uint32_t              drive_left  = 0u;
+    uint32_t              drive_right = 0u;
+    const char *          p_state     = "online";
     UB                    heading[TELEMETRY_X10_TEXT];
     UB                    pitch[TELEMETRY_X10_TEXT];
     UB                    max_pitch[TELEMETRY_X10_TEXT];
@@ -162,11 +162,11 @@ void robot_telemetry_build (char * p_buffer, uint32_t now_ms)
     buddy3_get_calibration(&line);
     /* Same percent-of-full-power units as the "line_speed" command; both
      * results are small percentages, so they fit in INT. */
-    line_base_pct = (INT) ((((int32_t) line.base_pwm * PERCENT) +
-                            (BUDDY2_PWM_MAX / 2)) /
-                           BUDDY2_PWM_MAX);
+    line_base_pct =
+        (INT) ((((int32_t) line.base_pwm * PERCENT) + (BUDDY2_PWM_MAX / 2)) /
+               BUDDY2_PWM_MAX);
     line_turn_pct = (INT) (((line.proportional_gain * 100000.0f) /
-                            (float) BUDDY2_PWM_MAX) +
+                            (float32_t) BUDDY2_PWM_MAX) +
                            0.5f);
     buddy3_get_state(&ir_state);
     buddy4_get_state(&imu);

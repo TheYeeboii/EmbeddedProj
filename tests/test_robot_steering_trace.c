@@ -103,9 +103,9 @@ int main (void)
     e.input.dark  = 3;
     e.faults      = 3;
     e.input.phase = TRACE_DARK;
-    g_sequence      = UINT32_MAX - 1;
-    g_dropped       = UINT32_MAX;
-    g_session_id    = UINT32_MAX;
+    g_sequence    = UINT32_MAX - 1;
+    g_dropped     = UINT32_MAX;
+    g_session_id  = UINT32_MAX;
     robot_steering_record(&e);
     robot_steering_publish(UINT32_MAX - 1);
     puts("PASS: steering pulse capture, coalescing, ownership, drops, stale "

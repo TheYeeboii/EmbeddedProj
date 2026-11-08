@@ -12,11 +12,11 @@ static const char * const alphabet[] = {
     "001010010", "000000111", "100000110", "001000110", "000010110",
     "110000001", "011000001", "111000000", "010010001", "110010000",
     "011010000"};
-static void frame (char symbol, float narrow, float ratio, bool reverse,
-                   float * out)
+static void frame (char symbol, float32_t narrow, float32_t ratio, bool reverse,
+                   float32_t * out)
 {
     const char * groups[] = {"010010100", alphabet[symbol - 'A'], "010010100"};
-    float        forward[29];
+    float32_t    forward[29];
     for (unsigned g = 0; g < 3; ++g)
     {
         for (unsigned i = 0; i < 9; ++i)
@@ -33,8 +33,8 @@ static void frame (char symbol, float narrow, float ratio, bool reverse,
 
 static void test_parser (void)
 {
-    const float     scales[] = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f};
-    float           widths[29];
+    const float32_t scales[] = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f};
+    float32_t       widths[29];
     code39_result_t result;
     for (char c = 'A'; c <= 'Z'; ++c)
     {
@@ -44,7 +44,7 @@ static void test_parser (void)
             {
                 for (unsigned ratio = 2; ratio <= 3; ++ratio)
                 {
-                    frame(c, scales[scale], (float) ratio, reverse != 0,
+                    frame(c, scales[scale], (float32_t) ratio, reverse != 0,
                           widths);
                     for (unsigned i = 0; i < 29; ++i)
                     {
@@ -61,12 +61,12 @@ static void test_parser (void)
     /* Pixel widths from the supplied photos, top to bottom. Quiet zones here
      * are synthetic: these are image-pattern fixtures, not physical IR traces.
      */
-    float photo_f[] = {14, 16, 46, 16, 46, 16, 15, 47, 15, 17,
-                       15, 16, 15, 48, 47, 17, 47, 16, 16, 17,
-                       15, 17, 48, 17, 48, 17, 16, 50, 16};
-    float photo_y[] = {13, 15, 42, 15, 42, 15, 14, 44, 14, 15,
-                       14, 16, 14, 15, 44, 16, 14, 46, 45, 16,
-                       15, 16, 46, 16, 47, 16, 16, 49, 15};
+    float32_t photo_f[] = {14, 16, 46, 16, 46, 16, 15, 47, 15, 17,
+                           15, 16, 15, 48, 47, 17, 47, 16, 16, 17,
+                           15, 17, 48, 17, 48, 17, 16, 50, 16};
+    float32_t photo_y[] = {13, 15, 42, 15, 42, 15, 14, 44, 14, 15,
+                           14, 16, 14, 15, 44, 16, 14, 46, 45, 16,
+                           15, 16, 46, 16, 47, 16, 16, 49, 15};
     assert(code39_decode(photo_f, 29, 200, 200, &result) == CODE39_OK);
     assert(result.symbol == 'F' && result.reversed);
     assert(code39_decode(photo_y, 29, 200, 200, &result) == CODE39_OK);
@@ -103,13 +103,13 @@ static void test_parser (void)
     assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_WIDTH);
 }
 
-static unsigned replay (char symbol, float scale, bool reversed,
+static unsigned replay (char symbol, float32_t scale, bool reversed,
                         bool variable_speed)
 {
     buddy3_barcode_decoder_t s   = {0};
     buddy3_barcode_config_t  cfg = {0.25f};
     buddy3_barcode_event_t   event;
-    float                    widths[29], boundaries[30], pos = 0, ds = 0;
+    float32_t                widths[29], boundaries[30], pos = 0, ds = 0;
     unsigned                 valid = 0;
     frame(symbol, scale, 3, reversed, widths);
     boundaries[0] = 15 * scale;

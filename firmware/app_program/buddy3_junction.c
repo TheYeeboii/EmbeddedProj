@@ -11,10 +11,10 @@
 #define MAX_CORRECTION_DIVISOR 3.0f
 
 static bool junction_out_of_limits (const buddy3_junction_t * p_state,
-                                    uint32_t now, float left, float right,
-                                    bool encoders_healthy);
+                                    uint32_t now, float32_t left,
+                                    float32_t right, bool encoders_healthy);
 static bool junction_steer (buddy3_junction_t * p_state, uint8_t side,
-                            float left, float right, int16_t base,
+                            float32_t left, float32_t right, int16_t base,
                             buddy3_junction_output_t * p_out);
 
 void buddy3_junction_reset (buddy3_junction_t * p_state)
@@ -29,15 +29,14 @@ bool buddy3_junction_active (const buddy3_junction_t * p_state)
     return ((B3J_CONFIRM == p_state->phase) || (B3J_CROSS == p_state->phase));
 }
 
-buddy3_junction_output_t buddy3_junction_step (buddy3_junction_t * p_state,
-                                               uint8_t side, uint32_t now,
-                                               float left_mm, float right_mm,
-                                               bool encoders_healthy,
-                                               bool entry_allowed, int16_t base)
+buddy3_junction_output_t
+buddy3_junction_step (buddy3_junction_t * p_state, uint8_t side, uint32_t now,
+                      float32_t left_mm, float32_t right_mm,
+                      bool encoders_healthy, bool entry_allowed, int16_t base)
 {
     buddy3_junction_output_t out    = {base, base, B3J_IDLE, false, false};
-    float                    left   = 0.0f;
-    float                    right  = 0.0f;
+    float32_t                left   = 0.0f;
+    float32_t                right  = 0.0f;
     bool                     b_stop = (B3J_STOP == p_state->phase);
     bool                     b_idle = false;
 
@@ -66,10 +65,10 @@ buddy3_junction_output_t buddy3_junction_step (buddy3_junction_t * p_state,
 
     if (!b_stop && !b_idle)
     {
-        left   = left_mm - p_state->start_left;
-        right  = right_mm - p_state->start_right;
-        b_stop = junction_out_of_limits(p_state, now, left, right,
-                                        encoders_healthy);
+        left  = left_mm - p_state->start_left;
+        right = right_mm - p_state->start_right;
+        b_stop =
+            junction_out_of_limits(p_state, now, left, right, encoders_healthy);
     }
 
     if (!b_stop && !b_idle && (B3J_CONFIRM == p_state->phase))
@@ -111,8 +110,8 @@ buddy3_junction_output_t buddy3_junction_step (buddy3_junction_t * p_state,
 /* True when the crossing must stop: unhealthy encoders, negative or NaN
  * progress (reversing or an odometry reset), or too much time or travel. */
 static bool junction_out_of_limits (const buddy3_junction_t * p_state,
-                                    uint32_t now, float left, float right,
-                                    bool encoders_healthy)
+                                    uint32_t now, float32_t left,
+                                    float32_t right, bool encoders_healthy)
 {
     return (!encoders_healthy || !(left >= 0.0f) || !(right >= 0.0f) ||
             ((now - p_state->started_ms) >= B3_JUNCTION_MAX_MS) ||
@@ -122,13 +121,13 @@ static bool junction_out_of_limits (const buddy3_junction_t * p_state,
 /* Hold the entry heading and watch for a distance-qualified white exit.
  * Returns true when the heading error is too large to continue. */
 static bool junction_steer (buddy3_junction_t * p_state, uint8_t side,
-                            float left, float right, int16_t base,
+                            float32_t left, float32_t right, int16_t base,
                             buddy3_junction_output_t * p_out)
 {
-    float centre     = 0.5f * (left + right);
-    float error      = right - left;
-    float correction = 0.0f;
-    bool  b_stop     = false;
+    float32_t centre     = 0.5f * (left + right);
+    float32_t error      = right - left;
+    float32_t correction = 0.0f;
+    bool      b_stop     = false;
 
     if ((error > B3_JUNCTION_MAX_HEADING_ERROR_MM) ||
         (error < -B3_JUNCTION_MAX_HEADING_ERROR_MM))
@@ -138,11 +137,11 @@ static bool junction_steer (buddy3_junction_t * p_state, uint8_t side,
     else
     {
         /* Slow whichever wheel has travelled farther. Never reverse/boost. */
-        correction = ((error < 0.0f) ? -error : error) *
-                     B3_JUNCTION_HEADING_PWM_PER_MM;
-        if (correction > ((float) base / MAX_CORRECTION_DIVISOR))
+        correction =
+            ((error < 0.0f) ? -error : error) * B3_JUNCTION_HEADING_PWM_PER_MM;
+        if (correction > ((float32_t) base / MAX_CORRECTION_DIVISOR))
         {
-            correction = (float) base / MAX_CORRECTION_DIVISOR;
+            correction = (float32_t) base / MAX_CORRECTION_DIVISOR;
         }
         /* 0 <= correction <= base / 3, so it fits in int16_t. */
         if (error > 0.0f)

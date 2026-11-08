@@ -11,6 +11,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "robot_types.h"
 
 #define BUDDY4_PERIOD_MS   (50u)
 #define BUDDY4_STALE_MS    (250u)
@@ -68,14 +69,14 @@ typedef struct
     /* Rover axes, after buddy4_imu.c rotates the mounted sensor: X along
      * the rover (negative X nose-up), Y across it, Z up.  Offsets are measured,
      * never auto-zeroed on boot because boot may occur on a slope. */
-    float   accel_bias_mg[3];
-    float   mag_bias[3];
-    float   mag_scale[3];
-    int16_t pitch_zero_x10;
-    int16_t roll_zero_x10;
-    int16_t heading_offset_x10;
-    bool    calibrated;
-    bool    distance_calibrated;
+    float32_t accel_bias_mg[3];
+    float32_t mag_bias[3];
+    float32_t mag_scale[3];
+    int16_t   pitch_zero_x10;
+    int16_t   roll_zero_x10;
+    int16_t   heading_offset_x10;
+    bool      calibrated;
+    bool      distance_calibrated;
 } buddy4_calibration_t;
 
 /* Private working state of the IMU owner task. */
@@ -83,42 +84,42 @@ typedef struct
 {
     buddy4_imu_state_t   state;
     buddy4_calibration_t calibration;
-    float                pitch_history[3];
-    float                roll_history[3];
-    float                filtered_pitch;
-    float                filtered_roll;
-    float                elevation;
-    float                peak_elevation;
-    float                last_distance; /* odometry at the last good pitch    */
-    float    sample_distance;           /* odometry at the previous sample    */
-    float    last_pitch;
-    float    flat_pitch; /* attitude on level ground, for humps */
-    float    flat_roll;
-    float    last_tilt;         /* total tilt at the previous reading */
-    float    peak_roll;         /* largest roll change in this hump   */
-    float    window_distance;   /* odometry at the speed window start */
-    float    window_pivot;      /* pivot travel at the window start   */
-    float    window_speed_mm_s; /* forward speed, last full window    */
-    float    pivot_speed_mm_s;  /* pivot speed, last full window      */
-    uint32_t last_ms;
-    uint32_t started_ms;
-    uint32_t window_ms;        /* speed window start                 */
-    uint32_t rate_ms;          /* turn-rate window start             */
-    uint32_t impact_ms;        /* last impact                        */
-    int16_t  rate_heading_x10; /* heading at the turn-rate window    */
-    int8_t   speed_trend;      /* -1 slowing, 0 steady, +1 speeding  */
-    uint8_t  history_count;
-    uint8_t  history_index;
-    uint8_t  enter_count;
-    uint8_t  exit_count;
-    uint8_t  rejected_in_row;
-    bool     started;
-    bool     filter_ready;
-    bool     flat_ready;
-    bool     event_height_valid;
-    bool     window_open;
-    bool     speed_known;
-    bool     rate_ready;
+    float32_t            pitch_history[3];
+    float32_t            roll_history[3];
+    float32_t            filtered_pitch;
+    float32_t            filtered_roll;
+    float32_t            elevation;
+    float32_t            peak_elevation;
+    float32_t            last_distance; /* odometry at the last good pitch    */
+    float32_t sample_distance;          /* odometry at the previous sample    */
+    float32_t last_pitch;
+    float32_t flat_pitch; /* attitude on level ground, for humps */
+    float32_t flat_roll;
+    float32_t last_tilt;         /* total tilt at the previous reading */
+    float32_t peak_roll;         /* largest roll change in this hump   */
+    float32_t window_distance;   /* odometry at the speed window start */
+    float32_t window_pivot;      /* pivot travel at the window start   */
+    float32_t window_speed_mm_s; /* forward speed, last full window    */
+    float32_t pivot_speed_mm_s;  /* pivot speed, last full window      */
+    uint32_t  last_ms;
+    uint32_t  started_ms;
+    uint32_t  window_ms;        /* speed window start                 */
+    uint32_t  rate_ms;          /* turn-rate window start             */
+    uint32_t  impact_ms;        /* last impact                        */
+    int16_t   rate_heading_x10; /* heading at the turn-rate window    */
+    int8_t    speed_trend;      /* -1 slowing, 0 steady, +1 speeding  */
+    uint8_t   history_count;
+    uint8_t   history_index;
+    uint8_t   enter_count;
+    uint8_t   exit_count;
+    uint8_t   rejected_in_row;
+    bool      started;
+    bool      filter_ready;
+    bool      flat_ready;
+    bool      event_height_valid;
+    bool      window_open;
+    bool      speed_known;
+    bool      rate_ready;
 } buddy4_processor_t;
 
 /**
@@ -145,8 +146,9 @@ void buddy4_processor_init (buddy4_processor_t *         p_proc,
  */
 void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
                      bool b_mag_ok, const int16_t mag[3], bool b_accel_ok,
-                     const int16_t accel[3], float distance_mm, float pivot_mm,
-                     bool b_odometry_fresh, bool b_forward_valid);
+                     const int16_t accel[3], float32_t distance_mm,
+                     float32_t pivot_mm, bool b_odometry_fresh,
+                     bool b_forward_valid);
 
 /**
  * @brief Pack the state into the explicit least-significant-bit-first wire
