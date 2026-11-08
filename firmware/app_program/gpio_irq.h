@@ -35,7 +35,7 @@ typedef void (*gpio_irq_cb_t)(uint32_t gpio, uint32_t events);
  *        before any gpio_irq_register().
  * @return 0 on success, a negative micro T-Kernel error code otherwise.
  */
-int32_t gpio_irq_init(void);
+int32_t gpio_irq_init (void);
 
 /**
  * @brief Enable interrupts on one pin and route them to a callback.
@@ -44,7 +44,10 @@ int32_t gpio_irq_init(void);
  * @param callback  Function to run from the interrupt.
  * @return 0 on success, -1 if the arguments are invalid.
  */
-int32_t gpio_irq_register(uint32_t gpio, uint32_t events,
-                          gpio_irq_cb_t callback);
+int32_t gpio_irq_register (uint32_t gpio, uint32_t events,
+                           gpio_irq_cb_t callback);
 
 #endif /* GPIO_IRQ_H */
+
+/*** end of file ***/
+

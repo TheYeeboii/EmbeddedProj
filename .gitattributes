@@ -1,0 +1,4 @@
+# BARR-C 3.6.a: C test sources use LF line endings (firmware/ has its own
+# .gitattributes that already does this).
+tests/*.c text eol=lf
+tests/*.h text eol=lf
