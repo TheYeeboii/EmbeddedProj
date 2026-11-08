@@ -63,12 +63,12 @@ static void flush (uint32_t now)
 }
 static void reset (void)
 {
-    memset(frames, 0, sizeof(frames));
-    active_slot     = -1;
-    scan_sequence   = 0;
-    packet_sequence = 0;
-    dropped_scans   = 0;
-    have_state      = false;
+    memset(g_frames, 0, sizeof(g_frames));
+    g_active_slot     = -1;
+    g_scan_sequence   = 0;
+    g_packet_sequence = 0;
+    g_dropped_scans   = 0;
+    g_b_have_state      = false;
     int32_t cfg[]   = {2000, 2500, 0, 400, 600, 25, 0, 1500, 650, 3870, 3870};
     robot_barcode_trace_configure(cfg);
 }
@@ -181,17 +181,17 @@ int main (int argc, char ** argv)
     failure.kind                   = B3BC_STALL;
     o.ts_ms                        = 1600;
     robot_barcode_trace_observe(&s, &o, true, 0.5f, &failure);
-    assert(frames[0].done && 1 == frames[0].count &&
-           100 == frames[0].edges[0].width_x100 &&
-           B3BC_STALL == frames[0].reason);
+    assert(g_frames[0].done && 1 == g_frames[0].count &&
+           100 == g_frames[0].edges[0].width_x100 &&
+           B3BC_STALL == g_frames[0].reason);
     robot_barcode_packet_t packet;
     assert(robot_barcode_packet_peek(&packet, 1600));
     writable = false;
     robot_barcode_publish(1600);
-    assert(!frames[0].sent_start);
+    assert(!g_frames[0].sent_start);
     writable = true;
     flush(1600);
-    assert(!frames[0].occupied);
+    assert(!g_frames[0].occupied);
     /* Stationary raw noise adds observations but cannot create widths. */
     reset();
     s.active        = true;
@@ -205,10 +205,10 @@ int main (int argc, char ** argv)
         o.normalized = i % 2 ? 1000 : 0;
         robot_barcode_trace_observe(&s, &o, i != 0, 0, NULL);
     }
-    assert(0 == frames[0].count && 512 == frames[0].sample_count &&
-           88 == frames[0].sample_drops);
+    assert(0 == g_frames[0].count && 512 == g_frames[0].sample_count &&
+           88 == g_frames[0].sample_drops);
     robot_barcode_trace_cancel(6000);
-    assert(frames[0].done && B3BC_INTERRUPTED == frames[0].reason);
+    assert(g_frames[0].done && B3BC_INTERRUPTED == g_frames[0].reason);
     /* Overwrite pressure and stale acknowledgement cannot consume a new scan.
      */
     assert(robot_barcode_packet_peek(&packet, 6000));
@@ -219,7 +219,7 @@ int main (int argc, char ** argv)
         robot_barcode_trace_cancel(o.ts_ms);
     }
     robot_barcode_packet_ack(&packet);
-    assert(dropped_scans >= 2);
+    assert(g_dropped_scans >= 2);
     /* An oversized step before a frame stays visible across the next zero
      * tick; a 1 Hz status snapshot must not hide the rejection. */
     reset();
@@ -241,7 +241,7 @@ int main (int argc, char ** argv)
     assert(robot_barcode_packet_peek(&packet, 1200) && 1 == packet.state);
     /* All packet kinds serialize safely at the largest numeric bounds. */
     reset();
-    robot_barcode_frame_t * f = &frames[0];
+    robot_barcode_frame_t * f = &g_frames[0];
     f->occupied               = true;
     f->id                     = UINT32_MAX;
     f->started_ms = f->updated_ms = UINT32_MAX;
@@ -279,24 +279,24 @@ int main (int argc, char ** argv)
     f->partial_x100 = f->trailing_x100 = f->narrow_x100 = f->ratio_x100 =
         f->max_gap_x100                                 = INT32_MAX;
     f->sample_drops                                     = UINT32_MAX;
-    dropped_scans                                       = UINT32_MAX;
+    g_dropped_scans                                       = UINT32_MAX;
     robot_barcode_publish(UINT32_MAX);
     for (unsigned i = 0; i < 11; ++i)
     {
-        configuration[i] = INT32_MAX;
+        g_configuration[i] = INT32_MAX;
     }
-    have_state      = false;
-    packet_sequence = UINT32_MAX - 1;
-    reader_state    = 6;
-    reader_blocked  = 63;
-    readiness[0]    = 4095;
-    readiness[1]    = 1000;
-    readiness[2]    = 1;
+    g_b_have_state      = false;
+    g_packet_sequence = UINT32_MAX - 1;
+    g_reader_state    = 6;
+    g_reader_blocked  = 63;
+    g_readiness[0]    = 4095;
+    g_readiness[1]    = 1000;
+    g_readiness[2]    = 1;
     for (unsigned i = 3; i < 7; ++i)
     {
-        readiness[i] = INT32_MAX;
+        g_readiness[i] = INT32_MAX;
     }
-    rejected_steps = UINT32_MAX;
+    g_rejected_steps = UINT32_MAX;
     robot_barcode_publish(UINT32_MAX);
     printf("PASS: barcode capture-to-MQTT replay, forward/reverse F, aborted "
            "evidence, raw bounds, pressure/retry, stale ack; max payload %u "
