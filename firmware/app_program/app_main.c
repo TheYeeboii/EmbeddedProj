@@ -40,6 +40,7 @@
 #include "robot_steering_trace.h"
 #include "robot_barcode_trace.h"
 #include "robot_ir_stream.h"
+#include "robot_ir_mqtt.h"
 #include "usb_console_compat.h"
 
 /* ------------------------------------------------------------------ *
