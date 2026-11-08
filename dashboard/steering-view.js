@@ -129,7 +129,7 @@
       this.find('notice').textContent = `${records.length}/600 records · ${this.history.evicted} evicted · ${this.frozen ? 'Frozen; rover is still running' : 'Live history'} · shaded breaks mean unavailable data`;
       const selectedRecord = records[selected];
       if (!selectedRecord) {
-        this.find('detail').textContent = 'Waiting for rover/steering. No new firmware? Existing action logs remain available.';
+        this.find('detail').textContent = 'Waiting for rover/steering. It is a diagnostic stream: build the firmware with DIAGNOSTICS=1 to enable it.';
         this.find('timeline').replaceChildren(); return;
       }
       const d = selectedRecord.data, ir = d.ir;

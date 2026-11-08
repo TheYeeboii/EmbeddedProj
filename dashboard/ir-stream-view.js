@@ -60,7 +60,7 @@
       this.find('notice').textContent=`${records.length}/6000 observations · ${this.history.evicted} evicted · firmware drops ${this.history.dropped} · ${this.frozen?'Frozen; sensing continues':'Continuous capture, independent of decoder'}`;
       const strip=this.find('strip'),signal=this.find('signal');strip.replaceChildren();signal.replaceChildren();
       const view=viewport(records,index,Number(this.find('window').value));
-      if(!view){this.find('axis').textContent='No continuous IR samples received. Empty is unknown, not white. Rebuild/reflash the current branch to enable rover/ir.';this.find('detail').textContent='Continuous capture does not need barcode configuration, a quiet zone or wheel movement.';return;}
+      if(!view){this.find('axis').textContent='No continuous IR samples received. Empty is unknown, not white. rover/ir is a diagnostic stream: build the firmware with DIAGNOSTICS=1 to enable it.';this.find('detail').textContent='Continuous capture does not need barcode configuration, a quiet zone or wheel movement.';return;}
       const x=t=>5+(t-view.start)/view.span*990;
       for(const segment of view.segments) {
         const rect=this.add(strip,'rect',{x:x(segment.from),y:5,width:Math.max(.5,(segment.to-segment.from)/view.span*990),height:65,fill:segment.value===null?'#94a3b8':segment.value?'#111':'#fff','data-color':segment.value===null?'unknown':segment.value?'black':'white'});

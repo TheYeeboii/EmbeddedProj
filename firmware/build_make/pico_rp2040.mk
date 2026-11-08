@@ -291,7 +291,19 @@ $(error BUDDY3_DEBUG must be 0 or 1)
 endif
 CFLAGS += -DBUDDY3_DEBUG=$(BUDDY3_DEBUG)
 
-PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-bulk$(WIFI_TCPBULK)-mqtt$(WIFI_MQTT)-buddy3debug$(BUDDY3_DEBUG)
+# Diagnostic streams for the dashboard's tuning views (rover/actions,
+# rover/steering, rover/barcode, rover/ir; JSON text).  0 (default) leaves
+# their eight modules out and links app_program/robot_diagnostics_off.c
+# instead, so the robot sends only the packed binary messages of Change
+# Requirement 1.  DIAGNOSTICS=1 builds them back in for tuning.  The source
+# list is chosen in mtkernel_3/app_program/subdir.mk.
+DIAGNOSTICS ?= 0
+ifneq ($(filter $(DIAGNOSTICS),0 1),$(DIAGNOSTICS))
+$(error DIAGNOSTICS must be 0 or 1)
+endif
+CFLAGS += -DROBOT_DIAGNOSTICS=$(DIAGNOSTICS)
+
+PROFILE_ID := smp$(SMP)-$(CONSOLE)-wifi$(WIFI)-join$(WIFI_JOIN)-netif$(WIFI_NETIF)-static$(WIFI_STATIC)-dhcp$(WIFI_DHCP)-dns$(WIFI_DNS)-udp$(WIFI_UDP)-tcp$(WIFI_TCP)-bulk$(WIFI_TCPBULK)-mqtt$(WIFI_MQTT)-buddy3debug$(BUDDY3_DEBUG)-diag$(DIAGNOSTICS)
 PROFILE_FILE := .build_profile
 
 ifneq ($(strip $(shell cat $(PROFILE_FILE) 2>/dev/null)),$(PROFILE_ID))
