@@ -78,27 +78,70 @@ int32_t buddy2_motion_init (void);
 void buddy2_update (uint32_t now_ms);
 
 struct robot_steering_input;
-/* Same motor behavior; associate the exact front-IR decision snapshot. */
+
+/**
+ * @brief Drive both motors open-loop and record the front-IR decision
+ *        snapshot that led to it.  Same motor behaviour as
+ *        buddy2_set_motor_pwm().
+ * @param left_pwm  Left command, -BUDDY2_PWM_MAX..BUDDY2_PWM_MAX.
+ * @param right_pwm Right command, -BUDDY2_PWM_MAX..BUDDY2_PWM_MAX.
+ * @param p_input   Decision evidence, or NULL.
+ */
 void buddy2_set_motor_pwm_observed (int16_t left_pwm, int16_t right_pwm,
-                                    const struct robot_steering_input * input);
-void buddy2_stop_observed (const struct robot_steering_input * input);
+                                    const struct robot_steering_input * p_input);
+
+/**
+ * @brief Stop both motors and record the decision evidence.
+ * @param p_input Decision evidence, or NULL.
+ */
+void buddy2_stop_observed (const struct robot_steering_input * p_input);
+
+/** @brief Drive both motors open-loop (trim and speed limit applied). */
 void buddy2_set_motor_pwm (int16_t left_pwm, int16_t right_pwm);
+
+/** @brief Stop both motors and cancel any distance/turn move. */
 void buddy2_stop (void);
+
+/** @brief Copy the latest odometry and encoder-fault state. */
 void buddy2_get_motion_state (buddy2_motion_state_t * p_state);
+
+/** Odometry including ticks since the last control update. */
 typedef struct
 {
-    float left_distance_mm, right_distance_mm;
-    bool  left_encoder_fault, right_encoder_fault;
+    float left_distance_mm;
+    float right_distance_mm;
+    bool  left_encoder_fault;
+    bool  right_encoder_fault;
 } buddy2_encoder_position_t;
-/* Task-only, non-mutating position snapshot including ticks since the last
- * 20 ms control update. Fault flags remain the last control-loop verdict. */
-void buddy2_get_encoder_position (buddy2_encoder_position_t * position);
+
+/**
+ * @brief Task-only, non-mutating position snapshot including ticks since the
+ *        last 20 ms control update.  Fault flags remain the last
+ *        control-loop verdict.
+ * @param p_position Receives the snapshot; NULL is ignored.
+ */
+void buddy2_get_encoder_position (buddy2_encoder_position_t * p_position);
+
+/** @brief Zero the odometry and clear latched encoder faults. */
 void buddy2_reset_encoders (void);
 
+/** @brief Start a closed-loop straight move forward.
+ *  @return False if not initialised, max_pwm <= 0 or distance is 0. */
 bool buddy2_move_forward (float distance_mm, int16_t max_pwm);
+
+/** @brief Start a closed-loop straight move backward.
+ *  @return False if not initialised, max_pwm <= 0 or distance is 0. */
 bool buddy2_move_backward (float distance_mm, int16_t max_pwm);
+
+/** @brief Start an in-place left (anticlockwise) turn.
+ *  @return False if not initialised, max_pwm <= 0 or angle is 0. */
 bool buddy2_turn_left (float angle_deg, int16_t max_pwm);
+
+/** @brief Start an in-place right (clockwise) turn.
+ *  @return False if not initialised, max_pwm <= 0 or angle is 0. */
 bool buddy2_turn_right (float angle_deg, int16_t max_pwm);
+
+/** @brief Tell whether a distance/turn move is still running. */
 bool buddy2_motion_active (void);
 
 /**
@@ -106,16 +149,23 @@ bool buddy2_motion_active (void);
  * @return false if either value is outside BUDDY2_TRIM_MIN..100.
  */
 bool buddy2_set_trim (uint8_t left_pct, uint8_t right_pct);
+
+/** @brief Read the open-loop trim; both pointers must be non-NULL. */
 void buddy2_get_trim (uint8_t * p_left_pct, uint8_t * p_right_pct);
 
 /**
  * @brief Global speed limit for all motion (percent of the commanded PWM).
  * @return false if the value is outside BUDDY2_SPEED_MIN..100.
  */
-bool    buddy2_set_speed_limit (uint8_t percent);
+bool buddy2_set_speed_limit (uint8_t percent);
+
+/** @brief Read the global speed limit in percent. */
 uint8_t buddy2_get_speed_limit (void);
 
+/** @brief Replace the geometry; invalid values are ignored as a whole. */
 void buddy2_set_calibration (const buddy2_calibration_t * p_calibration);
+
+/** @brief Copy the geometry in use. */
 void buddy2_get_calibration (buddy2_calibration_t * p_calibration);
 
 #endif /* BUDDY2_MOTION_H */

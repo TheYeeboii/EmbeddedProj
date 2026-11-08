@@ -121,23 +121,40 @@ typedef struct
     bool     rate_ready;
 } buddy4_processor_t;
 
+/**
+ * @brief Clear all filters, run statistics and hump state.
+ * @param p_proc Processor to initialise.
+ * @param p_cal  Calibration to use, or NULL to keep the uncalibrated
+ *               defaults (height is then marked invalid).
+ */
 void buddy4_processor_init (buddy4_processor_t *         p_proc,
                             const buddy4_calibration_t * p_cal);
 
 /**
  * @brief Process one sample set.
- * @param distance_mm     Cumulative average wheel path, (left + right) / 2.
- * @param pivot_mm        Cumulative turning path, (right - left) / 2.
- * @param odometry_fresh  Buddy 2 updated its distance recently.
- * @param forward_valid   Both wheels driving forward (needed for height).
+ * @param p_proc           Processor state, updated in place.
+ * @param now_ms           Time of the sample in milliseconds.
+ * @param b_mag_ok         The compass read succeeded.
+ * @param mag              Compass X/Y/Z in rover axes.
+ * @param b_accel_ok       The accelerometer read succeeded.
+ * @param accel            Acceleration X/Y/Z in mg, rover axes.
+ * @param distance_mm      Cumulative average wheel path, (left + right) / 2.
+ * @param pivot_mm         Cumulative turning path, (right - left) / 2.
+ * @param b_odometry_fresh Buddy 2 updated its distance recently.
+ * @param b_forward_valid  Both wheels driving forward (needed for height).
  */
-void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms, bool mag_ok,
-                     const int16_t mag[3], bool accel_ok,
+void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
+                     bool b_mag_ok, const int16_t mag[3], bool b_accel_ok,
                      const int16_t accel[3], float distance_mm, float pivot_mm,
-                     bool odometry_fresh, bool forward_valid);
+                     bool b_odometry_fresh, bool b_forward_valid);
 
-/* Explicit least-significant-bit-first wire format; false = a field was
- * saturated.  See docs/BUDDY4_IMU.md for the bit layout. */
+/**
+ * @brief Pack the state into the explicit least-significant-bit-first wire
+ *        format.  See docs/BUDDY4_IMU.md for the bit layout.
+ * @param p_state State to pack.
+ * @param out     Receives BUDDY4_PACKET_SIZE bytes.
+ * @return False when a field had to be saturated.
+ */
 bool buddy4_pack (const buddy4_imu_state_t * p_state,
                   uint8_t                    out[BUDDY4_PACKET_SIZE]);
 
