@@ -2,3 +2,5 @@
 # .gitattributes that already does this).
 tests/*.c text eol=lf
 tests/*.h text eol=lf
+docs/templates/*.c text eol=lf
+docs/templates/*.h text eol=lf
