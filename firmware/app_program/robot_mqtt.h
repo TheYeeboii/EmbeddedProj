@@ -17,6 +17,9 @@ struct netif;
  * lwIP is single-threaded here, so this is the ONLY place lwIP MQTT
  * functions may be called from.
  */
-void robot_mqtt_poll(struct netif *p_netif);
+void robot_mqtt_poll (struct netif * p_netif);
 
 #endif /* ROBOT_MQTT_H */
+
+/*** end of file ***/
+

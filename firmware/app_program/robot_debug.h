@@ -12,9 +12,15 @@
 
 /* Keep errors, safety events and Buddy 3 logs as direct tm_printf calls. */
 #if BUDDY3_DEBUG
-#define ROBOT_ROUTINE_LOG(...) do { } while (0)
+#define ROBOT_ROUTINE_LOG(...)                                                 \
+    do                                                                         \
+    {                                                                          \
+    } while (0)
 #else
 #define ROBOT_ROUTINE_LOG(...) tm_printf(__VA_ARGS__)
 #endif
 
 #endif /* ROBOT_DEBUG_H */
+
+/*** end of file ***/
+

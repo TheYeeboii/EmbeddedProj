@@ -24,48 +24,42 @@
 #include "mqtt_config.h"
 #include "robot_mqtt.h"
 
-extern uint64_t time_us_64(void);
+extern uint64_t time_us_64 (void);
 
-#define ROBOT_MQTT_RETRY_US          (5000000u)  /* wait 5 s between attempts */
+#define ROBOT_MQTT_RETRY_US (5000000u) /* wait 5 s between attempts */
 #define ROBOT_MQTT_MAX_PUBLISH_PER_POLL (2u)
 
-static const char *const g_topic_names[COMMS_TOPIC_COUNT] =
-{
-    "rover/telemetry",
-    "rover/debug",
-    "rover/heartbeat",
-    "rover/status",
-    "rover/actions",
-    "rover/steering",
-    "rover/barcode",
-    "rover/ir"
-};
+static const char * const g_topic_names[COMMS_TOPIC_COUNT] = {
+    "rover/telemetry", "rover/debug",    "rover/heartbeat", "rover/status",
+    "rover/actions",   "rover/steering", "rover/barcode",   "rover/ir"};
 
-static mqtt_client_t *g_client            = NULL;
-static bool           g_connecting        = false;
-static bool           g_subscribe_pending = false;
-static bool           g_online_pending    = false;
-static uint64_t       g_next_attempt_us   = 0u;
-static char           g_incoming[COMMS_COMMAND_MAX];
-static uint32_t       g_incoming_length   = 0u;
-static char           g_outgoing[COMMS_PAYLOAD_MAX];
+static mqtt_client_t * g_client            = NULL;
+static bool            g_connecting        = false;
+static bool            g_subscribe_pending = false;
+static bool            g_online_pending    = false;
+static uint64_t        g_next_attempt_us   = 0u;
+static char            g_incoming[COMMS_COMMAND_MAX];
+static uint32_t        g_incoming_length = 0u;
+static char            g_outgoing[COMMS_PAYLOAD_MAX];
 
 /* ---------------- lwIP callbacks (radio task context) ---------------- */
 
-static void robot_mqtt_incoming_publish(void *p_arg, const char *p_topic, u32_t total_length)
+static void robot_mqtt_incoming_publish (void * p_arg, const char * p_topic,
+                                         u32_t total_length)
 {
-    (void)p_arg;
-    (void)p_topic;          /* we only subscribe to rover/commands */
-    (void)total_length;
+    (void) p_arg;
+    (void) p_topic; /* we only subscribe to rover/commands */
+    (void) total_length;
     g_incoming_length = 0u;
 }
 
-static void robot_mqtt_incoming_data(void *p_arg, const u8_t *p_data, u16_t length, u8_t flags)
+static void robot_mqtt_incoming_data (void * p_arg, const u8_t * p_data,
+                                      u16_t length, u8_t flags)
 {
     uint32_t space;
     uint32_t copy;
 
-    (void)p_arg;
+    (void) p_arg;
     if (NULL != p_data)
     {
         space = (COMMS_COMMAND_MAX - 1u) - g_incoming_length;
@@ -80,11 +74,11 @@ static void robot_mqtt_incoming_data(void *p_arg, const u8_t *p_data, u16_t leng
     }
 }
 
-static void robot_mqtt_connected(mqtt_client_t *p_client, void *p_arg,
-                                 mqtt_connection_status_t status)
+static void robot_mqtt_connected (mqtt_client_t * p_client, void * p_arg,
+                                  mqtt_connection_status_t status)
 {
-    (void)p_client;
-    (void)p_arg;
+    (void) p_client;
+    (void) p_arg;
     g_connecting = false;
     if (MQTT_CONNECT_ACCEPTED == status)
     {
@@ -99,19 +93,18 @@ static void robot_mqtt_connected(mqtt_client_t *p_client, void *p_arg,
 
 /* ---------------- state machine ---------------- */
 
-static void robot_mqtt_start_connect(void)
+static void robot_mqtt_start_connect (void)
 {
-    static const struct mqtt_connect_client_info_t client_info =
-    {
+    static const struct mqtt_connect_client_info_t client_info = {
         ROBOT_MQTT_CLIENT_ID,
-        NULL,                               /* user     */
-        NULL,                               /* password */
-        60u,                                /* keep-alive, seconds */
-        "rover/status",                     /* last will topic */
+        NULL,           /* user     */
+        NULL,           /* password */
+        60u,            /* keep-alive, seconds */
+        "rover/status", /* last will topic */
         "{\"robot_id\":\"" ROBOT_MQTT_CLIENT_ID "\",\"state\":\"offline\"}",
-        0u,                                 /* will length: use strlen */
-        0u,                                 /* will QoS */
-        1u                                  /* will retained */
+        0u, /* will length: use strlen */
+        0u, /* will QoS */
+        1u  /* will retained */
     };
     ip_addr_t broker;
 
@@ -129,12 +122,13 @@ static void robot_mqtt_start_connect(void)
     }
 }
 
-void robot_mqtt_poll(struct netif *p_netif)
+void robot_mqtt_poll (struct netif * p_netif)
 {
     uint32_t topic;
     uint32_t sent;
 
-    if ((NULL == p_netif) || !netif_is_up(p_netif) || !netif_is_link_up(p_netif))
+    if ((NULL == p_netif) || !netif_is_up(p_netif) ||
+        !netif_is_link_up(p_netif))
     {
         comms_set_link_state(COMMS_LINK_OFFLINE);
         return;
@@ -165,7 +159,8 @@ void robot_mqtt_poll(struct netif *p_netif)
 
     if (g_subscribe_pending)
     {
-        if (ERR_OK == mqtt_subscribe(g_client, "rover/commands", 0u, NULL, NULL))
+        if (ERR_OK ==
+            mqtt_subscribe(g_client, "rover/commands", 0u, NULL, NULL))
         {
             g_subscribe_pending = false;
         }
@@ -176,7 +171,8 @@ void robot_mqtt_poll(struct netif *p_netif)
             "{\"robot_id\":\"" ROBOT_MQTT_CLIENT_ID "\",\"state\":\"online\"}";
 
         if (ERR_OK == mqtt_publish(g_client, g_topic_names[COMMS_TOPIC_STATUS],
-                                   online, (u16_t)(sizeof(online) - 1u), 0u, 1u, NULL, NULL))
+                                   online, (u16_t) (sizeof(online) - 1u), 0u,
+                                   1u, NULL, NULL))
         {
             g_online_pending = false;
         }
@@ -189,9 +185,12 @@ void robot_mqtt_poll(struct netif *p_netif)
         {
             break;
         }
-        (void)mqtt_publish(g_client, g_topic_names[topic], g_outgoing,
-                           (u16_t)strlen(g_outgoing), 0u, 0u, NULL, NULL);
+        (void) mqtt_publish(g_client, g_topic_names[topic], g_outgoing,
+                            (u16_t) strlen(g_outgoing), 0u, 0u, NULL, NULL);
     }
 }
 
 #endif /* TM_WIFI_MQTT */
+
+/*** end of file ***/
+

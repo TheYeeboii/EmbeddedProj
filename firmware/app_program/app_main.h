@@ -9,6 +9,9 @@
 #include <stdint.h>
 
 /** Milliseconds since boot (kernel operating time). */
-uint32_t app_now_ms(void);
+uint32_t app_now_ms (void);
 
 #endif /* APP_MAIN_H */
+
+/*** end of file ***/
+

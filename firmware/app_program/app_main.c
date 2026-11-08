@@ -46,24 +46,24 @@
  *  Configuration
  * ------------------------------------------------------------------ */
 
-#define APP_STACK_SIZE              (4096)
+#define APP_STACK_SIZE (4096)
 
-#define APP_PRI_MOTION              (5)
-#define APP_PRI_LINE                (6)
-#define APP_PRI_CONTROLLER          (7)
-#define APP_PRI_IMU                 (9)
-#define APP_PRI_SENSORS             (10)
-#define APP_PRI_TELEMETRY           (15)
+#define APP_PRI_MOTION     (5)
+#define APP_PRI_LINE       (6)
+#define APP_PRI_CONTROLLER (7)
+#define APP_PRI_IMU        (9)
+#define APP_PRI_SENSORS    (10)
+#define APP_PRI_TELEMETRY  (15)
 
-#define APP_CONTROLLER_PERIOD_MS    (20)
+#define APP_CONTROLLER_PERIOD_MS (20)
 
-#define APP_TELEMETRY_TICK_MS       (1000)
-#define APP_TELEMETRY_EVERY_N       (1u)     /* rover/telemetry every 1 s */
-#define APP_HEARTBEAT_EVERY_N       (10u)    /* rover/heartbeat every 10 s */
-#define APP_USB_WAIT_MS             (3000)
-#define APP_STATUS_EVERY_N          (2u)     /* [status] line every 2 s   */
+#define APP_TELEMETRY_TICK_MS (1000)
+#define APP_TELEMETRY_EVERY_N (1u)  /* rover/telemetry every 1 s */
+#define APP_HEARTBEAT_EVERY_N (10u) /* rover/heartbeat every 10 s */
+#define APP_USB_WAIT_MS       (3000)
+#define APP_STATUS_EVERY_N    (2u) /* [status] line every 2 s   */
 /* 1 = also print the raw JSON (what the dashboard gets) on the console. */
-#define APP_CONSOLE_JSON            (0)
+#define APP_CONSOLE_JSON (0)
 
 /* ------------------------------------------------------------------ *
  *  Helpers
@@ -73,20 +73,21 @@ static ID g_motion_task_id = 0;
 static ID g_line_task_id   = 0;
 
 /** @brief Return the micro T-Kernel uptime in milliseconds. */
-uint32_t app_now_ms(void)
+uint32_t app_now_ms (void)
 {
     SYSTIM now;
 
-    (void)tk_get_otm(&now);
-    return (uint32_t)now.lo;
+    (void) tk_get_otm(&now);
+    return (uint32_t) now.lo;
 }
 
-/** @brief Print an initialisation error and report whether a kernel call succeeded. */
-static bool app_check(const char *p_what, ER result)
+/** @brief Print an initialisation error and report whether a kernel call
+ * succeeded. */
+static bool app_check (const char * p_what, ER result)
 {
     if (result < E_OK)
     {
-        tm_printf((UB *)"[init] %s FAILED, error %d\n", p_what, (INT)result);
+        tm_printf((UB *) "[init] %s FAILED, error %d\n", p_what, (INT) result);
         return false;
     }
     return true;
@@ -98,12 +99,14 @@ static bool app_check(const char *p_what, ER result)
  * The loop keeps the reason visible on the USB console instead of returning
  * from usermain(), which would otherwise stop the kernel silently.
  */
-static void app_fail_forever(const char *p_what)
+static void app_fail_forever (const char * p_what)
 {
-    while (1)
+    for (;;)
     {
-        tm_printf((UB *)"[init] FATAL: %s failed - see error above. Robot stopped.\n", p_what);
-        (void)tk_dly_tsk(2000);
+        tm_printf((UB *) "[init] FATAL: %s failed - see error above. Robot "
+                         "stopped.\n",
+                  p_what);
+        (void) tk_dly_tsk(2000);
     }
 }
 
@@ -111,11 +114,12 @@ static void app_fail_forever(const char *p_what)
  *  Periodic tasks woken by cyclic handlers (exact period)
  * ------------------------------------------------------------------ */
 
-/** @brief Wake the task whose ID is stored in a cyclic handler's exinf field. */
-static void app_wake_handler(void *p_exinf)
+/** @brief Wake the task whose ID is stored in a cyclic handler's exinf field.
+ */
+static void app_wake_handler (void * p_exinf)
 {
     /* exinf holds a pointer to the task id to wake. */
-    (void)tk_wup_tsk(*(ID *)p_exinf);
+    (void) tk_wup_tsk(*(ID *) p_exinf);
 }
 
 /**
@@ -124,13 +128,13 @@ static void app_wake_handler(void *p_exinf)
  * A cyclic handler wakes this task at BUDDY2_CONTROL_PERIOD_MS; the task
  * then updates motor control, encoder distance, and active motion commands.
  */
-static void motion_task(INT stacd, void *p_exinf)
+static void motion_task (INT stacd, void * p_exinf)
 {
-    (void)stacd;
-    (void)p_exinf;
-    while (1)
+    (void) stacd;
+    (void) p_exinf;
+    for (;;)
     {
-        (void)tk_slp_tsk(TMO_FEVR);
+        (void) tk_slp_tsk(TMO_FEVR);
         buddy2_update(app_now_ms());
     }
 }
@@ -141,13 +145,13 @@ static void motion_task(INT stacd, void *p_exinf)
  * A cyclic handler wakes this task at BUDDY3_SAMPLE_PERIOD_MS so line,
  * junction, and barcode readings remain current for the controller.
  */
-static void line_task(INT stacd, void *p_exinf)
+static void line_task (INT stacd, void * p_exinf)
 {
-    (void)stacd;
-    (void)p_exinf;
-    while (1)
+    (void) stacd;
+    (void) p_exinf;
+    for (;;)
     {
-        (void)tk_slp_tsk(TMO_FEVR);
+        (void) tk_slp_tsk(TMO_FEVR);
         buddy3_update(app_now_ms());
     }
 }
@@ -162,18 +166,19 @@ static void line_task(INT stacd, void *p_exinf)
  * The task waits for an MQTT command for up to APP_CONTROLLER_PERIOD_MS, then
  * calls robot_controller_step() even when no command was received.
  */
-static void controller_task(INT stacd, void *p_exinf)
+static void controller_task (INT stacd, void * p_exinf)
 {
     char command[COMMS_COMMAND_MAX];
 
-    (void)stacd;
-    (void)p_exinf;
-    while (1)
+    (void) stacd;
+    (void) p_exinf;
+    for (;;)
     {
         /* Sleeps until a command arrives or 20 ms pass, whichever first. */
-        if (comms_wait_command(command, sizeof(command), APP_CONTROLLER_PERIOD_MS))
+        if (comms_wait_command(command, sizeof(command),
+                               APP_CONTROLLER_PERIOD_MS))
         {
-            tm_printf((UB *)"[mqtt] command: %s\n", command);
+            tm_printf((UB *) "[mqtt] command: %s\n", command);
             robot_controller_handle_command(command, app_now_ms());
         }
         robot_controller_step(app_now_ms());
@@ -191,7 +196,7 @@ static void controller_task(INT stacd, void *p_exinf)
  * ------------------------------------------------------------------ */
 
 /** @brief Convert a communications-link state to console text. */
-static const char *app_link_name(uint32_t state)
+static const char * app_link_name (uint32_t state)
 {
     if (COMMS_LINK_MQTT_UP == state)
     {
@@ -204,8 +209,9 @@ static const char *app_link_name(uint32_t state)
     return "offline";
 }
 
-/** @brief Convert a line-sensor Boolean reading to the status-line colour label. */
-static const char *app_color(bool black)
+/** @brief Convert a line-sensor Boolean reading to the status-line colour
+ * label. */
+static const char * app_color (bool black)
 {
     return black ? "BLACK" : "white";
 }
@@ -216,14 +222,14 @@ static const char *app_color(bool black)
  * Example: [status] idle | front L=white R=white | side=white |
  * sonar 23 cm | heading 163.4 | pitch 1.2
  */
-static void app_print_status(void)
+static void app_print_status (void)
 {
     buddy4_imu_state_t imu;
     buddy5_reading_t   sonar;
     bool               left;
     bool               right;
     bool               side;
-    const char        *p_sign = "";
+    const char *       p_sign = "";
     int32_t            pitch;
 
     buddy3_get_colors(&left, &right, &side);
@@ -237,25 +243,27 @@ static void app_print_status(void)
         pitch  = -pitch;
     }
 
-    tm_printf((UB *)"[status] %-6s | front L=%s R=%s | side=%s | ",
-              robot_controller_mode_name(), app_color(left), app_color(right), app_color(side));
+    tm_printf((UB *) "[status] %-6s | front L=%s R=%s | side=%s | ",
+              robot_controller_mode_name(), app_color(left), app_color(right),
+              app_color(side));
     if (BUDDY5_NO_ECHO == sonar.distance_cm)
     {
-        tm_printf((UB *)"sonar --    | ");
+        tm_printf((UB *) "sonar --    | ");
     }
     else
     {
-        tm_printf((UB *)"sonar %u cm | ", (UINT)sonar.distance_cm);
+        tm_printf((UB *) "sonar %u cm | ", (UINT) sonar.distance_cm);
     }
     if (imu.mag_ok)
     {
-        tm_printf((UB *)"heading %u.%u | pitch %s%u.%u\n",
-                  (UINT)(imu.heading_deg_x10 / 10), (UINT)(imu.heading_deg_x10 % 10),
-                  p_sign, (UINT)(pitch / 10), (UINT)(pitch % 10));
+        tm_printf((UB *) "heading %u.%u | pitch %s%u.%u\n",
+                  (UINT) (imu.heading_deg_x10 / 10),
+                  (UINT) (imu.heading_deg_x10 % 10), p_sign,
+                  (UINT) (pitch / 10), (UINT) (pitch % 10));
     }
     else
     {
-        tm_printf((UB *)"IMU not answering\n");
+        tm_printf((UB *) "IMU not answering\n");
     }
 
     /* Wiring check: which pins this build reads, and the live tick counts. */
@@ -263,16 +271,18 @@ static void app_print_status(void)
         buddy2_motion_state_t motion;
 
         buddy2_get_motion_state(&motion);
-        tm_printf((UB *)"[encoders] left GP%u = %d ticks %s | right GP%u = %d ticks %s | build %s %s\n",
-                  (UINT)ENCODER_LEFT_A, (INT)motion.left_ticks,
+        tm_printf((UB *) "[encoders] left GP%u = %d ticks %s | right GP%u = %d "
+                         "ticks %s | build %s %s\n",
+                  (UINT) ENCODER_LEFT_A, (INT) motion.left_ticks,
                   motion.left_encoder_fault ? "NO TICKS!" : "ok",
-                  (UINT)ENCODER_RIGHT_A, (INT)motion.right_ticks,
-                  motion.right_encoder_fault ? "NO TICKS!" : "ok",
-                  __DATE__, __TIME__);
+                  (UINT) ENCODER_RIGHT_A, (INT) motion.right_ticks,
+                  motion.right_encoder_fault ? "NO TICKS!" : "ok", __DATE__,
+                  __TIME__);
         if (motion.left_encoder_fault || motion.right_encoder_fault)
         {
-            tm_printf((UB *)"[encoders] FAULT: a wheel is powered but its encoder gives no ticks "
-                            "(check its wiring, or the wheel is blocked)\n");
+            tm_printf((UB *) "[encoders] FAULT: a wheel is powered but its "
+                             "encoder gives no ticks "
+                             "(check its wiring, or the wheel is blocked)\n");
         }
     }
 }
@@ -283,57 +293,63 @@ static void app_print_status(void)
  * Debug JSON, full telemetry, and the MQTT heartbeat have independent rates
  * controlled by the APP_TELEMETRY_* configuration constants.
  */
-static void telemetry_task(INT stacd, void *p_exinf)
+static void telemetry_task (INT stacd, void * p_exinf)
 {
     static char buffer[ROBOT_TELEMETRY_BUFFER_SIZE];
     uint32_t    tick      = 0u;
     uint32_t    last_link = 0xFFFFFFFFu;
     INT         i;
 
-    (void)stacd;
-    (void)p_exinf;
+    (void) stacd;
+    (void) p_exinf;
 
     /* Give the USB console a moment so the banner is not lost. */
     for (i = 0; (i < (APP_USB_WAIT_MS / 100)) && (tm_usb_state() < 2u); i++)
     {
-        (void)tk_dly_tsk(100);
+        (void) tk_dly_tsk(100);
     }
-    tm_printf((UB *)"\n==========================================================\n");
-    tm_printf((UB *)" Robot car (micro T-Kernel), built %s %s\n", __DATE__, __TIME__);
-    tm_printf((UB *)" Encoders: left GP%u, right GP%u\n",
-              (UINT)ENCODER_LEFT_A, (UINT)ENCODER_RIGHT_A);
-    tm_printf((UB *)" Buttons:  GP21 = line following on/off\n");
+    tm_printf((
+        UB *) "\n==========================================================\n");
+    tm_printf((UB *) " Robot car (micro T-Kernel), built %s %s\n", __DATE__,
+              __TIME__);
+    tm_printf((UB *) " Encoders: left GP%u, right GP%u\n",
+              (UINT) ENCODER_LEFT_A, (UINT) ENCODER_RIGHT_A);
+    tm_printf((UB *) " Buttons:  GP21 = line following on/off\n");
 #if defined(TM_WIFI_MQTT) && (TM_WIFI_MQTT == 1)
-    tm_printf((UB *)" Wi-Fi:    on (dashboard)\n");
+    tm_printf((UB *) " Wi-Fi:    on (dashboard)\n");
 #else
-    tm_printf((UB *)" Wi-Fi:    not in this build\n");
+    tm_printf((UB *) " Wi-Fi:    not in this build\n");
 #endif
     if (BUDDY3_DEBUG)
     {
-        tm_printf((UB *)" Buddy 3 debug: routine console output muted; errors and safety events retained\n");
+        tm_printf((UB *) " Buddy 3 debug: routine console output muted; errors "
+                         "and safety events retained\n");
     }
     else
     {
-        tm_printf((UB *)" [status] every %u s: front L/R = line sensors, side = barcode\n",
-                  (UINT)((APP_TELEMETRY_TICK_MS * APP_STATUS_EVERY_N) / 1000));
-        tm_printf((UB *)"          sensor (BLACK = line, or nothing under it)\n");
+        tm_printf((UB *) " [status] every %u s: front L/R = line sensors, side "
+                         "= barcode\n",
+                  (UINT) ((APP_TELEMETRY_TICK_MS * APP_STATUS_EVERY_N) / 1000));
+        tm_printf(
+            (UB *) "          sensor (BLACK = line, or nothing under it)\n");
     }
-    tm_printf((UB *)"==========================================================\n");
+    tm_printf(
+        (UB *) "==========================================================\n");
 
-    while (1)
+    for (;;)
     {
         uint32_t link = comms_get_link_state();
 
 #if defined(TM_WIFI_MQTT) && (TM_WIFI_MQTT == 1)
         if (link != last_link)
         {
-            tm_printf((UB *)"[wifi] %s\n", app_link_name(link));
+            tm_printf((UB *) "[wifi] %s\n", app_link_name(link));
             last_link = link;
         }
 #else
-        (void)link;
-        (void)last_link;
-        (void)app_link_name;
+        (void) link;
+        (void) last_link;
+        (void) app_link_name;
 #endif
 
         /* Human-readable status for the USB console. */
@@ -348,26 +364,26 @@ static void telemetry_task(INT stacd, void *p_exinf)
 
         /* JSON for the dashboard (MQTT).  Printed only if APP_CONSOLE_JSON. */
         robot_telemetry_build_debug(buffer);
-        (void)comms_publish(COMMS_TOPIC_DEBUG, buffer);
+        (void) comms_publish(COMMS_TOPIC_DEBUG, buffer);
 #if APP_CONSOLE_JSON && !BUDDY3_DEBUG
-        tm_printf((UB *)"[debug] %s\n", buffer);
+        tm_printf((UB *) "[debug] %s\n", buffer);
 #endif
         if (0u == (tick % APP_TELEMETRY_EVERY_N))
         {
             robot_telemetry_build(buffer, app_now_ms());
-            (void)comms_publish(COMMS_TOPIC_TELEMETRY, buffer);
+            (void) comms_publish(COMMS_TOPIC_TELEMETRY, buffer);
 #if APP_CONSOLE_JSON && !BUDDY3_DEBUG
-            tm_printf((UB *)"[telemetry] %s\n", buffer);
+            tm_printf((UB *) "[telemetry] %s\n", buffer);
 #endif
         }
         if (0u == (tick % APP_HEARTBEAT_EVERY_N))
         {
             robot_telemetry_build_heartbeat(buffer);
-            (void)comms_publish(COMMS_TOPIC_HEARTBEAT, buffer);
+            (void) comms_publish(COMMS_TOPIC_HEARTBEAT, buffer);
         }
 
         tick++;
-        (void)tk_dly_tsk(APP_TELEMETRY_TICK_MS);
+        (void) tk_dly_tsk(APP_TELEMETRY_TICK_MS);
     }
 }
 
@@ -375,18 +391,20 @@ static void telemetry_task(INT stacd, void *p_exinf)
  *  Kernel object definitions
  * ------------------------------------------------------------------ */
 
-#define APP_TASK(fn, pri)  { .tskatr = TA_HLNG | TA_RNG3, .task = (fn), \
-                             .itskpri = (pri), .stksz = APP_STACK_SIZE }
+#define APP_TASK(fn, pri)                                                      \
+    {.tskatr  = TA_HLNG | TA_RNG3,                                             \
+     .task    = (fn),                                                          \
+     .itskpri = (pri),                                                         \
+     .stksz   = APP_STACK_SIZE}
 
-static T_CTSK g_ctsk_motion      = APP_TASK(motion_task,              APP_PRI_MOTION);
-static T_CTSK g_ctsk_line        = APP_TASK(line_task,                APP_PRI_LINE);
-static T_CTSK g_ctsk_controller  = APP_TASK(controller_task,          APP_PRI_CONTROLLER);
-static T_CTSK g_ctsk_imu         = APP_TASK(buddy4_task, APP_PRI_IMU);
-static T_CTSK g_ctsk_sensors     = APP_TASK(buddy5_avoidance_task,    APP_PRI_SENSORS);
-static T_CTSK g_ctsk_telemetry   = APP_TASK(telemetry_task,           APP_PRI_TELEMETRY);
+static T_CTSK g_ctsk_motion     = APP_TASK(motion_task, APP_PRI_MOTION);
+static T_CTSK g_ctsk_line       = APP_TASK(line_task, APP_PRI_LINE);
+static T_CTSK g_ctsk_controller = APP_TASK(controller_task, APP_PRI_CONTROLLER);
+static T_CTSK g_ctsk_imu        = APP_TASK(buddy4_task, APP_PRI_IMU);
+static T_CTSK g_ctsk_sensors = APP_TASK(buddy5_avoidance_task, APP_PRI_SENSORS);
+static T_CTSK g_ctsk_telemetry = APP_TASK(telemetry_task, APP_PRI_TELEMETRY);
 
-static T_CCYC g_ccyc_motion =
-{
+static T_CCYC g_ccyc_motion = {
     .exinf  = &g_motion_task_id,
     .cycatr = TA_HLNG | TA_STA,
     .cychdr = app_wake_handler,
@@ -394,8 +412,7 @@ static T_CCYC g_ccyc_motion =
     .cycphs = BUDDY2_CONTROL_PERIOD_MS,
 };
 
-static T_CCYC g_ccyc_line =
-{
+static T_CCYC g_ccyc_line = {
     .exinf  = &g_line_task_id,
     .cycatr = TA_HLNG | TA_STA,
     .cychdr = app_wake_handler,
@@ -409,7 +426,7 @@ static T_CCYC g_ccyc_line =
  * A task-creation failure is fatal because the remaining application cannot
  * operate predictably without the requested subsystem task.
  */
-static ID app_start_task(const char *p_name, T_CTSK *p_ctsk)
+static ID app_start_task (const char * p_name, T_CTSK * p_ctsk)
 {
     ID id = tk_cre_tsk(p_ctsk);
 
@@ -417,7 +434,7 @@ static ID app_start_task(const char *p_name, T_CTSK *p_ctsk)
     {
         app_fail_forever(p_name);
     }
-    (void)tk_sta_tsk(id, 0);
+    (void) tk_sta_tsk(id, 0);
     return id;
 }
 
@@ -426,12 +443,13 @@ static ID app_start_task(const char *p_name, T_CTSK *p_ctsk)
  * ------------------------------------------------------------------ */
 
 /**
- * @brief Initialise hardware and all Buddies, create application tasks, then sleep.
+ * @brief Initialise hardware and all Buddies, create application tasks, then
+ * sleep.
  *
  * This is the micro T-Kernel application entry point.  It must not return
  * while the rover is running.
  */
-EXPORT INT usermain(void)
+EXPORT INT usermain (void)
 {
     /* 1. Hardware and subsystems. */
     hal_init();
@@ -447,24 +465,24 @@ EXPORT INT usermain(void)
      * wire on it is safe.  (Grove 3 is I2C and Grove 5-7 are ADC; their
      * pins are set up by their own drivers.) */
     {
-        static const uint8_t grove_pins[] = { 0u, 1u, 2u, 3u, 16u, 17u };
+        static const uint8_t grove_pins[] = {0u, 1u, 2u, 3u, 16u, 17u};
         uint32_t             i;
 
         for (i = 0u; i < (sizeof(grove_pins) / sizeof(grove_pins[0])); i++)
         {
-            hal_gpio_input_pulldown((uint32_t)grove_pins[i]);
+            hal_gpio_input_pulldown((uint32_t) grove_pins[i]);
         }
     }
 
-    if (!app_check("gpio_irq_init", (ER)gpio_irq_init()))
+    if (!app_check("gpio_irq_init", (ER) gpio_irq_init()))
     {
         app_fail_forever("gpio_irq_init");
     }
-    if (!app_check("comms_init", (ER)comms_init()))
+    if (!app_check("comms_init", (ER) comms_init()))
     {
         app_fail_forever("comms_init");
     }
-    if (!app_check("buddy2_motion_init", (ER)buddy2_motion_init()))
+    if (!app_check("buddy2_motion_init", (ER) buddy2_motion_init()))
     {
         app_fail_forever("buddy2_motion_init");
     }
@@ -475,7 +493,8 @@ EXPORT INT usermain(void)
     if (!buddy4_init())
     {
         /* Not fatal: telemetry will show "compass_error". */
-        tm_printf((UB *)"[init] IMU (LSM303) not answering on I2C - check Grove 3.\n");
+        tm_printf((UB *) "[init] IMU (LSM303) not answering on I2C - check "
+                         "Grove 3.\n");
     }
 
     /* 2. Tasks.  The cyclic handlers are created after their tasks exist. */
@@ -489,12 +508,15 @@ EXPORT INT usermain(void)
     {
         app_fail_forever("line cyclic");
     }
-    (void)app_start_task("controller task", &g_ctsk_controller);
-    (void)app_start_task("IMU task", &g_ctsk_imu);
-    (void)app_start_task("sensor task", &g_ctsk_sensors);
-    (void)app_start_task("telemetry task", &g_ctsk_telemetry);
+    (void) app_start_task("controller task", &g_ctsk_controller);
+    (void) app_start_task("IMU task", &g_ctsk_imu);
+    (void) app_start_task("sensor task", &g_ctsk_sensors);
+    (void) app_start_task("telemetry task", &g_ctsk_telemetry);
 
     /* usermain must never return while the system is running. */
-    (void)tk_slp_tsk(TMO_FEVR);
+    (void) tk_slp_tsk(TMO_FEVR);
     return 0;
 }
+
+/*** end of file ***/
+

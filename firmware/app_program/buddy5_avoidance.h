@@ -14,6 +14,9 @@
 #include <tk/tkernel.h>
 
 /** Run the 100 ms Buddy 5 ultrasonic and avoidance task. */
-void buddy5_avoidance_task(INT stacd, void *p_exinf);
+void buddy5_avoidance_task (INT stacd, void * p_exinf);
 
 #endif /* BUDDY5_AVOIDANCE_H */
+
+/*** end of file ***/
+

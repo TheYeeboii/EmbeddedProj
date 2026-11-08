@@ -21,39 +21,46 @@
 #include <stdint.h>
 
 /* MQTT topics (same names the dashboard uses). */
-#define COMMS_TOPIC_TELEMETRY   (0u)   /* rover/telemetry */
-#define COMMS_TOPIC_DEBUG       (1u)   /* rover/debug     */
-#define COMMS_TOPIC_HEARTBEAT   (2u)   /* rover/heartbeat */
-#define COMMS_TOPIC_STATUS      (3u)   /* rover/status (retained) */
-#define COMMS_TOPIC_ACTIONS     (4u)   /* rover/actions (non-retained) */
-#define COMMS_TOPIC_STEERING    (5u)   /* rover/steering (non-retained) */
-#define COMMS_TOPIC_BARCODE     (6u)   /* rover/barcode (non-retained) */
-#define COMMS_TOPIC_IR_STREAM   (7u)   /* rover/ir (non-retained) */
-#define COMMS_TOPIC_COUNT       (8u)
+#define COMMS_TOPIC_TELEMETRY (0u) /* rover/telemetry */
+#define COMMS_TOPIC_DEBUG     (1u) /* rover/debug     */
+#define COMMS_TOPIC_HEARTBEAT (2u) /* rover/heartbeat */
+#define COMMS_TOPIC_STATUS    (3u) /* rover/status (retained) */
+#define COMMS_TOPIC_ACTIONS   (4u) /* rover/actions (non-retained) */
+#define COMMS_TOPIC_STEERING  (5u) /* rover/steering (non-retained) */
+#define COMMS_TOPIC_BARCODE   (6u) /* rover/barcode (non-retained) */
+#define COMMS_TOPIC_IR_STREAM (7u) /* rover/ir (non-retained) */
+#define COMMS_TOPIC_COUNT     (8u)
 
-#define COMMS_PAYLOAD_MAX       (512u) /* longest outgoing JSON, incl. NUL; keep >= ROBOT_TELEMETRY_BUFFER_SIZE */
-#define COMMS_COMMAND_MAX       (128u) /* longest incoming command, incl. NUL */
+#define COMMS_PAYLOAD_MAX                                                      \
+    (512u)                       /* longest outgoing JSON, incl. NUL; keep >=  \
+                                    ROBOT_TELEMETRY_BUFFER_SIZE */
+#define COMMS_COMMAND_MAX (128u) /* longest incoming command, incl. NUL */
 
 /* Network state, for printing and telemetry. */
-#define COMMS_LINK_OFFLINE      (0u)   /* no Wi-Fi build, or not joined   */
-#define COMMS_LINK_WIFI_UP      (1u)   /* joined + IP address, no broker  */
-#define COMMS_LINK_MQTT_UP      (2u)   /* connected to the MQTT broker    */
+#define COMMS_LINK_OFFLINE (0u) /* no Wi-Fi build, or not joined   */
+#define COMMS_LINK_WIFI_UP (1u) /* joined + IP address, no broker  */
+#define COMMS_LINK_MQTT_UP (2u) /* connected to the MQTT broker    */
 
 /** Create the message buffers.  Call once from usermain(). */
-int32_t  comms_init(void);
+int32_t comms_init (void);
 
 /** Queue a JSON message for publishing.  Never blocks; drops the message
  *  (returns false) if the broker is not connected or the outbox is full. */
-bool     comms_publish(uint32_t topic, const char *p_payload);
+bool comms_publish (uint32_t topic, const char * p_payload);
 
 /** Wait up to timeout_ms for a command string from the network. */
-bool     comms_wait_command(char *p_buffer, uint32_t buffer_size, int32_t timeout_ms);
+bool comms_wait_command (char * p_buffer, uint32_t buffer_size,
+                         int32_t timeout_ms);
 
-uint32_t comms_get_link_state(void);
+uint32_t comms_get_link_state (void);
 
 /* ---- Called by the network side (robot_mqtt.c) only ---- */
-bool     comms_take_outgoing(uint32_t *p_topic, char *p_payload, uint32_t buffer_size);
-void     comms_put_incoming(const char *p_data, uint32_t length);
-void     comms_set_link_state(uint32_t state);
+bool comms_take_outgoing (uint32_t * p_topic, char * p_payload,
+                          uint32_t buffer_size);
+void comms_put_incoming (const char * p_data, uint32_t length);
+void comms_set_link_state (uint32_t state);
 
 #endif /* COMMS_H */
+
+/*** end of file ***/
+
