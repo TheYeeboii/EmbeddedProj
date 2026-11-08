@@ -539,6 +539,32 @@ $('#line-follow-command').addEventListener('click', () => sendCommand('line_foll
 $('#line-stop-command').addEventListener('click', () => sendCommand('line_stop'));
 $('#imu-reset').addEventListener('click', () => sendCommand('imu_reset'));
 
+/* Evidence cards hide their debug extras (freeze/export/import, sliders,
+ * detail boxes, reference strips, reader setup) behind a Tools toggle. */
+document.querySelectorAll('#steering-visual, #barcode-visual').forEach((card) => {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn-ghost btn-sm tools-toggle';
+  button.setAttribute('aria-pressed', 'false');
+  button.textContent = 'Tools';
+  button.addEventListener('click', () => {
+    const on = card.classList.toggle('show-tools');
+    button.setAttribute('aria-pressed', String(on));
+    button.textContent = on ? 'Hide tools' : 'Tools';
+  });
+  card.querySelector('.card-header').append(button);
+});
+
+/* One button: rover back to boot defaults (stopped, faults/odometry/IMU
+ * cleared) and every dashboard history, log and form field cleared. */
+$('#reset-all').addEventListener('click', () => {
+  if (!window.confirm('Reset everything?\n\nStops the rover, clears encoder faults, odometry and IMU, restores default settings, and clears all histories and logs on this page (export first if you need them).')) return;
+  sendCommand('reset_all');
+  document.querySelectorAll('[data-steering="clear"], [data-ir="clear"], [data-barcode="clear"], #clear-serial')
+    .forEach((button) => button.click());
+  document.querySelectorAll('.col-side input:not([type="file"])').forEach((input) => { input.value = input.defaultValue; });
+});
+
 /* ---------- serial controls ---------- */
 
 $('#clear-serial').addEventListener('click', () => {

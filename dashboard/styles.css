@@ -473,3 +473,238 @@ kbd {
 .barcode-strip:empty { background: var(--muted); }
 .barcode-partial[data-black="true"] { fill: #111; }
 .barcode-partial[data-black="false"] { fill: #fff; }
+
+/* Decoded barcode letter */
+.barcode-letter-body { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.barcode-letter-symbol {
+  flex: none; display: grid; place-items: center; width: 96px; height: 96px;
+  border-radius: var(--radius-sm); background: var(--muted); color: var(--muted-foreground);
+  font: 700 64px/1 var(--font-mono);
+}
+.barcode-letter-info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.barcode-letter-info strong { font-size: 16px; }
+.barcode-letter-card[data-result="ok"] .barcode-letter-symbol { background: color-mix(in oklch, var(--success) 18%, transparent); color: var(--success); }
+.barcode-letter-card[data-result="scanning"] .barcode-letter-symbol { background: color-mix(in oklch, var(--accent) 18%, transparent); color: var(--accent); }
+.barcode-letter-card[data-result="rejected"] [data-letter="latest"] { color: var(--destructive); }
+@media (max-width: 480px) { .barcode-letter-symbol { width: 72px; height: 72px; font-size: 48px; } }
+.barcode-letter-card [data-letter="reader"] { text-transform: none; }
+
+/* Main column groups: status | steering + serial | IR evidence. */
+.main-group { display: grid; gap: 16px; min-width: 0; align-content: start; }
+
+/* One-screen desktop layout: the page itself never scrolls; each column
+ * scrolls on its own, so no card is ever clipped or unreachable. */
+@media (min-width: 1180px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { position: static; flex: none; padding-top: 6px; padding-bottom: 6px; }
+  .shell { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: none; padding: 8px 0; }
+  .summary { flex: none; margin-bottom: 8px; }
+  .summary-item { padding-top: 5px; padding-bottom: 5px; }
+  .footer { display: none; }
+
+  .layout { flex: 1; min-height: 0; align-items: stretch; gap: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 440px); }
+  .col-main { min-height: 0; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr); }
+  .main-group, .col-side { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; gap: 8px; }
+  .col-side { grid-template-columns: 1fr 1fr; align-content: start; }
+  .side-stack { gap: 8px; }
+
+  /* Smaller cards */
+  .card { padding: 9px 11px; }
+  .card-header { margin-bottom: 6px; gap: 6px; }
+  .card-header h2 { font-size: 13px; }
+  .metrics, .metrics.telemetry-metrics, .metrics.imu-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .metrics.telemetry-metrics .metric-wide { grid-column: 1 / -1; }
+  .metric { padding: 7px 8px; }
+  .metric-value strong, .metric-wide .metric-value strong { font-size: 18px; }
+  .metric-text strong { font-size: 16px; }
+  .ir { gap: 8px; }
+  .drive-pad { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; }
+  .pad { width: 44px; height: 44px; }
+  .btn { height: 28px; } .btn-icon { width: 28px; height: 28px; } .input { height: 28px; }
+  .stepper { grid-template-columns: 28px minmax(0, 1fr) 28px; }
+  .stepper-apply { grid-template-columns: 28px minmax(0, 1fr) 28px auto; }
+
+  /* Evidence panels: tighter spacing, shorter plots, no static help text. */
+  .trace-controls { padding: 0; gap: .3rem; }
+  .trace-notice, .trace-cursor, .barcode-field, .barcode-outcome, .ir-continuous-heading,
+  .barcode-reference-controls, .barcode-configuration, .barcode-elements { margin: .35rem 0; }
+  .trace-detail { margin: .35rem 0; padding: .5rem; max-height: 7rem; font-size: .68rem; line-height: 1.45; }
+  .steering-timeline, .barcode-strip, .barcode-signal, .ir-stream-strip { width: 100%; margin: .35rem 0; }
+  .steering-timeline { height: 56px; }
+  .barcode-strip, .ir-stream-strip { height: 44px; }
+  .barcode-signal { height: 60px; }
+  .ir-mode-tabs { margin: .25rem 0; }
+  .steering-live { padding: .3rem .4rem; gap: .5rem; }
+  .steering-arrow { font-size: 1.7rem; padding: .1rem .5rem; }
+  p.trace-notice:not([data-ir]):not([data-barcode]):not([data-steering]),
+  .group-trace section > p.muted.small,
+  .barcode-configuration p.muted.small:not([role]) { display: none; }
+  .console { height: 150px; }
+
+  .barcode-letter-body { gap: 12px; }
+  .barcode-letter-symbol { width: 60px; height: 60px; font-size: 40px; }
+  .barcode-letter-info strong { font-size: 14px; }
+}
+
+/* Mid-width desktops: status on the left, steering/serial above IR evidence. */
+@media (min-width: 1180px) and (max-width: 1399px) and (min-height: 600px) {
+  .col-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .group-status { grid-row: 1 / 3; }
+}
+@media (min-width: 1180px) and (min-height: 600px) {
+  .group-ir .ir { grid-template-columns: 1fr; }
+  .group-ir .ir-bar { grid-template-columns: 74px minmax(0, 1fr) 88px; gap: 6px; }
+  .metrics.imu-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .imu-metrics .metric-sub { display: none; }
+  .console { height: 96px; }
+  .group-trace .trace-detail { max-height: 4.6rem; }
+  [data-steering="hint"] { display: none; }
+  .steering-live strong { font-size: 12px; }
+  .col-side .barcode-letter-info p { font-size: 11.5px; line-height: 1.35; }
+}
+@media (min-width: 1180px) and (min-height: 600px) {
+  .metrics.telemetry-metrics { grid-template-columns: 1.2fr 1fr 1fr; }
+  .metrics.telemetry-metrics .metric-wide { grid-column: auto; }
+  .metric-head { font-size: 11px; }
+  .group-ir .position-scale { display: none; }
+  .group-ir .ir-bars { gap: 4px; }
+  .steering-arrow { font-size: 1.3rem; }
+  .console { height: 84px; }
+  .group-trace .trace-detail { max-height: 4rem; }
+}
+
+/* Reset everything (top bar) */
+.btn-reset-all { color: var(--destructive); border-color: color-mix(in oklch, var(--destructive) 45%, var(--border)); }
+.btn-reset-all:hover { background: color-mix(in oklch, var(--destructive) 12%, transparent); }
+@media (max-width: 520px) { .btn-reset-all span { display: none; } }
+
+/* ---------- Decluttered evidence cards (all screen sizes) ---------- */
+.tools-toggle[aria-pressed="true"] { color: var(--accent); }
+#steering-visual:not(.show-tools) :is(.trace-controls, [data-steering="notice"], [data-steering="axis"], .trace-cursor, .trace-detail),
+#barcode-visual:not(.show-tools) :is(.trace-controls:not(.ir-mode-tabs), p.trace-notice, .barcode-field, .trace-cursor,
+  .trace-detail, .barcode-configuration, .barcode-reference-controls, [data-barcode="reference"], [data-barcode="elements"]) { display: none; }
+/* Keep the decoder outcome visible even though it lives among the tools. */
+#barcode-visual .barcode-outcome { display: block; }
+
+/* ---------- One-screen desktop: fill every column, nothing cut off ---------- */
+@media (min-width: 1180px) and (min-height: 600px) {
+  .main-group { display: flex; flex-direction: column; }
+  .main-group > .card { flex: none; }
+
+  /* Letter + steering: steering timeline takes the spare height. */
+  .group-trace > #steering-visual { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #steering-visual:not(.show-tools) .steering-timeline { flex: 1 1 auto; height: auto; min-height: 56px; }
+  .barcode-letter-symbol { width: 72px; height: 72px; font-size: 48px; }
+
+  /* IR evidence: the signal plot takes the spare height. */
+  .group-ir > #barcode-visual { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #barcode-visual .ir-evidence-panel:not([hidden]) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #barcode-visual:not(.show-tools) .ir-stream-strip { height: 70px; flex: none; }
+  #barcode-visual:not(.show-tools) .barcode-strip { height: 70px; flex: none; }
+  #barcode-visual:not(.show-tools) .barcode-signal { flex: 1 1 auto; height: auto; min-height: 60px; }
+  #barcode-visual.show-tools .ir-evidence-panel { overflow-y: auto; }
+
+  /* Controls: two stacks on top, serial monitor fills the rest underneath. */
+  .col-side { grid-template-rows: auto minmax(0, 1fr); }
+  .serial-card { grid-column: 1 / -1; display: flex; flex-direction: column; min-height: 0; }
+  .serial-card .console { flex: 1 1 0; height: auto; min-height: 44px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .serial-card > p.muted.small { display: none; }
+  .action-caption { margin-bottom: 4px; }
+
+  /* Icons collided with values in the narrow tiles. */
+  .group-status .metric-head > i, .group-status .metric-head > svg { display: none; }
+}
+
+/* ---------- Final desktop layout (steering card hidden) ----------
+ * Row 1: four columns that each fill the height.
+ * Row 2: the serial monitor across the whole width. */
+@media (min-width: 1180px) and (min-height: 600px) {
+  .col-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr); grid-template-rows: minmax(0, 1fr); }
+  .col-main > .group-status { grid-row: auto; }
+  .col-side { grid-template-rows: none; }
+
+  .group-ir > #barcode-letter { flex: 1 1 auto; }
+  #barcode-letter .barcode-letter-body { height: calc(100% - 34px); align-items: center; }
+  .barcode-letter-symbol { width: 84px; height: 84px; font-size: 56px; }
+
+  .serial-card { flex: 0 0 auto; height: clamp(130px, 21vh, 260px); margin-top: 8px; display: flex; flex-direction: column; }
+  .serial-card .card-header { margin-bottom: 4px; }
+  .serial-panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .serial-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .serial-card .console { flex: 1 1 auto; height: auto; min-height: 0; }
+  .serial-card p.muted.small { display: none; }
+}
+/* Below desktop: panes stack. */
+.serial-pane + .serial-pane { margin-top: 10px; }
+@media (min-width: 1180px) and (min-height: 600px) { .serial-pane + .serial-pane { margin-top: 0; } }
+@media (min-width: 1180px) and (min-height: 600px) {
+  /* Letter card: body fills the card instead of a fixed calc height. */
+  #barcode-letter { display: flex; flex-direction: column; min-height: 0; }
+  #barcode-letter .barcode-letter-body { height: auto; flex: 1 1 auto; min-height: 0; }
+  /* Last card in each column absorbs the spare height. */
+  .group-status > .card:last-child { flex: 1 1 auto; display: flex; flex-direction: column; }
+  .group-status > .card:last-child .metrics { flex: 1 1 auto; grid-auto-rows: 1fr; }
+  .col-side { grid-template-rows: minmax(0, 1fr); }
+  .side-stack { display: flex; flex-direction: column; min-height: 0; }
+  .side-stack > .card:last-child { flex: 1 1 auto; }
+}
+@media (min-width: 1180px) and (min-height: 600px) {
+  .col-side p.muted.small:not(.field-error), .line-hint { display: none; }
+}
+
+/* ---------- Desktop v3: controls at natural height, serial gets the rest ----------
+ * Top row is a fixed height that fits the two control stacks exactly; no card
+ * is stretched to fill. IMU and IR are compact, the serial monitor takes all
+ * remaining screen height. */
+@media (min-width: 1180px) and (min-height: 600px) {
+  body { overflow: auto; }
+  .layout { flex: 0 0 auto; height: var(--top-row, 456px); grid-template-columns: minmax(0, 1fr) 500px; }
+  .col-main { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1.2fr); }
+  .serial-card { flex: 1 1 auto; height: auto; min-height: 150px; }
+
+  /* Controls: never stretched, never squeezed. */
+  .col-side { grid-template-rows: none; align-content: start; }
+  .side-stack > .card:last-child { flex: none; }
+  .col-side .stepper { grid-template-columns: 28px minmax(44px, 1fr) 28px; }
+  .col-side .stepper-apply { grid-template-columns: 28px minmax(44px, 1fr) 28px auto; }
+  .col-side .stepper .input { padding: 0 2px; }
+  .col-side .trim-grid { gap: 8px; }
+
+  /* Compact IMU: four small tiles per row. */
+  .metrics.imu-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+  .imu-metrics .metric { padding: 5px 7px; }
+  .imu-metrics .metric-value strong, .imu-metrics .metric-text strong { font-size: 15px; }
+  .imu-metrics .metric-head { font-size: 10.5px; }
+  .imu-metrics .compass { display: none; }
+}
+/* Number boxes have their own −/+ buttons; the browser spinners only steal width. */
+.stepper input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.stepper input[type="number"]::-webkit-inner-spin-button,
+.stepper input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+@media (min-width: 1180px) and (min-height: 600px) {
+  .imu-metrics .metric { min-width: 0; overflow: hidden; }
+  .imu-metrics .metric-head { flex-wrap: wrap; column-gap: 4px; row-gap: 0; min-width: 0; }
+  .imu-metrics .metric-head > span { min-width: 0; overflow-wrap: anywhere; }
+}
+@media (min-width: 1180px) and (min-height: 600px) {
+  .col-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+  /* Only the letter card (status column) and IR evidence (IR column) take spare height. */
+  .group-status > .card:not(:last-child), .group-ir > .card:not(#barcode-visual) { flex: none; }
+  .group-status > #barcode-letter { flex: 1 1 auto; min-height: 96px; }
+  .barcode-letter-symbol { width: 64px; height: 64px; font-size: 44px; }
+  .group-ir > #barcode-visual { min-height: 0; overflow: hidden; }
+  #barcode-visual:not(.show-tools) .ir-stream-strip, #barcode-visual:not(.show-tools) .barcode-strip { height: 48px; }
+}
+@media (min-width: 1180px) and (min-height: 600px) {
+  :root { --top-row: 444px; }
+  .serial-card #action-log { flex: 1 1 auto; height: auto; min-height: 0; margin-bottom: 0; }
+}
+@media (min-width: 1180px) and (min-height: 600px) {
+  .group-status > #barcode-letter { flex: 1 0 auto; min-height: 0; }   /* grow, never squeeze */
+  .imu-metrics .metric-head { overflow: hidden; }
+}
+@media (min-width: 1180px) and (max-width: 1399px) and (min-height: 600px) {
+  .col-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .layout { grid-template-columns: minmax(0, 1fr) 480px; }
+}

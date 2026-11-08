@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=19">
+  <link rel="stylesheet" href="styles.css?v=34">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -35,6 +35,9 @@
         <span class="pill-label">Connecting…</span>
         <code id="broker-host" class="pill-host" translate="no">--</code>
       </div>
+      <button id="reset-all" class="btn btn-outline btn-sm btn-reset-all" type="button" title="Stop the rover, clear encoder faults, odometry and IMU, restore default settings and clear every history on this page">
+        <i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Reset everything</span>
+      </button>
       <button id="theme-toggle" class="btn btn-ghost btn-icon" type="button" aria-label="Toggle light or dark theme">
         <i data-lucide="sun-moon" aria-hidden="true"></i>
       </button>
@@ -67,257 +70,246 @@
 
     <div class="layout">
       <div class="col-main">
-        <section class="card" aria-labelledby="telemetry-title">
-          <header class="card-header">
-            <h2 id="telemetry-title">Telemetry</h2>
-            <span id="updated" class="muted small num">No data yet</span>
-          </header>
+        <div class="main-group group-status">
+          <section class="card" aria-labelledby="telemetry-title">
+            <header class="card-header">
+              <h2 id="telemetry-title">Telemetry</h2>
+              <span id="updated" class="muted small num">No data yet</span>
+            </header>
 
-          <div class="metrics telemetry-metrics">
-            <article class="metric metric-wide">
-              <div class="metric-head"><span>Ultrasonic distance</span><i data-lucide="radar" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="distance" class="num">--</strong><span class="unit">cm</span></div>
-              <svg id="distance-spark" class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
-                <polyline points=""></polyline>
-              </svg>
-            </article>
+            <div class="metrics telemetry-metrics">
+              <article class="metric metric-wide">
+                <div class="metric-head"><span>Ultrasonic distance</span><i data-lucide="radar" aria-hidden="true"></i></div>
+                <div class="metric-value"><strong id="distance" class="num">--</strong><span class="unit">cm</span></div>
+                <svg id="distance-spark" class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
+                  <polyline points=""></polyline>
+                </svg>
+              </article>
 
-            <article class="metric">
-              <div class="metric-head"><span>Encoder ticks</span><i data-lucide="gauge" aria-hidden="true"></i></div>
-              <dl class="pair num">
-                <div><dt>L</dt><dd id="left-ticks">--</dd></div>
-                <div><dt>R</dt><dd id="right-ticks">--</dd></div>
-              </dl>
-            </article>
+              <article class="metric">
+                <div class="metric-head"><span>Encoder ticks</span><i data-lucide="gauge" aria-hidden="true"></i></div>
+                <dl class="pair num">
+                  <div><dt>L</dt><dd id="left-ticks">--</dd></div>
+                  <div><dt>R</dt><dd id="right-ticks">--</dd></div>
+                </dl>
+              </article>
 
-            <article class="metric">
-              <div class="metric-head"><span>Motor output</span><i data-lucide="zap" aria-hidden="true"></i></div>
-              <dl class="pair num">
-                <div><dt>L</dt><dd id="motor-left">--</dd></div>
-                <div><dt>R</dt><dd id="motor-right">--</dd></div>
-              </dl>
-            </article>
-          </div>
-        </section>
-
-        <section class="card" aria-labelledby="hump-title">
-          <header class="card-header">
-            <h2 id="hump-title">IMU and humps</h2>
-            <span class="imu-status">
-              <span id="imu-interval" class="muted small num"></span>
-              <span id="imu-health" class="badge" data-tone="muted">Waiting</span>
-              <button id="imu-reset" class="btn btn-outline btn-sm" type="button" title="Clear humps, peaks and impacts for a new run (rover on flat ground)"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Reset</button>
-            </span>
-          </header>
-
-          <div class="metrics imu-metrics">
-            <article class="metric">
-              <div class="metric-head"><span>Heading</span><i data-lucide="compass" aria-hidden="true"></i></div>
-              <div class="metric-row">
-                <div class="metric-value"><strong id="heading" class="num">--</strong><span class="unit">°</span></div>
-                <div class="compass" aria-hidden="true"><span id="compass-needle" class="needle"></span></div>
-              </div>
-            </article>
-
-            <article class="metric">
-              <div class="metric-head"><span>Pitch</span><i data-lucide="move-diagonal" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="pitch" class="num">--</strong><span class="unit">°</span></div>
-              <span class="metric-sub">+ nose up</span>
-            </article>
-
-
-            <article class="metric">
-              <div class="metric-head"><span>Roll</span><i data-lucide="move-horizontal" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="imu-roll" class="num">--</strong><span class="unit">°</span></div>
-              <span class="metric-sub">+ left down</span>
-            </article>
-
-
-            <article class="metric">
-              <div class="metric-head"><span>Motion</span><span class="num">Turn <span id="imu-turn-rate">--</span> °/s</span></div>
-              <div class="metric-value metric-text"><strong id="imu-motion">--</strong></div>
-            </article>
-
-            <article class="metric">
-              <div class="metric-head"><span>Terrain</span><i data-lucide="mountain" aria-hidden="true"></i></div>
-              <div class="metric-value metric-text"><strong id="hump-state">--</strong></div>
-              <span id="hump-count" class="metric-sub num">-- humps</span>
-            </article>
-
-
-            <article class="metric">
-              <div class="metric-head"><span>Hump peak</span><i data-lucide="trending-up" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="hump-peak" class="num">--</strong><span class="unit">°</span></div>
-              <span id="hump-peak-note" class="metric-sub">none yet</span>
-            </article>
-
-
-            <article class="metric">
-              <div class="metric-head"><span>Hump height</span><i data-lucide="ruler" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="hump-height" class="num">--</strong><span class="unit">mm</span></div>
-              <span id="hump-height-note" class="metric-sub">--</span>
-            </article>
-
-
-            <article class="metric">
-              <div class="metric-head"><span>Sudden impacts</span><i data-lucide="triangle-alert" aria-hidden="true"></i></div>
-              <div class="metric-value"><strong id="imu-impacts" class="num">--</strong></div>
-              <span class="metric-sub">since reset</span>
-            </article>
-          </div>
-        </section>
-
-        <section class="card" aria-labelledby="line-title">
-          <header class="card-header">
-            <h2 id="line-title">Line sensor</h2>
-            <div class="chips">
-              <span id="chip-line" class="chip">Line</span>
-              <span id="chip-junction" class="chip">Junction</span>
-              <span id="chip-barcode" class="chip">Barcode<span id="barcode-cmd"></span></span>
+              <article class="metric">
+                <div class="metric-head"><span>Motor output</span><i data-lucide="zap" aria-hidden="true"></i></div>
+                <dl class="pair num">
+                  <div><dt>L</dt><dd id="motor-left">--</dd></div>
+                  <div><dt>R</dt><dd id="motor-right">--</dd></div>
+                </dl>
+              </article>
             </div>
-          </header>
+          </section>
 
-          <div class="ir">
-            <div class="ir-bars">
-              <div class="ir-bar">
-                <span class="ir-name">Front left</span>
-                <div class="track"><div id="bar-0" class="fill"></div></div>
-                <span class="num ir-val"><span id="norm-0">--</span><small> raw <span id="raw-0">--</span></small></span>
-              </div>
-              <div class="ir-bar">
-                <span class="ir-name">Front right</span>
-                <div class="track"><div id="bar-1" class="fill"></div></div>
-                <span class="num ir-val"><span id="norm-1">--</span><small> raw <span id="raw-1">--</span></small></span>
-              </div>
-              <div class="ir-bar">
-                <span class="ir-name">Barcode</span>
-                <div class="track"><div id="bar-2" class="fill"></div></div>
-                <span class="num ir-val"><span id="norm-2">--</span><small> raw <span id="raw-2">--</span></small></span>
+          <section class="card" aria-labelledby="hump-title">
+            <header class="card-header">
+              <h2 id="hump-title">IMU and humps</h2>
+              <span class="imu-status">
+                <span id="imu-interval" class="muted small num"></span>
+                <span id="imu-health" class="badge" data-tone="muted">Waiting</span>
+                <button id="imu-reset" class="btn btn-outline btn-sm" type="button" title="Clear humps, peaks and impacts for a new run (rover on flat ground)"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Reset</button>
+              </span>
+            </header>
+
+            <div class="metrics imu-metrics">
+              <article class="metric">
+                <div class="metric-head"><span>Heading</span><i data-lucide="compass" aria-hidden="true"></i></div>
+                <div class="metric-row">
+                  <div class="metric-value"><strong id="heading" class="num">--</strong><span class="unit">°</span></div>
+                  <div class="compass" aria-hidden="true"><span id="compass-needle" class="needle"></span></div>
+                </div>
+              </article>
+
+              <article class="metric">
+                <div class="metric-head"><span>Pitch</span><i data-lucide="move-diagonal" aria-hidden="true"></i></div>
+                <div class="metric-value"><strong id="pitch" class="num">--</strong><span class="unit">°</span></div>
+                <span class="metric-sub">+ nose up</span>
+              </article>
+
+              <article class="metric">
+                <div class="metric-head"><span>Roll</span><i data-lucide="move-horizontal" aria-hidden="true"></i></div>
+                <div class="metric-value"><strong id="imu-roll" class="num">--</strong><span class="unit">°</span></div>
+                <span class="metric-sub">+ left down</span>
+              </article>
+
+              <article class="metric">
+                <div class="metric-head"><span>Motion</span><span class="num">Turn <span id="imu-turn-rate">--</span> °/s</span></div>
+                <div class="metric-value metric-text"><strong id="imu-motion">--</strong></div>
+              </article>
+
+              <article class="metric">
+                <div class="metric-head"><span>Terrain</span><i data-lucide="mountain" aria-hidden="true"></i></div>
+                <div class="metric-value metric-text"><strong id="hump-state">--</strong></div>
+                <span id="hump-count" class="metric-sub num">-- humps</span>
+              </article>
+
+              <article class="metric">
+                <div class="metric-head"><span>Hump peak</span><i data-lucide="trending-up" aria-hidden="true"></i></div>
+                <div class="metric-value"><strong id="hump-peak" class="num">--</strong><span class="unit">°</span></div>
+                <span id="hump-peak-note" class="metric-sub">none yet</span>
+              </article>
+
+              <article class="metric">
+                <div class="metric-head"><span>Hump height</span><i data-lucide="ruler" aria-hidden="true"></i></div>
+                <div class="metric-value"><strong id="hump-height" class="num">--</strong><span class="unit">mm</span></div>
+                <span id="hump-height-note" class="metric-sub">--</span>
+              </article>
+
+              <article class="metric">
+                <div class="metric-head"><span>Sudden impacts</span><i data-lucide="triangle-alert" aria-hidden="true"></i></div>
+                <div class="metric-value"><strong id="imu-impacts" class="num">--</strong></div>
+                <span class="metric-sub">since reset</span>
+              </article>
+            </div>
+          </section>
+
+          <section id="barcode-letter" class="card barcode-letter-card" aria-labelledby="barcode-letter-title" data-result="none">
+            <header class="card-header"><h2 id="barcode-letter-title">Barcode letter</h2><span data-letter="reader" class="badge" data-tone="muted">Reader: waiting…</span></header>
+            <div class="barcode-letter-body">
+              <span data-letter="symbol" class="barcode-letter-symbol num" aria-live="polite">–</span>
+              <div class="barcode-letter-info">
+                <strong data-letter="headline">No barcode read yet</strong>
+                <p data-letter="detail" class="muted small">Press GP21, then drive slowly over the whole barcode.</p>
+                <p data-letter="latest" class="muted small"></p>
               </div>
             </div>
-            <div class="position">
-              <div class="position-head"><span>Line position</span><span id="position" class="num">--</span></div>
-              <div class="position-track" aria-hidden="true">
-                <span class="position-center"></span>
-                <span id="position-marker" class="position-marker"></span>
+          </section>
+        </div>
+
+        <div class="main-group group-ir">
+          <section class="card" aria-labelledby="line-title">
+            <header class="card-header">
+              <h2 id="line-title">Line sensor</h2>
+              <div class="chips">
+                <span id="chip-line" class="chip">Line</span>
+                <span id="chip-junction" class="chip">Junction</span>
+                <span id="chip-barcode" class="chip">Barcode<span id="barcode-cmd"></span></span>
               </div>
-              <div class="position-scale muted small num" aria-hidden="true"><span>-1000</span><span>0</span><span>+1000</span></div>
+            </header>
+
+            <div class="ir">
+              <div class="ir-bars">
+                <div class="ir-bar">
+                  <span class="ir-name">Front left</span>
+                  <div class="track"><div id="bar-0" class="fill"></div></div>
+                  <span class="num ir-val"><span id="norm-0">--</span><small> raw <span id="raw-0">--</span></small></span>
+                </div>
+                <div class="ir-bar">
+                  <span class="ir-name">Front right</span>
+                  <div class="track"><div id="bar-1" class="fill"></div></div>
+                  <span class="num ir-val"><span id="norm-1">--</span><small> raw <span id="raw-1">--</span></small></span>
+                </div>
+                <div class="ir-bar">
+                  <span class="ir-name">Barcode</span>
+                  <div class="track"><div id="bar-2" class="fill"></div></div>
+                  <span class="num ir-val"><span id="norm-2">--</span><small> raw <span id="raw-2">--</span></small></span>
+                </div>
+              </div>
+              <div class="position">
+                <div class="position-head"><span>Line position</span><span id="position" class="num">--</span></div>
+                <div class="position-track" aria-hidden="true">
+                  <span class="position-center"></span>
+                  <span id="position-marker" class="position-marker"></span>
+                </div>
+                <div class="position-scale muted small num" aria-hidden="true"><span>-1000</span><span>0</span><span>+1000</span></div>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section id="steering-visual" class="card steering-visual" aria-labelledby="steering-title" data-direction="unknown">
-          <header class="card-header">
-            <h2 id="steering-title">Steering evidence</h2>
-            <span class="badge" data-tone="muted">Commanded direction</span>
-          </header>
-          <div class="steering-live" aria-live="polite">
-            <span class="steering-arrow steering-left" aria-hidden="true">←</span>
-            <div><strong data-steering="live">Waiting for steering trace…</strong><p data-steering="hint" class="muted small">Arrows show commands. Encoder measurements are separate evidence.</p></div>
-            <span class="steering-arrow steering-right" aria-hidden="true">→</span>
-          </div>
-          <div class="trace-controls">
-            <button class="btn btn-outline btn-sm" data-steering="pause" type="button" aria-pressed="false">Freeze history</button>
-            <button class="btn btn-ghost btn-sm" data-steering="clear" type="button">Clear history</button>
-            <button class="btn btn-ghost btn-sm" data-steering="export" type="button">Export JSON</button>
-            <label class="btn btn-ghost btn-sm">Import replay<input data-steering="import" type="file" accept="application/json,.json" class="trace-file"></label>
-          </div>
-          <p data-steering="notice" class="muted small trace-notice"></p>
-          <p data-steering="axis" class="muted small trace-notice">Green: left · blue: right · grey: straight/stopped · orange: unknown interval. Dots: front L/R normalized IR.</p>
-          <svg preserveAspectRatio="none" data-steering="timeline" class="steering-timeline" viewBox="0 0 900 85" role="img" aria-label="Command duration and front IR history"></svg>
-          <label class="trace-cursor">Inspect event <input data-steering="cursor" type="range" min="0" max="0" value="0" disabled></label>
-          <pre data-steering="detail" class="trace-detail" tabindex="0"></pre>
-        </section>
+          <section id="barcode-visual" class="card" aria-labelledby="barcode-title">
+            <header class="card-header"><h2 id="barcode-title">IR / barcode evidence</h2><span data-barcode="status" class="badge" data-tone="muted">Waiting for reader…</span></header>
+            <div class="trace-controls ir-mode-tabs" role="tablist" aria-label="Side IR evidence view">
+              <button id="ir-continuous-tab" class="btn btn-outline btn-sm" type="button" role="tab" aria-selected="true" aria-controls="ir-continuous-panel" data-ir-mode="continuous">Continuous IR</button>
+              <button id="ir-attempts-tab" class="btn btn-outline btn-sm" type="button" role="tab" aria-selected="false" aria-controls="ir-attempts-panel" data-ir-mode="attempts" tabindex="-1">Barcode attempts</button>
+            </div>
+            <div id="ir-continuous-panel" data-ir="continuous-panel" class="ir-evidence-panel" role="tabpanel" aria-labelledby="ir-continuous-tab">
+              <div class="ir-continuous-heading"><strong>Everything the side sensor sees</strong><span data-ir="live" class="badge" data-color="unknown" role="status">Waiting for IR samples…</span></div>
+              <p class="muted small trace-notice">This view records black and white even when barcode detection is disabled, suspended or misses a pattern. It also works with stationary paper tests. Decoder status above does not gate this stream.</p>
+              <div class="trace-controls">
+                <button data-ir="freeze" class="btn btn-outline btn-sm" type="button" aria-pressed="false">Freeze IR history</button>
+                <button data-ir="clear" class="btn btn-ghost btn-sm" type="button">Clear IR history</button>
+                <button data-ir="export" class="btn btn-ghost btn-sm" type="button">Export IR</button>
+                <label class="btn btn-ghost btn-sm">Import IR<input data-ir="import" type="file" accept="application/json,.json" class="trace-file"></label>
+              </div>
+              <p data-ir="notice" class="muted small trace-notice"></p>
+              <label class="barcode-field">Time window <select data-ir="window"><option value="2000">2 seconds</option><option value="5000" selected>5 seconds</option><option value="10000">10 seconds</option><option value="30000">30 seconds</option><option value="60000">60 seconds</option></select></label>
+              <svg data-ir="strip" class="ir-stream-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Continuous black and white sensor observations over time"></svg>
+              <p data-ir="axis" class="muted small trace-notice"></p>
+              <p class="muted small trace-notice">Blue = raw signal /4095 · green = normalized /1000 · dashed = classification thresholds. Grey gaps mean missing or delayed sampling, never assumed white.</p>
+              <svg data-ir="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Continuous raw and normalized side IR signals"></svg>
+              <label class="trace-cursor">Inspect history <input data-ir="cursor" type="range" min="0" max="0" value="0" disabled></label>
+              <pre data-ir="detail" class="trace-detail" tabindex="0"></pre>
+            </div>
+            <div id="ir-attempts-panel" data-ir="attempts-panel" class="ir-evidence-panel" role="tabpanel" aria-labelledby="ir-attempts-tab" hidden>
 
-        <section id="barcode-visual" class="card" aria-labelledby="barcode-title">
-          <header class="card-header"><h2 id="barcode-title">IR / barcode evidence</h2><span data-barcode="status" class="badge" data-tone="muted">Waiting for reader…</span></header>
-          <div class="trace-controls ir-mode-tabs" role="tablist" aria-label="Side IR evidence view">
-            <button id="ir-continuous-tab" class="btn btn-outline btn-sm" type="button" role="tab" aria-selected="true" aria-controls="ir-continuous-panel" data-ir-mode="continuous">Continuous IR</button>
-            <button id="ir-attempts-tab" class="btn btn-outline btn-sm" type="button" role="tab" aria-selected="false" aria-controls="ir-attempts-panel" data-ir-mode="attempts" tabindex="-1">Barcode attempts</button>
-          </div>
-          <div id="ir-continuous-panel" data-ir="continuous-panel" class="ir-evidence-panel" role="tabpanel" aria-labelledby="ir-continuous-tab">
-            <div class="ir-continuous-heading"><strong>Everything the side sensor sees</strong><span data-ir="live" class="badge" data-color="unknown" role="status">Waiting for IR samples…</span></div>
-            <p class="muted small trace-notice">This view records black and white even when barcode detection is disabled, suspended or misses a pattern. It also works with stationary paper tests. Decoder status above does not gate this stream.</p>
             <div class="trace-controls">
-              <button data-ir="freeze" class="btn btn-outline btn-sm" type="button" aria-pressed="false">Freeze IR history</button>
-              <button data-ir="clear" class="btn btn-ghost btn-sm" type="button">Clear IR history</button>
-              <button data-ir="export" class="btn btn-ghost btn-sm" type="button">Export IR</button>
-              <label class="btn btn-ghost btn-sm">Import IR<input data-ir="import" type="file" accept="application/json,.json" class="trace-file"></label>
+              <button data-barcode="pause" class="btn btn-outline btn-sm" type="button" aria-pressed="false">Freeze scans</button>
+              <button data-barcode="clear" class="btn btn-ghost btn-sm" type="button">Clear history</button>
+              <button data-barcode="export" class="btn btn-ghost btn-sm" type="button">Export scans</button>
+              <label class="btn btn-ghost btn-sm">Import replay<input data-barcode="import" type="file" accept="application/json,.json" class="trace-file"></label>
             </div>
-            <p data-ir="notice" class="muted small trace-notice"></p>
-            <label class="barcode-field">Time window <select data-ir="window"><option value="2000">2 seconds</option><option value="5000" selected>5 seconds</option><option value="10000">10 seconds</option><option value="30000">30 seconds</option><option value="60000">60 seconds</option></select></label>
-            <svg data-ir="strip" class="ir-stream-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Continuous black and white sensor observations over time"></svg>
-            <p data-ir="axis" class="muted small trace-notice"></p>
-            <p class="muted small trace-notice">Blue = raw signal /4095 · green = normalized /1000 · dashed = classification thresholds. Grey gaps mean missing or delayed sampling, never assumed white.</p>
-            <svg data-ir="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Continuous raw and normalized side IR signals"></svg>
-            <label class="trace-cursor">Inspect history <input data-ir="cursor" type="range" min="0" max="0" value="0" disabled></label>
-            <pre data-ir="detail" class="trace-detail" tabindex="0"></pre>
-          </div>
-          <div id="ir-attempts-panel" data-ir="attempts-panel" class="ir-evidence-panel" role="tabpanel" aria-labelledby="ir-attempts-tab" hidden>
+            <form id="barcode-config-form" class="barcode-configuration" novalidate>
+              <strong>Reader setup — configure while stopped</strong>
+              <p data-barcode-config="active" class="muted small">Waiting for reader settings…</p>
+              <div class="barcode-reference-controls">
+                <label>Minimum supported element (mm)<input data-barcode-config="minimum" class="input num" type="number" min="1" max="1000" step="1" value="3" required></label>
+                <label>Sensor offset from wheel midpoint (mm)<input data-barcode-config="offset" class="input num" type="number" min="-500" max="500" step="1" placeholder="Measure first: left +, right −" required></label>
+              </div>
+              <p class="muted small">Measure sideways from the midpoint between the wheels to the sensing spot, not from the body's edge. Left is positive; right is negative. The minimum is a resolution bound, not an exact printed bar width. For an initial straight, slow test, offset 0 temporarily disables steering compensation.</p>
+              <button data-barcode-config="apply" class="btn btn-outline btn-sm" type="submit" disabled>Apply reader settings</button>
+              <p data-barcode-config="status" class="muted small" role="status">Waiting for fresh rover telemetry. Settings can only be applied while stopped.</p>
+              <p class="muted small">Settings are RAM-only and reset on reboot. Applying settings does not start the motors; barcode actions remain disabled.</p>
+            </form>
 
-          <div class="trace-controls">
-            <button data-barcode="pause" class="btn btn-outline btn-sm" type="button" aria-pressed="false">Freeze scans</button>
-            <button data-barcode="clear" class="btn btn-ghost btn-sm" type="button">Clear history</button>
-            <button data-barcode="export" class="btn btn-ghost btn-sm" type="button">Export scans</button>
-            <label class="btn btn-ghost btn-sm">Import replay<input data-barcode="import" type="file" accept="application/json,.json" class="trace-file"></label>
-          </div>
-          <form id="barcode-config-form" class="barcode-configuration" novalidate>
-            <strong>Reader setup — configure while stopped</strong>
-            <p data-barcode-config="active" class="muted small">Waiting for reader settings…</p>
+            <p data-barcode="readiness" class="muted small trace-notice" role="status"></p>
+            <p data-barcode="notice" class="muted small trace-notice"></p>
+            <label class="barcode-field">Inspect scan <select data-barcode="scan" disabled></select></label>
+            <p data-barcode="outcome" class="barcode-outcome" role="status"></p>
+            <pre data-barcode="summary" class="trace-detail" tabindex="0"></pre>
             <div class="barcode-reference-controls">
-              <label>Minimum supported element (mm)<input data-barcode-config="minimum" class="input num" type="number" min="1" max="1000" step="1" value="3" required></label>
-              <label>Sensor offset from wheel midpoint (mm)<input data-barcode-config="offset" class="input num" type="number" min="-500" max="500" step="1" placeholder="Measure first: left +, right −" required></label>
+              <label>Expected letter from print <select data-barcode="expected" aria-label="Expected letter from print"></select></label>
+              <label>Reference orientation <select data-barcode="orientation"><option value="validated">Use validated orientation</option><option value="forward">Forward</option><option value="reverse">Flipped</option></select></label>
+              <label>Reference wide:narrow <select data-barcode="ratio"><option value="3">3:1</option><option value="2">2:1</option></select></label>
             </div>
-            <p class="muted small">Measure sideways from the midpoint between the wheels to the sensing spot, not from the body's edge. Left is positive; right is negative. The minimum is a resolution bound, not an exact printed bar width. For an initial straight, slow test, offset 0 temporarily disables steering compensation.</p>
-            <button data-barcode-config="apply" class="btn btn-outline btn-sm" type="submit" disabled>Apply reader settings</button>
-            <p data-barcode-config="status" class="muted small" role="status">Waiting for fresh rover telemetry. Settings can only be applied while stopped.</p>
-            <p class="muted small">Settings are RAM-only and reset on reboot. Applying settings does not start the motors; barcode actions remain disabled.</p>
-          </form>
-
-          <p data-barcode="readiness" class="muted small trace-notice" role="status"></p>
-          <p data-barcode="notice" class="muted small trace-notice"></p>
-          <label class="barcode-field">Inspect scan <select data-barcode="scan" disabled></select></label>
-          <p data-barcode="outcome" class="barcode-outcome" role="status"></p>
-          <pre data-barcode="summary" class="trace-detail" tabindex="0"></pre>
-          <div class="barcode-reference-controls">
-            <label>Expected letter from print <select data-barcode="expected" aria-label="Expected letter from print"></select></label>
-            <label>Reference orientation <select data-barcode="orientation"><option value="validated">Use validated orientation</option><option value="forward">Forward</option><option value="reverse">Flipped</option></select></label>
-            <label>Reference wide:narrow <select data-barcode="ratio"><option value="3">3:1</option><option value="2">2:1</option></select></label>
-          </div>
-          <p class="small trace-notice">Measured bars and spaces — select a segment or element below. Orange marks unknown transport data, not a confirmed sensing error.</p>
-          <svg data-barcode="strip" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Measured barcode widths"></svg>
-          <p class="small trace-notice">Expected reference — selected independently of the decoded letter.</p>
-          <svg data-barcode="reference" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Selected expected Code 39 reference"></svg>
-          <p data-barcode="scale" class="muted small trace-notice"></p>
-          <div data-barcode="elements" class="barcode-elements" aria-label="Measured bar and space details"></div>
-          <pre data-barcode="detail" class="trace-detail" tabindex="0"></pre>
-          <p class="small trace-notice">Side sensor over rover time: blue = raw /4095, green = normalized /1000, dashed lines = hysteresis thresholds. Gaps in samples break the curves.</p>
-          <svg data-barcode="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Side IR signal history"></svg>
-          <label class="trace-cursor">Inspect sample <input data-barcode="sample" type="range" min="0" max="0" value="0" disabled></label>
-          <pre data-barcode="sample-detail" class="trace-detail" tabindex="0"></pre>
-          </div>
-        </section>
-
-        <section class="card" aria-labelledby="serial-title">
-          <header class="card-header">
-            <h2 id="serial-title">Serial monitor</h2>
-            <div class="btn-row">
-              <button id="pause-serial" class="btn btn-outline btn-sm" type="button" aria-pressed="false">
-                <i data-lucide="pause" aria-hidden="true"></i><span>Pause</span>
-              </button>
-              <button id="clear-serial" class="btn btn-ghost btn-sm" type="button">
-                <i data-lucide="eraser" aria-hidden="true"></i><span>Clear</span>
-              </button>
+            <p class="small trace-notice">Measured bars and spaces — select a segment or element below. Orange marks unknown transport data, not a confirmed sensing error.</p>
+            <svg data-barcode="strip" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Measured barcode widths"></svg>
+            <p class="small trace-notice">Expected reference — selected independently of the decoded letter.</p>
+            <svg data-barcode="reference" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Selected expected Code 39 reference"></svg>
+            <p data-barcode="scale" class="muted small trace-notice"></p>
+            <div data-barcode="elements" class="barcode-elements" aria-label="Measured bar and space details"></div>
+            <pre data-barcode="detail" class="trace-detail" tabindex="0"></pre>
+            <p class="small trace-notice">Side sensor over rover time: blue = raw /4095, green = normalized /1000, dashed lines = hysteresis thresholds. Gaps in samples break the curves.</p>
+            <svg data-barcode="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Side IR signal history"></svg>
+            <label class="trace-cursor">Inspect sample <input data-barcode="sample" type="range" min="0" max="0" value="0" disabled></label>
+            <pre data-barcode="sample-detail" class="trace-detail" tabindex="0"></pre>
             </div>
-          </header>
-          <div class="action-caption small">
-            <span id="action-title">Diagnostic events</span>
-            <span id="steering-action" class="badge" data-tone="muted">Waiting for commands…</span>
-          </div>
-          <pre id="action-log" class="console" tabindex="0" aria-labelledby="action-title"><span class="console-empty">No diagnostic events yet.</span></pre>
-          <p class="muted small">Stops, faults, control handovers and delivery warnings. Routine corrections are shown in the steering timeline. Pause/Clear applies to both logs.</p>
-          <pre id="serial-log" class="console" tabindex="0" aria-label="Line sensor debug stream"><span class="console-empty">Waiting for rover/debug data…</span></pre>
-        </section>
+          </section>
+        </div>
+          <section id="steering-visual" class="card steering-visual" hidden aria-labelledby="steering-title" data-direction="unknown">
+            <header class="card-header">
+              <h2 id="steering-title">Steering evidence</h2>
+              <span class="badge" data-tone="muted">Commanded direction</span>
+            </header>
+            <div class="steering-live" aria-live="polite">
+              <span class="steering-arrow steering-left" aria-hidden="true">←</span>
+              <div><strong data-steering="live">Waiting for steering trace…</strong><p data-steering="hint" class="muted small">Arrows show commands. Encoder measurements are separate evidence.</p></div>
+              <span class="steering-arrow steering-right" aria-hidden="true">→</span>
+            </div>
+            <div class="trace-controls">
+              <button class="btn btn-outline btn-sm" data-steering="pause" type="button" aria-pressed="false">Freeze history</button>
+              <button class="btn btn-ghost btn-sm" data-steering="clear" type="button">Clear history</button>
+              <button class="btn btn-ghost btn-sm" data-steering="export" type="button">Export JSON</button>
+              <label class="btn btn-ghost btn-sm">Import replay<input data-steering="import" type="file" accept="application/json,.json" class="trace-file"></label>
+            </div>
+            <p data-steering="notice" class="muted small trace-notice"></p>
+            <p data-steering="axis" class="muted small trace-notice">Green: left · blue: right · grey: straight/stopped · orange: unknown interval. Dots: front L/R normalized IR.</p>
+            <svg preserveAspectRatio="none" data-steering="timeline" class="steering-timeline" viewBox="0 0 900 85" role="img" aria-label="Command duration and front IR history"></svg>
+            <label class="trace-cursor">Inspect event <input data-steering="cursor" type="range" min="0" max="0" value="0" disabled></label>
+            <pre data-steering="detail" class="trace-detail" tabindex="0"></pre>
+          </section>
       </div>
 
       <aside class="col-side">
@@ -393,6 +385,8 @@
             </form>
           </section>
 
+        </div>
+        <div class="side-stack">
           <section class="card" aria-labelledby="line-follow-title">
             <header class="card-header">
               <h2 id="line-follow-title">Line following</h2>
@@ -424,8 +418,6 @@
             </div>
           </section>
 
-        </div>
-        <div class="side-stack">
           <section class="card" aria-labelledby="pwm-title">
             <header class="card-header"><h2 id="pwm-title">Raw PWM</h2></header>
             <form id="drive-form" class="stack" novalidate>
@@ -477,9 +469,38 @@
               <p class="muted small">Lower the faster motor. −/+ applies instantly. Affects Raw PWM, arrows and line following. Resets on reboot.</p>
             </div>
           </section>
+
         </div>
       </aside>
     </div>
+
+    <section class="card serial-card" aria-labelledby="serial-title">
+      <header class="card-header">
+        <h2 id="serial-title">Serial monitor</h2>
+        <div class="btn-row">
+          <button id="pause-serial" class="btn btn-outline btn-sm" type="button" aria-pressed="false">
+            <i data-lucide="pause" aria-hidden="true"></i><span>Pause</span>
+          </button>
+          <button id="clear-serial" class="btn btn-ghost btn-sm" type="button">
+            <i data-lucide="eraser" aria-hidden="true"></i><span>Clear</span>
+          </button>
+        </div>
+      </header>
+      <div class="serial-panes">
+      <div class="serial-pane">
+      <div class="action-caption small">
+        <span id="action-title">Diagnostic events</span>
+        <span id="steering-action" class="badge" data-tone="muted">Waiting for commands…</span>
+      </div>
+      <pre id="action-log" class="console" tabindex="0" aria-labelledby="action-title"><span class="console-empty">No diagnostic events yet.</span></pre>
+      </div>
+      <div class="serial-pane">
+      <div class="action-caption small"><span>Sensor stream</span></div>
+      <p class="muted small">Stops, faults, control handovers and delivery warnings. Routine corrections are shown in the steering timeline. Pause/Clear applies to both logs.</p>
+      <pre id="serial-log" class="console" tabindex="0" aria-label="Line sensor debug stream"><span class="console-empty">Waiting for rover/debug data…</span></pre>
+      </div>
+      </div>
+    </section>
 
     <footer class="footer muted small">
       <span>WebSocket <code id="footer-broker" translate="no">--</code></span>
@@ -494,10 +515,10 @@
   <script src="action-log.js?v=2"></script>
   <script src="steering-view.js?v=2"></script>
   <script src="barcode-model.js?v=2"></script>
-  <script src="barcode-view.js?v=4"></script>
+  <script src="barcode-view.js?v=6"></script>
   <script src="barcode-config.js?v=1"></script>
   <script src="ir-stream-model.js?v=1"></script>
   <script src="ir-stream-view.js?v=1"></script>
-  <script src="app.js?v=25"></script>
+  <script src="app.js?v=27"></script>
 </body>
 </html>

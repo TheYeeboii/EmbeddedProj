@@ -35,6 +35,8 @@
 #define ROBOT_LINE_BASE_MIN_PCT       (15)
 #define ROBOT_LINE_BASE_MAX_PCT       (80)
 #define ROBOT_LINE_TURN_MAX_PCT       (60)
+#define ROBOT_LINE_BASE_DEFAULT_PCT   (35)   /* boot line speed, see buddy3_ir.c */
+#define ROBOT_LINE_TURN_DEFAULT_PCT   (27)
 
 #define ROBOT_FORWARD_SPEED           (30000u)   /* dashboard units */
 #define ROBOT_REVERSE_SPEED           (20000u)
@@ -389,6 +391,23 @@ static void robot_set_barcode_mode(int32_t mode)
     tm_printf((UB *)"[barcode] mode=%d (0 off, 1 observe)\n", (INT)mode);
 }
 
+/* Dashboard "Reset everything": stop, then return every runtime setting and
+ * counter to its boot value without rebooting the Pico. */
+static void robot_reset_all(void)
+{
+    robot_stop_all();
+    buddy2_reset_encoders();            /* odometry + latched encoder faults */
+    (void)buddy2_set_trim((uint8_t)BUDDY2_TRIM_DEFAULT_LEFT, (uint8_t)BUDDY2_TRIM_DEFAULT_RIGHT);
+    (void)buddy2_set_speed_limit((uint8_t)BUDDY2_SPEED_DEFAULT);
+    buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
+    robot_set_line_speed(ROBOT_LINE_BASE_DEFAULT_PCT, ROBOT_LINE_TURN_DEFAULT_PCT);
+    buddy4_reset_run();
+    g_barcode_mode = 1u;
+    (void)buddy3_configure_barcode((uint16_t)BUDDY3_BARCODE_MIN_ELEMENT_MM,
+                                   (int16_t)BUDDY3_BARCODE_OFFSET_LEFT_MM);
+    tm_printf((UB *)"[cmd] reset_all: stopped; faults, odometry and IMU cleared; defaults restored\n");
+}
+
 static bool robot_simple_command(const char *p_name, uint32_t now_ms)
 {
     if (robot_str_equal(p_name, "stop"))
@@ -424,6 +443,10 @@ static bool robot_simple_command(const char *p_name, uint32_t now_ms)
     {
         buddy4_reset_run();
         tm_printf((UB *)"[cmd] imu_reset\n");
+    }
+    else if (robot_str_equal(p_name, "reset_all"))
+    {
+        robot_reset_all();
     }
     else
     {
