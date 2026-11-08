@@ -5,9 +5,10 @@
 #include "../firmware/app_program/robot_steering_trace.c"
 #include "../firmware/app_program/robot_steering_mqtt.c"
 
-static bool     online, writable;
-static unsigned published;
-static char     last_payload[512];
+static bool     g_b_online;
+static bool     g_b_writable;
+static unsigned g_published;
+static char     g_last_payload[512];
 int             tm_sprintf (unsigned char * out, unsigned char * fmt, ...)
 {
     va_list args;
@@ -19,63 +20,63 @@ int             tm_sprintf (unsigned char * out, unsigned char * fmt, ...)
 }
 uint32_t comms_get_link_state (void)
 {
-    return online ? COMMS_LINK_MQTT_UP : 0;
+    return g_b_online ? COMMS_LINK_MQTT_UP : 0;
 }
 bool comms_publish (uint32_t topic, const char * payload)
 {
     assert(COMMS_TOPIC_STEERING == topic);
-    if (!writable)
+    if (!g_b_writable)
     {
         return false;
     }
-    strcpy(last_payload, payload);
-    ++published;
+    strcpy(g_last_payload, payload);
+    ++g_published;
     return true;
 }
 int main (void)
 {
-    robot_steering_event_t e = {0}, out;
+    robot_steering_event_t event = {0}, out;
     robot_diagnostics_init(123);
     robot_steering_owner(TRACE_MANUAL);
-    e.requested[1] = 2000;
-    e.applied[1]   = 800;
-    e.ts_ms        = 10;
-    robot_steering_record(&e);
-    e.ts_ms = 20;
-    robot_steering_record(&e); // steady evidence coalesces
+    event.requested[1] = 2000;
+    event.applied[1]   = 800;
+    event.ts_ms        = 10;
+    robot_steering_record(&event);
+    event.ts_ms = 20;
+    robot_steering_record(&event); // steady evidence coalesces
     assert(1 == g_count);
-    e.ts_ms        = 30;
-    e.requested[0] = 3000;
-    robot_steering_record(&e);
+    event.ts_ms        = 30;
+    event.requested[0] = 3000;
+    robot_steering_record(&event);
     assert(2 == g_count); // 20ms left pulse retained
     assert(robot_steering_peek(&out) && 1 == out.direction &&
            800 == out.applied[1]);
     robot_steering_publish(40);
-    assert(2 == g_count && !published);
-    online = true;
+    assert(2 == g_count && !g_published);
+    g_b_online = true;
     robot_steering_publish(40);
-    assert(2 == g_count && !published);
-    writable = true;
+    assert(2 == g_count && !g_published);
+    g_b_writable = true;
     robot_steering_publish(40);
-    assert(0 == g_count && 2 == published);
+    assert(0 == g_count && 2 == g_published);
     robot_steering_publish(50);
-    assert(strstr(last_payload, "steering_state"));
-    assert(strstr(last_payload, "\"boot\":123"));
-    unsigned before = published;
+    assert(strstr(g_last_payload, "steering_state"));
+    assert(strstr(g_last_payload, "\"boot\":123"));
+    unsigned before = g_published;
     robot_steering_publish(60);
-    assert(published == before);
-    e.has_input       = true;
-    e.input.threshold = 550;
-    e.input.phase     = TRACE_CROSS;
-    e.input.norm[0]   = 900;
-    e.ts_ms           = 61;
-    robot_steering_record(&e);
+    assert(g_published == before);
+    event.has_input       = true;
+    event.input.threshold = 550;
+    event.input.phase     = TRACE_CROSS;
+    event.input.norm[0]   = 900;
+    event.ts_ms           = 61;
+    robot_steering_record(&event);
     assert(robot_steering_peek(&out) && TRACE_JUNCTION == out.owner);
     uint32_t stale = out.seq;
-    for (unsigned i = 0; i < 80; ++i)
+    for (unsigned index = 0; index < 80; ++index)
     {
-        e.ts_ms += 100;
-        robot_steering_record(&e);
+        event.ts_ms += 100;
+        robot_steering_record(&event);
     }
     assert(64 == g_count && g_dropped > 0);
     robot_steering_ack(stale);
@@ -85,28 +86,28 @@ int main (void)
         robot_steering_ack(out.seq);
     }
     /* Exercise maximum wire length, including all unsigned/signed bounds. */
-    memset(&e, 0, sizeof(e));
-    e.has_input    = true;
-    e.ts_ms        = UINT32_MAX;
-    e.encoder_ms   = UINT32_MAX;
-    e.input.ts_ms  = UINT32_MAX;
-    e.requested[0] = e.applied[0] = e.speed_x10[0] = -32767;
-    e.requested[1] = e.applied[1] = e.speed_x10[1] = 32767;
-    e.distance_x10[0]                              = -INT32_MAX;
-    e.distance_x10[1]                              = INT32_MAX;
-    e.input.raw[0] = e.input.raw[1] = 4095;
-    e.input.norm[0] = e.input.norm[1] = e.input.threshold = 1000;
-    for (unsigned i = 0; i < 4; ++i)
+    memset(&event, 0, sizeof(event));
+    event.has_input    = true;
+    event.ts_ms        = UINT32_MAX;
+    event.encoder_ms   = UINT32_MAX;
+    event.input.ts_ms  = UINT32_MAX;
+    event.requested[0] = event.applied[0] = event.speed_x10[0] = -32767;
+    event.requested[1] = event.applied[1] = event.speed_x10[1] = 32767;
+    event.distance_x10[0]                                      = -INT32_MAX;
+    event.distance_x10[1]                                      = INT32_MAX;
+    event.input.raw[0] = event.input.raw[1] = 4095;
+    event.input.norm[0] = event.input.norm[1] = event.input.threshold = 1000;
+    for (unsigned index = 0; index < 4; ++index)
     {
-        e.input.calibration[i] = 4095;
+        event.input.calibration[index] = 4095;
     }
-    e.input.dark  = 3;
-    e.faults      = 3;
-    e.input.phase = TRACE_DARK;
-    g_sequence    = UINT32_MAX - 1;
-    g_dropped     = UINT32_MAX;
-    g_session_id  = UINT32_MAX;
-    robot_steering_record(&e);
+    event.input.dark  = 3;
+    event.faults      = 3;
+    event.input.phase = TRACE_DARK;
+    g_sequence        = UINT32_MAX - 1;
+    g_dropped         = UINT32_MAX;
+    g_session_id      = UINT32_MAX;
+    robot_steering_record(&event);
     robot_steering_publish(UINT32_MAX - 1);
     puts("PASS: steering pulse capture, coalescing, ownership, drops, stale "
          "ack, offline/backpressure retry and worst-case JSON bounds");

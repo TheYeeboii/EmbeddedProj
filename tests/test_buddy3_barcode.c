@@ -17,17 +17,18 @@ static void frame (char symbol, float32_t narrow, float32_t ratio, bool reverse,
 {
     const char * groups[] = {"010010100", alphabet[symbol - 'A'], "010010100"};
     float32_t    forward[29];
-    for (unsigned g = 0; g < 3; ++g)
+    for (unsigned group = 0; group < 3; ++group)
     {
-        for (unsigned i = 0; i < 9; ++i)
+        for (unsigned index = 0; index < 9; ++index)
         {
-            forward[g * 10 + i] = narrow * (groups[g][i] == '1' ? ratio : 1.0f);
+            forward[group * 10 + index] =
+                narrow * (groups[group][index] == '1' ? ratio : 1.0f);
         }
     }
     forward[9] = forward[19] = narrow;
-    for (unsigned i = 0; i < 29; ++i)
+    for (unsigned index = 0; index < 29; ++index)
     {
-        out[i] = forward[reverse ? 28 - i : i];
+        out[index] = forward[reverse ? 28 - index : index];
     }
 }
 
@@ -36,7 +37,7 @@ static void test_parser (void)
     const float32_t scales[] = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f};
     float32_t       widths[29];
     code39_result_t result;
-    for (char c = 'A'; c <= 'Z'; ++c)
+    for (char letter = 'A'; letter <= 'Z'; ++letter)
     {
         for (unsigned scale = 0; scale < 5; ++scale)
         {
@@ -44,15 +45,16 @@ static void test_parser (void)
             {
                 for (unsigned ratio = 2; ratio <= 3; ++ratio)
                 {
-                    frame(c, scales[scale], (float32_t) ratio, reverse != 0,
-                          widths);
-                    for (unsigned i = 0; i < 29; ++i)
+                    frame(letter, scales[scale], (float32_t) ratio,
+                          reverse != 0, widths);
+                    for (unsigned index = 0; index < 29; ++index)
                     {
-                        widths[i] *= 1.0f + (i % 3 == 0 ? 0.08f : -0.08f);
+                        widths[index] *=
+                            1.0f + (index % 3 == 0 ? 0.08f : -0.08f);
                     }
                     assert(code39_decode(widths, 29, 30, 30, &result) ==
                            CODE39_OK);
-                    assert(result.symbol == c &&
+                    assert(result.symbol == letter &&
                            result.reversed == (reverse != 0));
                 }
             }
@@ -85,20 +87,20 @@ static void test_parser (void)
     widths[4] = 0;
     assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_WIDTH);
     frame('A', 1, 3, false, widths);
-    for (unsigned i = 0; i < 9; ++i)
+    for (unsigned index = 0; index < 9; ++index)
     {
-        widths[20 + i] = widths[8 - i];
+        widths[20 + index] = widths[8 - index];
     }
     assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_FRAME);
     frame('A', 1, 3, false, widths);
-    for (unsigned i = 0; i < 9; ++i)
+    for (unsigned index = 0; index < 9; ++index)
     {
-        widths[10 + i] = widths[i]; /* * as payload */
+        widths[10 + index] = widths[index]; /* * as payload */
     }
     assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_SYMBOL);
-    for (unsigned i = 0; i < 29; ++i)
+    for (unsigned index = 0; index < 29; ++index)
     {
-        widths[i] = 1;
+        widths[index] = 1;
     }
     assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_WIDTH);
 }
@@ -106,72 +108,77 @@ static void test_parser (void)
 static unsigned replay (char symbol, float32_t scale, bool reversed,
                         bool variable_speed)
 {
-    buddy3_barcode_decoder_t s   = {0};
-    buddy3_barcode_config_t  cfg = {0.25f};
+    buddy3_barcode_decoder_t decoder = {0};
+    buddy3_barcode_config_t  cfg     = {0.25f};
     buddy3_barcode_event_t   event;
-    float32_t                widths[29], boundaries[30], pos = 0, ds = 0;
-    unsigned                 valid = 0;
+    float32_t                widths[29];
+    float32_t                boundaries[30];
+    float32_t                pos     = 0;
+    float32_t                step_mm = 0;
+    unsigned                 valid   = 0;
     frame(symbol, scale, 3, reversed, widths);
     boundaries[0] = 15 * scale;
-    for (unsigned i = 0; i < 29; ++i)
+    for (unsigned index = 0; index < 29; ++index)
     {
-        boundaries[i + 1] = boundaries[i] + widths[i];
+        boundaries[index + 1] = boundaries[index] + widths[index];
     }
     for (uint32_t now = 0; pos < boundaries[29] + 30 * scale; ++now)
     {
         bool black = false;
-        for (unsigned i = 0; i < 29; ++i)
+        for (unsigned index = 0; index < 29; ++index)
         {
-            if (pos >= boundaries[i] && pos < boundaries[i + 1])
+            if (pos >= boundaries[index] && pos < boundaries[index + 1])
             {
-                black = i % 2 == 0;
+                black = index % 2 == 0;
             }
         }
-        if (buddy3_barcode_step(&s, &cfg, black, ds, now, true, &event))
+        if (buddy3_barcode_step(&decoder, &cfg, black, step_mm, now, true,
+                                &event))
         {
             assert(B3BC_VALID == event.kind);
             assert(event.decoded.symbol == symbol &&
                    event.decoded.reversed == reversed);
-            assert(29 == s.count);
-            for (unsigned i = 1; i < 29; ++i)
+            assert(29 == decoder.count);
+            for (unsigned index = 1; index < 29; ++index)
             {
-                assert(s.edge_ms[i] > s.edge_ms[i - 1]);
+                assert(decoder.edge_ms[index] > decoder.edge_ms[index - 1]);
             }
             ++valid;
         }
-        ds = variable_speed && now % 7 < 3 ? 0.025f : 0.05f;
-        pos += ds;
+        step_mm = variable_speed && now % 7 < 3 ? 0.025f : 0.05f;
+        pos += step_mm;
     }
     return valid;
 }
 
 static void test_abort (void)
 {
-    buddy3_barcode_decoder_t s   = {0};
-    buddy3_barcode_config_t  cfg = {4};
+    buddy3_barcode_decoder_t decoder = {0};
+    buddy3_barcode_config_t  cfg     = {4};
     buddy3_barcode_event_t   event;
-    for (unsigned i = 0; i < 100; ++i)
+    for (unsigned index = 0; index < 100; ++index)
     {
-        assert(!buddy3_barcode_step(&s, &cfg, i % 2, 0, i, true, &event));
+        assert(!buddy3_barcode_step(&decoder, &cfg, index % 2, 0, index, true,
+                                    &event));
     }
-    assert(!s.active && !s.count);
-    s.active      = true;
-    s.have_sample = true;
-    assert(buddy3_barcode_step(&s, &cfg, true, 0, 1500, true, &event));
-    assert(B3BC_STALL == event.kind && !s.active);
-    s.active = true;
-    assert(buddy3_barcode_step(&s, &cfg, true, -1, 1510, true, &event));
-    assert(B3BC_REVERSE == event.kind && !s.active);
-    s.active = true;
-    assert(buddy3_barcode_step(&s, &cfg, true, 2, 1520, true, &event));
+    assert(!decoder.active && !decoder.count);
+    decoder.active      = true;
+    decoder.have_sample = true;
+    assert(buddy3_barcode_step(&decoder, &cfg, true, 0, 1500, true, &event));
+    assert(B3BC_STALL == event.kind && !decoder.active);
+    decoder.active = true;
+    assert(buddy3_barcode_step(&decoder, &cfg, true, -1, 1510, true, &event));
+    assert(B3BC_REVERSE == event.kind && !decoder.active);
+    decoder.active = true;
+    assert(buddy3_barcode_step(&decoder, &cfg, true, 2, 1520, true, &event));
     assert(B3BC_SAMPLE_GAP == event.kind);
-    s.active = true;
-    assert(buddy3_barcode_step(&s, &cfg, true, 1, 1530, false, &event));
+    decoder.active = true;
+    assert(buddy3_barcode_step(&decoder, &cfg, true, 1, 1530, false, &event));
     assert(B3BC_INTERRUPTED == event.kind);
-    s.active           = true;
-    s.have_sample      = true;
-    s.last_progress_ms = 30000;
-    assert(buddy3_barcode_step(&s, &cfg, true, 1, 30000, true, &event));
+    decoder.active           = true;
+    decoder.have_sample      = true;
+    decoder.last_progress_ms = 30000;
+    assert(buddy3_barcode_step(&decoder, &cfg, true, 1, 30000, true, &event));
     assert(B3BC_TIMEOUT == event.kind);
     assert(buddy3_barcode_travel(9, 11, 100, 50) == 9);
     assert(buddy3_barcode_travel(9, 11, 100, -50) == 11);
@@ -180,12 +187,12 @@ static void test_abort (void)
 int main (void)
 {
     test_parser();
-    for (char c = 'A'; c <= 'Z'; ++c)
+    for (char letter = 'A'; letter <= 'Z'; ++letter)
     {
         for (unsigned reverse = 0; reverse < 2; ++reverse)
         {
-            assert(replay(c, 0.5f, reverse != 0, false) == 1);
-            assert(replay(c, 2.0f, reverse != 0, true) == 1);
+            assert(replay(letter, 0.5f, reverse != 0, false) == 1);
+            assert(replay(letter, 2.0f, reverse != 0, true) == 1);
         }
     }
     test_abort();

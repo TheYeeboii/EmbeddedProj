@@ -87,7 +87,7 @@ typedef struct
     const char *       p_name;
     const char *       p_first_key;
     const char *       p_second_key;
-    robot_command_id_t id;
+    robot_command_id_t command_id;
 } robot_command_t;
 
 static const robot_command_t g_commands[] = {
@@ -144,8 +144,8 @@ static bool         robot_simple_command (const char * p_name, uint32_t now_ms);
 static bool robot_command_args (const robot_command_t * p_entry, bool b_json,
                                 const char * p_command, const char * p_rest,
                                 int32_t values[2]);
-static void robot_run_command (robot_command_id_t id, const int32_t values[2],
-                               uint32_t now_ms);
+static void robot_run_command (robot_command_id_t command_id,
+                               const int32_t values[2], uint32_t now_ms);
 static void robot_log_barcode (const buddy3_barcode_event_t * p_event);
 
 /* ------------------------------------------------------------------ *
@@ -207,7 +207,7 @@ void robot_controller_handle_command (const char * p_command, uint32_t now_ms)
             else if (robot_command_args(&g_commands[index], b_json, p_command,
                                         p_rest, values))
             {
-                robot_run_command(g_commands[index].id, values, now_ms);
+                robot_run_command(g_commands[index].command_id, values, now_ms);
             }
             else
             {
@@ -842,10 +842,10 @@ static bool robot_command_args (const robot_command_t * p_entry, bool b_json,
 }
 
 /* Carry out a command whose numbers were read successfully. */
-static void robot_run_command (robot_command_id_t id, const int32_t values[2],
-                               uint32_t now_ms)
+static void robot_run_command (robot_command_id_t command_id,
+                               const int32_t values[2], uint32_t now_ms)
 {
-    switch (id)
+    switch (command_id)
     {
         case ROBOT_CMD_DRIVE:
             robot_drive(robot_clamp_legacy(values[0]),
