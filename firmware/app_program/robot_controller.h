@@ -17,7 +17,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/** Reset the controller to idle and set up the GP21 button. */
 void robot_controller_init (void);
+
 /** Execute one dashboard command: JSON like {"cmd":"drive","left":30000,
  *  "right":30000} or plain text like "drive 30000 30000".  Distance/turn
  *  moves are reserved for internal navigation. */

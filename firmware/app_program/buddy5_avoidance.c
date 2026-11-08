@@ -201,6 +201,8 @@ static void app_arc_complete (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
                               int16_t heading_x10);
 static void app_forward_distance (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
 static bool app_forward_sonar_ready (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_forward_progress (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
+                                  int16_t heading_x10);
 static void app_forward_leg_done (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
                                   int16_t heading_error_x10);
 static void app_forward_drive (int16_t heading_error_x10);
@@ -682,14 +684,9 @@ static void app_arc_complete (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
 /* Step 6: drive a heading-held forward leg. */
 static void app_forward_distance (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
 {
-    buddy4_imu_state_t    imu               = {0};
-    buddy2_motion_state_t forward_motion    = {0};
-    uint32_t              front_cm          = BUDDY5_NO_ECHO;
-    float32_t             progress_mm       = 0.0f;
-    float32_t             left_moved_mm     = 0.0f;
-    float32_t             right_moved_mm    = 0.0f;
-    int16_t               heading_error_x10 = 0;
-    bool                  b_busy            = false;
+    buddy4_imu_state_t imu      = {0};
+    uint32_t           front_cm = BUDDY5_NO_ECHO;
+    bool               b_busy   = false;
 
     buddy4_get_state(&imu);
     if (!imu.mag_ok)
@@ -737,61 +734,7 @@ static void app_forward_distance (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
 
     if (!b_busy)
     {
-        buddy2_get_motion_state(&forward_motion);
-        /* Both repaired wheels contribute to centre travel. A failed encoder
-         * must not silently turn this into a one-wheel move. */
-        if (forward_motion.left_encoder_fault ||
-            forward_motion.right_encoder_fault)
-        {
-            buddy2_stop();
-            robot_telemetry_set_avoidance_turn_pwm(0, 0);
-            robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_BLOCKED, 0,
-                                                 0u);
-            tm_printf((UB *) "[avoid] encoder fault during forward; "
-                             "stopped\n");
-            robot_controller_abort_obstacle_avoidance();
-            buddy5_set_servo_angle(APP_ULTRASONIC_ANGLE_DEG);
-            p_ctx->state                  = APP_AVOID_WATCH_FORWARD;
-            p_ctx->finished_ms            = now_ms;
-            p_ctx->b_result_pending_clear = true;
-        }
-        else
-        {
-            left_moved_mm  = forward_motion.left_distance_mm -
-                             p_ctx->forward_start_motion.left_distance_mm;
-            right_moved_mm = forward_motion.right_distance_mm -
-                             p_ctx->forward_start_motion.right_distance_mm;
-            left_moved_mm =
-                (left_moved_mm < 0.0f) ? -left_moved_mm : left_moved_mm;
-            right_moved_mm =
-                (right_moved_mm < 0.0f) ? -right_moved_mm : right_moved_mm;
-            progress_mm = (left_moved_mm + right_moved_mm) * 0.5f;
-            /* Progress and target are a few hundred millimetres. */
-            robot_telemetry_set_avoidance_forward_progress(
-                (uint16_t) progress_mm, (uint16_t) p_ctx->forward_target_mm);
-            heading_error_x10 = app_heading_change_x10(
-                p_ctx->forward_start_heading_x10, imu.heading_deg_x10);
-
-            if (progress_mm >= p_ctx->forward_target_mm)
-            {
-                app_forward_leg_done(p_ctx, now_ms, heading_error_x10);
-            }
-            else if ((now_ms - p_ctx->state_started_ms) >=
-                     APP_AVOID_FORWARD_TIMEOUT_MS)
-            {
-                buddy2_stop();
-                tm_printf((UB *) "[avoid] heading-held forward timed out at "
-                                 "%u/%u mm; remaining stopped\n",
-                          (UINT) progress_mm, (UINT) p_ctx->forward_target_mm);
-                robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_TIMEOUT,
-                                                     heading_error_x10, 0u);
-                app_end_avoidance(p_ctx, now_ms, false);
-            }
-            else
-            {
-                app_forward_drive(heading_error_x10);
-            }
-        }
+        app_forward_progress(p_ctx, now_ms, imu.heading_deg_x10);
     }
 }
 
@@ -1521,6 +1464,71 @@ static void app_restart_for_obstacle (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
                          "stopped\n");
         robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_BLOCKED, 0, 0u);
         app_end_avoidance(p_ctx, now_ms, true);
+    }
+}
+
+/* Check the encoders, report progress and finish, time out or steer the
+ * current forward leg. */
+static void app_forward_progress (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
+                                  int16_t heading_x10)
+{
+    buddy2_motion_state_t forward_motion    = {0};
+    float32_t             progress_mm       = 0.0f;
+    float32_t             left_moved_mm     = 0.0f;
+    float32_t             right_moved_mm    = 0.0f;
+    int16_t               heading_error_x10 = 0;
+
+    buddy2_get_motion_state(&forward_motion);
+    /* Both repaired wheels contribute to centre travel. A failed encoder
+     * must not silently turn this into a one-wheel move. */
+    if (forward_motion.left_encoder_fault || forward_motion.right_encoder_fault)
+    {
+        buddy2_stop();
+        robot_telemetry_set_avoidance_turn_pwm(0, 0);
+        robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_BLOCKED, 0, 0u);
+        tm_printf((UB *) "[avoid] encoder fault during forward; "
+                         "stopped\n");
+        robot_controller_abort_obstacle_avoidance();
+        buddy5_set_servo_angle(APP_ULTRASONIC_ANGLE_DEG);
+        p_ctx->state                  = APP_AVOID_WATCH_FORWARD;
+        p_ctx->finished_ms            = now_ms;
+        p_ctx->b_result_pending_clear = true;
+    }
+    else
+    {
+        left_moved_mm  = forward_motion.left_distance_mm -
+                         p_ctx->forward_start_motion.left_distance_mm;
+        right_moved_mm = forward_motion.right_distance_mm -
+                         p_ctx->forward_start_motion.right_distance_mm;
+        left_moved_mm = (left_moved_mm < 0.0f) ? -left_moved_mm : left_moved_mm;
+        right_moved_mm =
+            (right_moved_mm < 0.0f) ? -right_moved_mm : right_moved_mm;
+        progress_mm = (left_moved_mm + right_moved_mm) * 0.5f;
+        /* Progress and target are a few hundred millimetres. */
+        robot_telemetry_set_avoidance_forward_progress(
+            (uint16_t) progress_mm, (uint16_t) p_ctx->forward_target_mm);
+        heading_error_x10 = app_heading_change_x10(
+            p_ctx->forward_start_heading_x10, heading_x10);
+
+        if (progress_mm >= p_ctx->forward_target_mm)
+        {
+            app_forward_leg_done(p_ctx, now_ms, heading_error_x10);
+        }
+        else if ((now_ms - p_ctx->state_started_ms) >=
+                 APP_AVOID_FORWARD_TIMEOUT_MS)
+        {
+            buddy2_stop();
+            tm_printf((UB *) "[avoid] heading-held forward timed out at "
+                             "%u/%u mm; remaining stopped\n",
+                      (UINT) progress_mm, (UINT) p_ctx->forward_target_mm);
+            robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_TIMEOUT,
+                                                 heading_error_x10, 0u);
+            app_end_avoidance(p_ctx, now_ms, false);
+        }
+        else
+        {
+            app_forward_drive(heading_error_x10);
+        }
     }
 }
 

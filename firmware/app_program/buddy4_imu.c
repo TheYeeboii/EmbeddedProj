@@ -250,10 +250,11 @@ void buddy4_task (int32_t stacd, void * p_exinf)
             last_report_ms  = start_ms;
         }
         elapsed_ms = app_now_ms() - start_ms;
-        /* The remaining delay is below BUDDY4_PERIOD_MS, so it fits TMO. */
+        /* The remaining delay is below BUDDY4_PERIOD_MS, so it fits RELTIM;
+         * wait at least 1 ms so lower-priority tasks always run. */
         (void) tk_dly_tsk((elapsed_ms < BUDDY4_PERIOD_MS)
-                              ? (TMO) (BUDDY4_PERIOD_MS - elapsed_ms)
-                              : 1);
+                              ? (RELTIM) (BUDDY4_PERIOD_MS - elapsed_ms)
+                              : (RELTIM) 1u);
     }
 }
 

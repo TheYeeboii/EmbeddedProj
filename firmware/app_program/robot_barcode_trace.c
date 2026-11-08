@@ -30,7 +30,7 @@
 /* Capture storage and transport cursors are private to this module. */
 typedef struct
 {
-    uint32_t               id;
+    uint32_t               scan_id;
     uint32_t               started_ms;
     uint32_t               updated_ms;
     uint32_t               sample_drops;
@@ -212,7 +212,8 @@ bool robot_barcode_packet_peek (robot_barcode_packet_t * p_packet, uint32_t now)
     {
         if (g_frames[index].occupied &&
             ((BARCODE_TRACE_FRAMES == slot) ||
-             ((int32_t) (g_frames[index].id - g_frames[slot].id) < 0)))
+             ((int32_t) (g_frames[index].scan_id - g_frames[slot].scan_id) <
+              0)))
         {
             slot = index;
         }
@@ -254,7 +255,7 @@ void robot_barcode_packet_ack (const robot_barcode_packet_t * p_packet)
             {
                 robot_barcode_frame_t * p_frame = &g_frames[index];
 
-                if (p_frame->occupied && (p_frame->id == p_packet->scan))
+                if (p_frame->occupied && (p_frame->scan_id == p_packet->scan))
                 {
                     if (BC_PACKET_START == p_packet->type)
                     {
@@ -361,14 +362,15 @@ static void trace_start_frame (const buddy3_barcode_decoder_t *    p_decoder,
     if (BARCODE_TRACE_FRAMES == slot)
     {
         /* Both busy: drop the older scan (wrap-safe id comparison). */
-        slot = ((int32_t) (g_frames[0].id - g_frames[1].id) < 0) ? 0u : 1u;
+        slot = ((int32_t) (g_frames[0].scan_id - g_frames[1].scan_id) < 0) ? 0u
+                                                                           : 1u;
         ++g_dropped_scans;
     }
 
     /* Do not zero a large sample buffer in the control path. Counts make
      * old storage inaccessible; only fixed metadata is initialized. */
     p_frame                = &g_frames[slot];
-    p_frame->id            = ++g_scan_sequence;
+    p_frame->scan_id       = ++g_scan_sequence;
     p_frame->started_ms    = p_obs->ts_ms;
     p_frame->count         = 0u;
     p_frame->sample_count  = 0u;
@@ -529,7 +531,7 @@ static bool trace_frame_packet (robot_barcode_packet_t *      p_packet,
     uint32_t remaining = 0u;
     bool     b_ready   = true;
 
-    p_packet->scan          = p_frame->id;
+    p_packet->scan          = p_frame->scan_id;
     p_packet->ts_ms         = p_frame->updated_ms;
     p_packet->state         = p_frame->state;
     p_packet->total_edges   = p_frame->count;

@@ -46,14 +46,22 @@ uint32_t hal_diagnostic_boot_id (void);
 void hal_delay_us (uint32_t us);
 
 /* ---- GPIO ---- */
+/** Make a pin an input with the pull-up enabled. */
 void hal_gpio_input_pullup (uint32_t pin);
+/** Make a pin an input with the pull-down enabled. */
 void hal_gpio_input_pulldown (uint32_t pin);
+/** Make a pin a plain input with no pulls. */
 void hal_gpio_input (uint32_t pin);
+/** Make a pin an output, first driven to initial_value. */
 void hal_gpio_output (uint32_t pin, bool initial_value);
+/** Drive an output pin high (true) or low (false). */
 void hal_gpio_write (uint32_t pin, bool value);
+/** Read a pin: true = high. */
 bool hal_gpio_read (uint32_t pin);
 
 /* ---- GPIO interrupts (used by gpio_irq.c) ---- */
+/** Enable the given edge events of a pin in IO_BANK0 (NVIC side is the
+ *  kernel's). */
 void hal_gpio_irq_enable (uint32_t pin, uint32_t events);
 /** Read the pending events of a pin (limited to mask) and acknowledge them. */
 uint32_t hal_gpio_irq_take_events (uint32_t pin, uint32_t mask);
@@ -65,10 +73,13 @@ void hal_pwm_release_reset (void);
 void hal_pwm_pin_init (uint32_t pin, uint32_t wrap);
 /** Same, with an integer clock divider (e.g. 64 for a 50 Hz servo). */
 void hal_pwm_pin_init_div (uint32_t pin, uint32_t wrap, uint32_t clkdiv);
+/** Set a PWM pin's compare level (0..wrap + 1). */
 void hal_pwm_set_level (uint32_t pin, uint32_t level);
 
 /* ---- ADC (IR sensors) ---- */
+/** Take the ADC block out of reset and enable it. */
 void hal_adc_init (void);
+/** Switch a GPIO (26..29) to its analogue input function. */
 void hal_adc_pin_init (uint32_t pin);
 /** One 12-bit conversion (0..4095) on channel 0..3. */
 uint16_t hal_adc_read (uint32_t channel);
@@ -80,6 +91,7 @@ bool hal_i2c_init (uint32_t port, uint32_t baudrate, uint32_t sda_pin,
 /** Returns HAL_I2C_OK or HAL_I2C_ERROR (no ACK or timeout). */
 int32_t hal_i2c_write (uint32_t port, uint8_t address, const uint8_t * p_data,
                        uint32_t length, bool nostop);
+/** Returns HAL_I2C_OK or HAL_I2C_ERROR (no ACK or timeout). */
 int32_t hal_i2c_read (uint32_t port, uint8_t address, uint8_t * p_data,
                       uint32_t length, bool nostop);
 

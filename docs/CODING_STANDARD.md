@@ -39,7 +39,12 @@ python3 tools/barr_c_check.py                      # list what is left
   fixed-width integers, `float32_t` from `robot_types.h`, `f` on float
   constants, no `==` / `!=` on floats, NaN handled without self-comparison.
 - One header per source file (4.2.a), with an include guard and Doxygen
-  comments on public functions (2.2.h).
+  comments on every public function (2.2.h).
+- Signed and unsigned values are not mixed (5.3.c): the firmware builds
+  without warnings under `-Wsign-compare -Wsign-conversion`, and the portable
+  modules also under `-Wconversion -Wfloat-equal`.
+- The host tests follow the same rules: descriptive names, `g_`/`b_`/`p_`
+  prefixes, and test cases split into functions under 100 lines.
 - No commented-out code (2.1.c): the old encoder-angle line search is now the
   `BUDDY3_SEARCH_USE_ENCODER_ANGLE` switch.
 
@@ -54,8 +59,14 @@ python3 tools/barr_c_check.py                      # list what is left
 | 6.3.a function-like macros | `ROBOT_ROUTINE_LOG(...)`, `APP_TASK(fn, pri)`, kernel `DI()`/`EI()` | Variadic forwarding to `tm_printf` (no `va_list` variant exists), and static task initialisers a function cannot produce. |
 | 7.1.m `b_` on Boolean members | Members of public structs (e.g. `buddy3_ir_state_t.line_seen`, `buddy4_imu_state_t`) | Public structure members are part of the interface other modules and tests use. Private structs were renamed. |
 | 5.2.a fixed-width types | `UINT`, `INT`, `ID`, `ER`, `TMO` | Required by the micro T-Kernel API they are passed to. |
-| Test code | `tests/*.c` | Layout, float types and the end-of-file marker are applied; short local names inside test bodies (`s`, `o`, `i`) were left as they are. |
+| 8.5.b no `setjmp`/`longjmp` | `tests/test_buddy5_avoidance.c` | The test harness has to leave the avoidance task's `for (;;)` loop; it runs on the PC only, never on the robot. |
 | `usb_console_compat.h` | | Course-template file (different copyright holder); only whitespace was changed. |
+
+## Project documents the standard asks for
+
+- Abbreviations table (1.5.b): [ABBREVIATIONS.md](ABBREVIATIONS.md).
+- File templates (4.4.a): [templates/module.h](templates/module.h) and
+  [templates/module.c](templates/module.c).
 
 ## Known test status
 

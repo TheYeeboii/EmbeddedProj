@@ -32,9 +32,9 @@ static uint32_t comms_strlen (const char * p_text, uint32_t limit)
 
 int32_t comms_init (void)
 {
-    T_CMBF  cmbf   = {0};
-    ID      id     = 0;
-    int32_t result = 0;
+    T_CMBF  cmbf       = {0};
+    ID      mailbox_id = 0;
+    int32_t result     = 0;
 
     cmbf.exinf  = NULL;
     cmbf.mbfatr = TA_TFIFO;
@@ -42,26 +42,26 @@ int32_t comms_init (void)
     cmbf.bufsz  = (SZ) (COMMS_OUTBOX_MESSAGES *
                         (COMMS_PAYLOAD_MAX + 1u + COMMS_MSG_OVERHEAD));
     cmbf.maxmsz = (INT) (COMMS_PAYLOAD_MAX + 1u);
-    id          = tk_cre_mbf(&cmbf);
-    if (id < E_OK)
+    mailbox_id  = tk_cre_mbf(&cmbf);
+    if (mailbox_id < E_OK)
     {
-        result = (int32_t) id; /* Negative kernel error code. */
+        result = (int32_t) mailbox_id; /* Negative kernel error code. */
     }
     else
     {
-        g_outbox_id = id;
+        g_outbox_id = mailbox_id;
 
         cmbf.bufsz  = (SZ) (COMMS_INBOX_MESSAGES *
                             (COMMS_COMMAND_MAX + COMMS_MSG_OVERHEAD));
         cmbf.maxmsz = (INT) COMMS_COMMAND_MAX;
-        id          = tk_cre_mbf(&cmbf);
-        if (id < E_OK)
+        mailbox_id  = tk_cre_mbf(&cmbf);
+        if (mailbox_id < E_OK)
         {
-            result = (int32_t) id;
+            result = (int32_t) mailbox_id;
         }
         else
         {
-            g_inbox_id = id;
+            g_inbox_id = mailbox_id;
         }
     }
 

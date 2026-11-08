@@ -38,6 +38,9 @@ static code39_status_t
 code39_check_frame (const float32_t * p_widths, const float32_t * p_narrow,
                     const float32_t * p_wide, float32_t leading_quiet,
                     float32_t trailing_quiet, code39_result_t * p_decoded);
+static code39_status_t code39_finish (const float32_t * p_widths,
+                                      uint16_t          pattern,
+                                      code39_result_t * p_decoded);
 
 code39_status_t code39_decode (const float32_t * p_widths, uint32_t count,
                                float32_t         leading_quiet,
@@ -50,8 +53,7 @@ code39_status_t code39_decode (const float32_t * p_widths, uint32_t count,
     float32_t       narrow[FRAME_CHARS]   = {0.0f};
     float32_t       wide[FRAME_CHARS]     = {0.0f};
     float32_t       canonical[CODE39_FRAME_ELEMENTS];
-    uint32_t        index  = 0u;
-    uint32_t        letter = 0u;
+    uint32_t        index = 0u;
 
     if (NULL == p_result)
     {
@@ -107,32 +109,7 @@ code39_status_t code39_decode (const float32_t * p_widths, uint32_t count,
 
     if (CODE39_OK == status)
     {
-        letter = 0u;
-        while ((letter < LETTER_COUNT) && (g_letters[letter] != patterns[1]))
-        {
-            ++letter;
-        }
-        if (LETTER_COUNT == letter)
-        {
-            status = CODE39_BAD_SYMBOL;
-        }
-        else
-        {
-            /* letter < 26, so 'A' + letter is an uppercase ASCII letter. */
-            decoded.symbol = (char) ('A' + letter);
-        }
-    }
-
-    if (CODE39_OK == status)
-    {
-        for (index = 0u; index < CODE39_FRAME_ELEMENTS; ++index)
-        {
-            decoded.frame_width += p_widths[index];
-        }
-        if (!isfinite(decoded.frame_width))
-        {
-            status = CODE39_BAD_WIDTH;
-        }
+        status = code39_finish(p_widths, patterns[1], &decoded);
     }
 
     /* The output is cleared on rejection and only filled on success. */
@@ -305,6 +282,42 @@ code39_check_frame (const float32_t * p_widths, const float32_t * p_narrow,
          (trailing_quiet < (QUIET_NARROWS * max_narrow))))
     {
         status = CODE39_BAD_QUIET;
+    }
+
+    return status;
+}
+
+/* Look up the middle character as a letter and total the frame width.
+ * Returns CODE39_OK, CODE39_BAD_SYMBOL or CODE39_BAD_WIDTH. */
+static code39_status_t code39_finish (const float32_t * p_widths,
+                                      uint16_t          pattern,
+                                      code39_result_t * p_decoded)
+{
+    code39_status_t status = CODE39_OK;
+    uint32_t        letter = 0u;
+    uint32_t        index  = 0u;
+
+    while ((letter < LETTER_COUNT) && (g_letters[letter] != pattern))
+    {
+        ++letter;
+    }
+
+    if (LETTER_COUNT == letter)
+    {
+        status = CODE39_BAD_SYMBOL;
+    }
+    else
+    {
+        /* letter < 26, so 'A' + letter is an uppercase ASCII letter. */
+        p_decoded->symbol = (char) ('A' + letter);
+        for (index = 0u; index < CODE39_FRAME_ELEMENTS; ++index)
+        {
+            p_decoded->frame_width += p_widths[index];
+        }
+        if (!isfinite(p_decoded->frame_width))
+        {
+            status = CODE39_BAD_WIDTH;
+        }
     }
 
     return status;
