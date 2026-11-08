@@ -158,7 +158,7 @@ static void reset (void)
     accept_move         = true;
     button_high         = true;
     g_line_button_count = 0;
-    g_line_button_was   = false;
+    g_b_line_button_was   = false;
     starts = stops = lefts = rights = forwards = 0;
     event                                      = 0;
     encoder_fault                              = false;
