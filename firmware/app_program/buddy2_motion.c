@@ -446,6 +446,12 @@ void buddy2_reset_encoders(void)
     /* Keep an active move consistent with the zeroed odometry. */
     g_motion.start_left_distance_mm  = 0.0f;
     g_motion.start_right_distance_mm = 0.0f;
+    /* A reset also forgets latched encoder faults; a genuinely silent
+     * wheel is flagged again by the next powered check. */
+    g_state.left_encoder_fault  = false;
+    g_state.right_encoder_fault = false;
+    g_left_no_tick_ms  = 0u;
+    g_right_no_tick_ms = 0u;
     buddy2_unlock();
 }
 

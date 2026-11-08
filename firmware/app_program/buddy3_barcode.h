@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "code39.h"
 #ifndef BUDDY3_BARCODE_MIN_ELEMENT_MM
-#define BUDDY3_BARCODE_MIN_ELEMENT_MM 0.0f /* Configure after checking encoders. */
+#define BUDDY3_BARCODE_MIN_ELEMENT_MM 3.0f /* Decode by default; 0 disables. */
 #endif
 #ifndef BUDDY3_BARCODE_OFFSET_LEFT_MM
 #define BUDDY3_BARCODE_OFFSET_LEFT_MM 0.0f /* Left positive; right negative. */
