@@ -69,7 +69,7 @@ void buddy5_set_servo_angle (uint8_t angle)
 {
     servo_angle = angle;
 }
-bool buddy2_turn_left (float a, int16_t p)
+bool buddy2_turn_left (float32_t a, int16_t p)
 {
     assert(90.0f == a);
     (void) p;
@@ -77,7 +77,7 @@ bool buddy2_turn_left (float a, int16_t p)
     motion = accept_move;
     return motion;
 }
-bool buddy2_turn_right (float a, int16_t p)
+bool buddy2_turn_right (float32_t a, int16_t p)
 {
     assert(90.0f == a);
     (void) p;
@@ -85,7 +85,7 @@ bool buddy2_turn_right (float a, int16_t p)
     motion = accept_move;
     return motion;
 }
-bool buddy2_move_forward (float d, int16_t p)
+bool buddy2_move_forward (float32_t d, int16_t p)
 {
     assert(300.0f == d);
     (void) p;
@@ -158,7 +158,7 @@ static void reset (void)
     accept_move         = true;
     button_high         = true;
     g_line_button_count = 0;
-    g_b_line_button_was   = false;
+    g_b_line_button_was = false;
     starts = stops = lefts = rights = forwards = 0;
     event                                      = 0;
     encoder_fault                              = false;

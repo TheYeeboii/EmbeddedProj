@@ -12,7 +12,7 @@
 #define STEERING_PACKETS_PER_CALL 2u
 #define STEERING_SNAPSHOT_MS      1000u
 
-static void steering_format (char * p_payload,
+static void steering_format (char *                         p_payload,
                              const robot_steering_event_t * p_event,
                              bool b_queued, uint32_t now);
 
@@ -21,20 +21,18 @@ void robot_steering_publish (uint32_t now_ms)
     static uint32_t        last_snapshot   = 0u;
     static bool            b_have_snapshot = false;
     static char            payload[COMMS_PAYLOAD_MAX];
-    robot_steering_event_t event  = {0};
-    uint32_t               sent   = 0u;
-    bool                   b_more = (COMMS_LINK_MQTT_UP ==
-                                     comms_get_link_state());
+    robot_steering_event_t event = {0};
+    uint32_t               sent  = 0u;
+    bool b_more = (COMMS_LINK_MQTT_UP == comms_get_link_state());
 
     for (sent = 0u; b_more && (sent < STEERING_PACKETS_PER_CALL); ++sent)
     {
         bool b_queued = robot_steering_peek(&event);
 
         /* When caught up, send the latest state at most once a second. */
-        if (!b_queued &&
-            ((b_have_snapshot &&
-              ((now_ms - last_snapshot) < STEERING_SNAPSHOT_MS)) ||
-             !robot_steering_snapshot(&event)))
+        if (!b_queued && ((b_have_snapshot &&
+                           ((now_ms - last_snapshot) < STEERING_SNAPSHOT_MS)) ||
+                          !robot_steering_snapshot(&event)))
         {
             b_more = false;
         }
@@ -63,7 +61,7 @@ void robot_steering_publish (uint32_t now_ms)
  * host serialization test exercises every numeric bound.  tm_sprintf takes
  * UB pointers and each value is cast to the UINT/INT its conversion
  * expects. */
-static void steering_format (char * p_payload,
+static void steering_format (char *                         p_payload,
                              const robot_steering_event_t * p_event,
                              bool b_queued, uint32_t now)
 {
@@ -81,8 +79,7 @@ static void steering_format (char * p_payload,
                "\"has_input\":%u}",
         b_queued ? "steering" : "steering_state",
         (UINT) robot_diagnostics_session(), (UINT) p_event->seq,
-        (UINT) p_event->ts_ms,
-        b_queued ? (UINT) (now - p_event->ts_ms) : 0u,
+        (UINT) p_event->ts_ms, b_queued ? (UINT) (now - p_event->ts_ms) : 0u,
         (UINT) p_event->dropped, (UINT) p_event->owner, (UINT) p_in->phase,
         (UINT) p_event->direction, (INT) p_event->requested[0],
         (INT) p_event->requested[1], (INT) p_event->applied[0],

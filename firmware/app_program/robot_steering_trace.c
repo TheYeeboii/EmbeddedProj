@@ -13,12 +13,12 @@
 
 static robot_steering_event_t g_queue[ROBOT_STEERING_QUEUE_SIZE];
 static robot_steering_event_t g_current;
-static uint32_t               g_head       = 0u;
-static uint32_t               g_count      = 0u;
-static uint32_t               g_sequence   = 0u;
-static uint32_t               g_dropped    = 0u;
-static uint32_t               g_session_id = 0u;
-static uint8_t                g_owner      = TRACE_MANUAL;
+static uint32_t               g_head           = 0u;
+static uint32_t               g_count          = 0u;
+static uint32_t               g_sequence       = 0u;
+static uint32_t               g_dropped        = 0u;
+static uint32_t               g_session_id     = 0u;
+static uint8_t                g_owner          = TRACE_MANUAL;
 static bool                   g_b_have_current = false;
 
 static uint8_t trace_direction (const robot_steering_event_t * p_event);
@@ -67,10 +67,10 @@ void robot_steering_record (const robot_steering_event_t * p_input)
             --g_count;
             ++g_dropped;
         }
-        event.seq        = ++g_sequence;
-        event.dropped    = g_dropped;
-        g_current        = event;
-        g_b_have_current = true;
+        event.seq                                               = ++g_sequence;
+        event.dropped                                           = g_dropped;
+        g_current                                               = event;
+        g_b_have_current                                        = true;
         g_queue[(g_head + g_count) % ROBOT_STEERING_QUEUE_SIZE] = event;
         ++g_count;
     }

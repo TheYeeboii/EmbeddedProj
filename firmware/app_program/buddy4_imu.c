@@ -43,8 +43,8 @@
 #define BUDDY4_ACCEL_SHIFT_DIV (16)
 
 /* Calibration limits accepted by buddy4_set_calibration(). */
-#define CAL_PITCH_ZERO_MAX (900)     /* 90.0 degrees */
-#define CAL_ROLL_ZERO_MAX  (1800)    /* 180.0 degrees */
+#define CAL_PITCH_ZERO_MAX (900)  /* 90.0 degrees */
+#define CAL_ROLL_ZERO_MAX  (1800) /* 180.0 degrees */
 #define CAL_MAG_SCALE_MIN  (0.01f)
 #define CAL_MAG_SCALE_MAX  (100.0f)
 #define CAL_ACCEL_BIAS_MAX (2000.0f) /* mg */
@@ -64,14 +64,14 @@ static int16_t buddy4_be16 (const uint8_t * p_bytes);
 static int16_t buddy4_le16 (const uint8_t * p_bytes);
 static void    buddy4_to_rover_axes (int16_t axes[BUDDY4_AXES]);
 static bool    buddy4_write_reg (uint8_t address, uint8_t reg, uint8_t value);
-static bool    buddy4_read_regs (uint8_t address, uint8_t reg,
-                                 uint8_t * p_buffer, uint32_t length);
-static bool    buddy4_configure_mag (void);
-static bool    buddy4_configure_accel (void);
-static void    buddy4_apply_pending (void);
-static bool    buddy4_read_mag (int16_t mag[BUDDY4_AXES]);
-static bool    buddy4_read_accel (int16_t accel[BUDDY4_AXES]);
-static void    buddy4_report (const buddy4_imu_state_t * p_state);
+static bool buddy4_read_regs (uint8_t address, uint8_t reg, uint8_t * p_buffer,
+                              uint32_t length);
+static bool buddy4_configure_mag (void);
+static bool buddy4_configure_accel (void);
+static void buddy4_apply_pending (void);
+static bool buddy4_read_mag (int16_t mag[BUDDY4_AXES]);
+static bool buddy4_read_accel (int16_t accel[BUDDY4_AXES]);
+static void buddy4_report (const buddy4_imu_state_t * p_state);
 
 bool buddy4_init (void)
 {
@@ -118,7 +118,7 @@ void buddy4_update (uint32_t now_ms)
      * pushed wheels still require physical validation. */
     b_odometry_fresh = ((now_ms - motion.timestamp_ms) <= BUDDY4_STALE_MS);
     b_forward        = b_odometry_fresh && (motion.left_speed_mm_s > 0.0f) &&
-                (motion.right_speed_mm_s > 0.0f);
+                       (motion.right_speed_mm_s > 0.0f);
     buddy4_process(&g_processor, now_ms, b_mag_read, mag, b_accel_read, accel,
                    (motion.left_distance_mm + motion.right_distance_mm) * 0.5f,
                    (motion.right_distance_mm - motion.left_distance_mm) * 0.5f,
@@ -298,10 +298,10 @@ static bool buddy4_read_regs (uint8_t address, uint8_t reg, uint8_t * p_buffer,
                               uint32_t length)
 {
     /* Write the register address without a stop, then read the data. */
-    return ((HAL_I2C_OK ==
-             hal_i2c_write(IMU_I2C_PORT, address, &reg, 1u, true)) &&
-            (HAL_I2C_OK ==
-             hal_i2c_read(IMU_I2C_PORT, address, p_buffer, length, false)));
+    return (
+        (HAL_I2C_OK == hal_i2c_write(IMU_I2C_PORT, address, &reg, 1u, true)) &&
+        (HAL_I2C_OK ==
+         hal_i2c_read(IMU_I2C_PORT, address, p_buffer, length, false)));
 }
 
 static bool buddy4_configure_mag (void)
@@ -359,7 +359,7 @@ static void buddy4_apply_pending (void)
 static bool buddy4_read_mag (int16_t mag[BUDDY4_AXES])
 {
     uint8_t buffer[BUDDY4_RAW_BYTES];
-    bool    b_read = g_b_mag_configured &&
+    bool b_read = g_b_mag_configured &&
                   buddy4_read_regs(LSM303_MAG_ADDR, LSM303_MAG_OUT_X_H, buffer,
                                    BUDDY4_RAW_BYTES);
 
@@ -384,8 +384,8 @@ static bool buddy4_read_mag (int16_t mag[BUDDY4_AXES])
 static bool buddy4_read_accel (int16_t accel[BUDDY4_AXES])
 {
     uint8_t  buffer[BUDDY4_RAW_BYTES];
-    uint32_t index  = 0u;
-    bool     b_read = g_b_accel_configured &&
+    uint32_t index = 0u;
+    bool b_read = g_b_accel_configured &&
                   buddy4_read_regs(LSM303_ACCEL_ADDR,
                                    LSM303_ACC_OUT_X_L | LSM303_AUTO_INCREMENT,
                                    buffer, BUDDY4_RAW_BYTES);

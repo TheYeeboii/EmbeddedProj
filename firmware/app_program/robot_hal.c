@@ -108,7 +108,7 @@ uint64_t hal_time_us (void)
 
 void hal_delay_us (uint32_t us)
 {
-    uint64_t end   = time_us_64() + us;
+    uint64_t end = time_us_64() + us;
     /* Never spin forever, even if the timer were not running. */
     uint32_t guard = (us + 1u) * 200u;
 

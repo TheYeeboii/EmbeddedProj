@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "robot_types.h"
 #include "buddy3_barcode.h"
 
 #define BARCODE_TRACE_FRAMES  2u
@@ -121,7 +122,7 @@ typedef struct
  * @param scale Multiplier, e.g. 100 for hundredths.
  * @return value * scale, clamped to +/-INT32_MAX.
  */
-int32_t robot_barcode_scaled (float value, float scale);
+int32_t robot_barcode_scaled (float32_t value, float32_t scale);
 
 /**
  * @brief Store the reader configuration sent with every scan and enable it.
@@ -152,9 +153,9 @@ void robot_barcode_trace_cancel (uint32_t now);
  * @param p_result          Event of this step, or NULL if none.
  */
 void robot_barcode_trace_observe (
-    const buddy3_barcode_decoder_t * p_decoder,
+    const buddy3_barcode_decoder_t *    p_decoder,
     const robot_barcode_observation_t * p_observation, bool was_active,
-    float unfinished_before, const buddy3_barcode_event_t * p_result);
+    float32_t unfinished_before, const buddy3_barcode_event_t * p_result);
 
 /**
  * @brief Build the next packet to publish without consuming it.
@@ -163,7 +164,7 @@ void robot_barcode_trace_observe (
  * @return True when a packet is ready.
  */
 bool robot_barcode_packet_peek (robot_barcode_packet_t * p_packet,
-                                uint32_t now);
+                                uint32_t                 now);
 
 /**
  * @brief Advance the transport cursors after a successful publish.  A stale

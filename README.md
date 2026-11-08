@@ -24,6 +24,10 @@ format, Wi-Fi build requirements and verification steps.
 
 ## Code in `firmware/app_program/`
 
+All of it follows the BARR-C:2018 embedded C coding standard; see
+[CODING_STANDARD.md](docs/CODING_STANDARD.md) for the formatter, checker and
+the few deliberate deviations.
+
 | File | Buddy | What it does |
 |---|---|---|
 | `app_main.c/.h` | all | `usermain()`: initialises everything and creates the tasks |
@@ -39,6 +43,7 @@ format, Wi-Fi build requirements and verification steps.
 | `robot_hal.c/.h` | - | **The only file that includes Pico SDK `hardware/*.h`** |
 | `gpio_irq.c/.h` | - | The single shared GPIO interrupt handler |
 | `pin_config.h` | - | All pin numbers |
+| `robot_types.h` | - | `float32_t` (BARR-C fixed-width float type) |
 | `usb_console_compat.h` | - | USB console helper |
 
 ### RTOS tasks

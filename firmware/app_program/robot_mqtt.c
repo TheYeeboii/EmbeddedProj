@@ -33,11 +33,11 @@ static const char * const g_topic_names[COMMS_TOPIC_COUNT] = {
     "rover/telemetry", "rover/debug",    "rover/heartbeat", "rover/status",
     "rover/actions",   "rover/steering", "rover/barcode",   "rover/ir"};
 
-static mqtt_client_t * g_client            = NULL;
+static mqtt_client_t * g_p_client            = NULL;
 static bool            g_b_connecting        = false;
 static bool            g_b_subscribe_pending = false;
 static bool            g_b_online_pending    = false;
-static uint64_t        g_next_attempt_us   = 0u;
+static uint64_t        g_next_attempt_us     = 0u;
 static char            g_incoming[COMMS_COMMAND_MAX];
 static uint32_t        g_incoming_length = 0u;
 static char            g_outgoing[COMMS_PAYLOAD_MAX];
@@ -115,10 +115,9 @@ static void robot_mqtt_start_connect (void)
     else
     {
         g_b_connecting = true;
-        if (ERR_OK != mqtt_client_connect(g_client, &broker,
-                                          ROBOT_MQTT_BROKER_PORT,
-                                          robot_mqtt_connected, NULL,
-                                          &client_info))
+        if (ERR_OK !=
+            mqtt_client_connect(g_p_client, &broker, ROBOT_MQTT_BROKER_PORT,
+                                robot_mqtt_connected, NULL, &client_info))
         {
             g_b_connecting    = false;
             g_next_attempt_us = time_us_64() + ROBOT_MQTT_RETRY_US;
@@ -140,7 +139,7 @@ static void robot_mqtt_service (void)
     if (g_b_subscribe_pending)
     {
         if (ERR_OK ==
-            mqtt_subscribe(g_client, "rover/commands", 0u, NULL, NULL))
+            mqtt_subscribe(g_p_client, "rover/commands", 0u, NULL, NULL))
         {
             g_b_subscribe_pending = false;
         }
@@ -148,9 +147,9 @@ static void robot_mqtt_service (void)
     if (g_b_online_pending)
     {
         /* The message is a short constant, so its length fits in u16_t. */
-        if (ERR_OK == mqtt_publish(g_client, g_topic_names[COMMS_TOPIC_STATUS],
-                                   online, (u16_t) (sizeof(online) - 1u), 0u,
-                                   1u, NULL, NULL))
+        if (ERR_OK ==
+            mqtt_publish(g_p_client, g_topic_names[COMMS_TOPIC_STATUS], online,
+                         (u16_t) (sizeof(online) - 1u), 0u, 1u, NULL, NULL))
         {
             g_b_online_pending = false;
         }
@@ -163,7 +162,7 @@ static void robot_mqtt_service (void)
         if (b_more)
         {
             /* Payloads are shorter than COMMS_PAYLOAD_MAX (512 bytes). */
-            (void) mqtt_publish(g_client, g_topic_names[topic], g_outgoing,
+            (void) mqtt_publish(g_p_client, g_topic_names[topic], g_outgoing,
                                 (u16_t) strlen(g_outgoing), 0u, 0u, NULL, NULL);
         }
     }
@@ -178,21 +177,21 @@ void robot_mqtt_poll (struct netif * p_netif)
     }
     else
     {
-        if (NULL == g_client)
+        if (NULL == g_p_client)
         {
-            g_client = mqtt_client_new();
-            if (NULL != g_client)
+            g_p_client = mqtt_client_new();
+            if (NULL != g_p_client)
             {
-                mqtt_set_inpub_callback(g_client, robot_mqtt_incoming_publish,
+                mqtt_set_inpub_callback(g_p_client, robot_mqtt_incoming_publish,
                                         robot_mqtt_incoming_data, NULL);
             }
         }
 
-        if (NULL == g_client)
+        if (NULL == g_p_client)
         {
             /* Out of memory: try again on the next poll. */
         }
-        else if (!mqtt_client_is_connected(g_client))
+        else if (!mqtt_client_is_connected(g_p_client))
         {
             comms_set_link_state(COMMS_LINK_WIFI_UP);
             if (!g_b_connecting && (time_us_64() >= g_next_attempt_us))

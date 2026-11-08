@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "robot_types.h"
 
 /* Single uppercase letter, framed as *LETTER*. Each character has nine
  * alternating black/white elements, separated by one narrow white gap. */
@@ -27,11 +28,11 @@ typedef enum
 /** A decoded letter and the measured geometry of its frame. */
 typedef struct
 {
-    char  symbol;
-    bool  reversed;
-    float narrow_width;
-    float wide_ratio;
-    float frame_width;
+    char      symbol;
+    bool      reversed;
+    float32_t narrow_width;
+    float32_t wide_ratio;
+    float32_t frame_width;
 } code39_result_t;
 
 /**
@@ -45,8 +46,9 @@ typedef struct
  * @param p_result       Receives the letter; cleared on rejection.
  * @return CODE39_OK or the reason the frame was rejected.
  */
-code39_status_t code39_decode (const float * p_widths, uint32_t count,
-                               float leading_quiet, float trailing_quiet,
+code39_status_t code39_decode (const float32_t * p_widths, uint32_t count,
+                               float32_t         leading_quiet,
+                               float32_t         trailing_quiet,
                                code39_result_t * p_result);
 
 /**

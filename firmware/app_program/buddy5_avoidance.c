@@ -76,11 +76,10 @@
 #define APP_AVOID_RIGHT_TURN_OUTER_PWM (14000)
 #define APP_AVOID_ARC_INNER_PWM        (4000)
 
-
 /* Angles are handled in tenths of a degree. */
-#define APP_DEG_X10        (10.0f)
-#define APP_HALF_TURN_X10  (1800)
-#define APP_FULL_TURN_X10  (3600)
+#define APP_DEG_X10         (10.0f)
+#define APP_HALF_TURN_X10   (1800)
+#define APP_FULL_TURN_X10   (3600)
 #define APP_TURN_TARGET_X10 ((uint16_t) (APP_AVOID_TURN_DEG * APP_DEG_X10))
 
 /* ------------------------------------------------------------------ *
@@ -146,8 +145,8 @@ typedef struct
     int16_t                 forward_start_heading_x10;
     uint16_t                outward_arc_target_x10;
     uint16_t                return_arc_target_x10;
-    float                   forward_target_mm;
-    float                   paired_diagonal_distance_mm;
+    float32_t               forward_target_mm;
+    float32_t               paired_diagonal_distance_mm;
     bool                    b_outward_turn_left;
     bool                    b_outward_arc_extended;
     bool                    b_outward_forward_extended;
@@ -165,61 +164,47 @@ static bool         app_sonar_is_close (uint32_t distance_cm);
 static bool         app_scan_angle_is_left (uint8_t angle_deg);
 static void         app_side_scan_reset (app_side_scan_t * p_scan);
 static const char * app_ping_failure_name (buddy5_ping_result_t result);
-static bool         app_side_scan_ping (uint8_t angle_deg,
-                                        app_side_scan_t * p_scan,
-                                        uint32_t * p_average_cm);
-static void         app_publish_avoidance_scan_values (uint32_t scan_45_cm,
-                                                       uint32_t scan_135_cm);
-static void         app_publish_avoidance_decision (uint32_t scan_45_cm,
-                                                    uint32_t scan_135_cm,
-                                                    bool     b_turn_left);
-static int16_t      app_heading_change_x10 (int16_t start_heading_x10,
-                                            int16_t current_heading_x10);
-static uint16_t     app_abs_heading_change_x10 (int16_t change_x10);
-static int16_t      app_heading_offset_x10 (int16_t heading_x10,
-                                            int16_t offset_x10);
-static bool         app_start_heading_arc (bool      b_turn_left,
-                                           int16_t * p_start_heading_x10);
-static uint8_t      app_outward_monitor_angle (bool b_turn_left);
-static void         app_check_outward_clearance (app_avoid_ctx_t * p_ctx);
-static void         app_check_outward_forward_clearance (app_avoid_ctx_t * p_ctx);
-static bool         app_start_clearance_reverse (app_avoid_ctx_t * p_ctx,
-                                                 uint32_t now_ms);
-static void         app_begin_side_scan (app_avoid_ctx_t * p_ctx,
-                                         uint32_t now_ms);
-static void         app_end_avoidance (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
-                                       bool b_abort);
-static void         app_start_forward_leg (app_avoid_ctx_t * p_ctx,
-                                           int16_t current_heading_x10,
-                                           float target_mm,
-                                           app_avoid_forward_leg_t leg,
-                                           uint32_t now_ms);
-static void         app_restart_for_obstacle (app_avoid_ctx_t * p_ctx,
-                                              uint32_t now_ms);
-static void         app_step (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
-static void         app_watch_forward (app_avoid_ctx_t * p_ctx,
-                                       uint32_t now_ms);
-static void         app_reverse_clearance (app_avoid_ctx_t * p_ctx,
-                                           uint32_t now_ms);
-static void         app_side_scan_step (app_avoid_ctx_t * p_ctx,
-                                        uint32_t now_ms);
-static void         app_choose_route (app_avoid_ctx_t * p_ctx,
-                                      uint32_t now_ms);
-static void         app_outward_settle (app_avoid_ctx_t * p_ctx,
-                                        uint32_t now_ms);
-static void         app_turn_arc (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
-static void         app_arc_complete (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
-                                      int16_t heading_x10);
-static void         app_forward_distance (app_avoid_ctx_t * p_ctx,
-                                          uint32_t now_ms);
-static bool         app_forward_sonar_ready (app_avoid_ctx_t * p_ctx,
-                                             uint32_t now_ms);
-static void         app_forward_leg_done (app_avoid_ctx_t * p_ctx,
-                                          uint32_t now_ms,
-                                          int16_t heading_error_x10);
-static void         app_forward_drive (int16_t heading_error_x10);
-static void         app_recover_heading (app_avoid_ctx_t * p_ctx,
-                                         uint32_t now_ms);
+static bool     app_side_scan_ping (uint8_t angle_deg, app_side_scan_t * p_scan,
+                                    uint32_t * p_average_cm);
+static void     app_publish_avoidance_scan_values (uint32_t scan_45_cm,
+                                                   uint32_t scan_135_cm);
+static void     app_publish_avoidance_decision (uint32_t scan_45_cm,
+                                                uint32_t scan_135_cm,
+                                                bool     b_turn_left);
+static int16_t  app_heading_change_x10 (int16_t start_heading_x10,
+                                        int16_t now_heading_x10);
+static uint16_t app_abs_heading_change_x10 (int16_t change_x10);
+static int16_t app_heading_offset_x10 (int16_t heading_x10, int16_t offset_x10);
+static bool    app_start_heading_arc (bool      b_turn_left,
+                                      int16_t * p_start_heading_x10);
+static uint8_t app_outward_monitor_angle (bool b_turn_left);
+static void    app_check_outward_clearance (app_avoid_ctx_t * p_ctx);
+static void    app_check_outward_forward_clearance (app_avoid_ctx_t * p_ctx);
+static bool    app_start_clearance_reverse (app_avoid_ctx_t * p_ctx,
+                                            uint32_t          now_ms);
+static void    app_begin_side_scan (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void    app_end_avoidance (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
+                                  bool b_abort);
+static void app_start_forward_leg (app_avoid_ctx_t * p_ctx,
+                                   int16_t now_heading_x10, float32_t target_mm,
+                                   app_avoid_forward_leg_t leg,
+                                   uint32_t                now_ms);
+static void app_restart_for_obstacle (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_step (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_watch_forward (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_reverse_clearance (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_side_scan_step (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_choose_route (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_outward_settle (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_turn_arc (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_arc_complete (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
+                              int16_t heading_x10);
+static void app_forward_distance (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static bool app_forward_sonar_ready (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
+static void app_forward_leg_done (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
+                                  int16_t heading_error_x10);
+static void app_forward_drive (int16_t heading_error_x10);
+static void app_recover_heading (app_avoid_ctx_t * p_ctx, uint32_t now_ms);
 
 /**
  * @brief Run the Buddy 5 obstacle-avoidance state machine every 100 ms.
@@ -373,15 +358,13 @@ static void app_reverse_clearance (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
             app_begin_side_scan(p_ctx, now_ms);
         }
     }
-    else if ((now_ms - p_ctx->state_started_ms) >=
-             APP_AVOID_REVERSE_TIMEOUT_MS)
+    else if ((now_ms - p_ctx->state_started_ms) >= APP_AVOID_REVERSE_TIMEOUT_MS)
     {
         buddy2_stop();
         tm_printf((UB *) "[avoid] reverse clearance timed out; remaining "
                          "stopped\n");
         robot_telemetry_set_avoidance_turn_pwm(0, 0);
-        robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_TIMEOUT, 0,
-                                             0u);
+        robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_TIMEOUT, 0, 0u);
         app_end_avoidance(p_ctx, now_ms, true);
     }
     else
@@ -397,8 +380,7 @@ static void app_side_scan_step (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
     bool b_at_45 = (APP_AVOID_WAIT_45 == p_ctx->state);
 
     if (((now_ms - p_ctx->state_started_ms) >= APP_SERVO_SETTLE_MS) &&
-        ((now_ms - p_ctx->side_scan_last_ping_ms) >=
-         APP_SONAR_PING_SPACING_MS))
+        ((now_ms - p_ctx->side_scan_last_ping_ms) >= APP_SONAR_PING_SPACING_MS))
     {
         p_ctx->side_scan_last_ping_ms = now_ms;
         if (b_at_45)
@@ -431,15 +413,14 @@ static void app_side_scan_step (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
 /* Step 4: decide to turn left or right, or stay stopped. */
 static void app_choose_route (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
 {
-    uint8_t chosen_angle      = APP_SCAN_ANGLE_135_DEG;
-    bool    b_turn_left       = false;
-    bool    b_scan_45_valid   = (BUDDY5_NO_ECHO != p_ctx->scan_45_cm);
-    bool    b_scan_135_valid  = (BUDDY5_NO_ECHO != p_ctx->scan_135_cm);
-    bool    b_scan_45_usable  = b_scan_45_valid &&
-                              (p_ctx->scan_45_cm >= APP_AVOID_MIN_CLEARANCE_CM);
-    bool    b_scan_135_usable =
-        b_scan_135_valid &&
-        (p_ctx->scan_135_cm >= APP_AVOID_MIN_CLEARANCE_CM);
+    uint8_t chosen_angle     = APP_SCAN_ANGLE_135_DEG;
+    bool    b_turn_left      = false;
+    bool    b_scan_45_valid  = (BUDDY5_NO_ECHO != p_ctx->scan_45_cm);
+    bool    b_scan_135_valid = (BUDDY5_NO_ECHO != p_ctx->scan_135_cm);
+    bool    b_scan_45_usable =
+        b_scan_45_valid && (p_ctx->scan_45_cm >= APP_AVOID_MIN_CLEARANCE_CM);
+    bool b_scan_135_usable =
+        b_scan_135_valid && (p_ctx->scan_135_cm >= APP_AVOID_MIN_CLEARANCE_CM);
 
     if ((now_ms - p_ctx->state_started_ms) < APP_SERVO_SETTLE_MS)
     {
@@ -459,16 +440,15 @@ static void app_choose_route (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
          * operator re-scan. */
         if (!b_scan_45_valid || !b_scan_135_valid)
         {
-            tm_printf((UB *) "[avoid] incomplete side scan; no turn: 45 deg "
-                             "(%s) valid=%u/%u, 135 deg (%s) valid=%u/%u\n",
-                      app_scan_angle_is_left(APP_SCAN_ANGLE_45_DEG) ? "left"
-                                                                    : "right",
-                      (UINT) p_ctx->scan_45.valid,
-                      (UINT) p_ctx->scan_45.attempts,
-                      app_scan_angle_is_left(APP_SCAN_ANGLE_135_DEG) ? "left"
-                                                                     : "right",
-                      (UINT) p_ctx->scan_135.valid,
-                      (UINT) p_ctx->scan_135.attempts);
+            tm_printf(
+                (UB *) "[avoid] incomplete side scan; no turn: 45 deg "
+                       "(%s) valid=%u/%u, 135 deg (%s) valid=%u/%u\n",
+                app_scan_angle_is_left(APP_SCAN_ANGLE_45_DEG) ? "left"
+                                                              : "right",
+                (UINT) p_ctx->scan_45.valid, (UINT) p_ctx->scan_45.attempts,
+                app_scan_angle_is_left(APP_SCAN_ANGLE_135_DEG) ? "left"
+                                                               : "right",
+                (UINT) p_ctx->scan_135.valid, (UINT) p_ctx->scan_135.attempts);
             robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_BLOCKED, 0,
                                                  0u);
             app_end_avoidance(p_ctx, now_ms, true);
@@ -532,9 +512,8 @@ static void app_outward_settle (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
     {
         tm_printf((UB *) "[avoid] IMU heading unavailable; remaining "
                          "stopped\n");
-        robot_telemetry_set_avoidance_status(
-            ROBOT_AVOID_STATUS_IMU_UNAVAILABLE, 0,
-            p_ctx->outward_arc_target_x10);
+        robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_IMU_UNAVAILABLE,
+                                             0, p_ctx->outward_arc_target_x10);
         app_end_avoidance(p_ctx, now_ms, true);
     }
     else
@@ -643,9 +622,9 @@ static void app_turn_arc (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
                 buddy2_stop();
                 tm_printf((UB *) "[avoid] IMU arc timeout; remaining "
                                  "stopped\n");
-                robot_telemetry_set_avoidance_status(
-                    ROBOT_AVOID_STATUS_TIMEOUT, heading_change_x10,
-                    APP_TURN_TARGET_X10);
+                robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_TIMEOUT,
+                                                     heading_change_x10,
+                                                     APP_TURN_TARGET_X10);
                 app_end_avoidance(p_ctx, now_ms, false);
             }
             else
@@ -670,9 +649,9 @@ static void app_arc_complete (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
         p_ctx->paired_diagonal_distance_mm = APP_AVOID_FORWARD_DISTANCE_MM;
         /* The later turn-in must mirror the actual outer arc, including any
          * extension made while turning. */
-        p_ctx->return_arc_target_x10                = p_ctx->outward_arc_target_x10;
-        p_ctx->b_outward_forward_extended           = false;
-        p_ctx->b_outward_forward_monitor_active     = true;
+        p_ctx->return_arc_target_x10            = p_ctx->outward_arc_target_x10;
+        p_ctx->b_outward_forward_extended       = false;
+        p_ctx->b_outward_forward_monitor_active = true;
         p_ctx->b_outward_forward_center_settling    = false;
         p_ctx->outward_forward_monitor_started_ms   = now_ms;
         p_ctx->outward_forward_monitor_last_ping_ms = now_ms;
@@ -706,9 +685,9 @@ static void app_forward_distance (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
     buddy4_imu_state_t    imu               = {0};
     buddy2_motion_state_t forward_motion    = {0};
     uint32_t              front_cm          = BUDDY5_NO_ECHO;
-    float                 progress_mm       = 0.0f;
-    float                 left_moved_mm     = 0.0f;
-    float                 right_moved_mm    = 0.0f;
+    float32_t             progress_mm       = 0.0f;
+    float32_t             left_moved_mm     = 0.0f;
+    float32_t             right_moved_mm    = 0.0f;
     int16_t               heading_error_x10 = 0;
     bool                  b_busy            = false;
 
@@ -779,13 +758,13 @@ static void app_forward_distance (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
         else
         {
             left_moved_mm  = forward_motion.left_distance_mm -
-                            p_ctx->forward_start_motion.left_distance_mm;
+                             p_ctx->forward_start_motion.left_distance_mm;
             right_moved_mm = forward_motion.right_distance_mm -
                              p_ctx->forward_start_motion.right_distance_mm;
-            left_moved_mm  = (left_moved_mm < 0.0f) ? -left_moved_mm
-                                                    : left_moved_mm;
-            right_moved_mm = (right_moved_mm < 0.0f) ? -right_moved_mm
-                                                     : right_moved_mm;
+            left_moved_mm =
+                (left_moved_mm < 0.0f) ? -left_moved_mm : left_moved_mm;
+            right_moved_mm =
+                (right_moved_mm < 0.0f) ? -right_moved_mm : right_moved_mm;
             progress_mm = (left_moved_mm + right_moved_mm) * 0.5f;
             /* Progress and target are a few hundred millimetres. */
             robot_telemetry_set_avoidance_forward_progress(
@@ -804,8 +783,8 @@ static void app_forward_distance (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
                 tm_printf((UB *) "[avoid] heading-held forward timed out at "
                                  "%u/%u mm; remaining stopped\n",
                           (UINT) progress_mm, (UINT) p_ctx->forward_target_mm);
-                robot_telemetry_set_avoidance_status(
-                    ROBOT_AVOID_STATUS_TIMEOUT, heading_error_x10, 0u);
+                robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_TIMEOUT,
+                                                     heading_error_x10, 0u);
                 app_end_avoidance(p_ctx, now_ms, false);
             }
             else
@@ -913,9 +892,8 @@ static void app_forward_leg_done (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
     {
         tm_printf((UB *) "[avoid] IMU unavailable for turn-in arc; remaining "
                          "stopped\n");
-        robot_telemetry_set_avoidance_status(
-            ROBOT_AVOID_STATUS_IMU_UNAVAILABLE, 0,
-            p_ctx->return_arc_target_x10);
+        robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_IMU_UNAVAILABLE,
+                                             0, p_ctx->return_arc_target_x10);
         app_end_avoidance(p_ctx, now_ms, false);
     }
     else
@@ -1237,10 +1215,10 @@ static void app_publish_avoidance_decision (uint32_t scan_45_cm,
  * not a 359-degree turn.
  */
 static int16_t app_heading_change_x10 (int16_t start_heading_x10,
-                                       int16_t current_heading_x10)
+                                       int16_t now_heading_x10)
 {
     int32_t change_x10 =
-        (int32_t) current_heading_x10 - (int32_t) start_heading_x10;
+        (int32_t) now_heading_x10 - (int32_t) start_heading_x10;
 
     if (change_x10 > APP_HALF_TURN_X10)
     {
@@ -1365,9 +1343,10 @@ static void app_check_outward_clearance (app_avoid_ctx_t * p_ctx)
         {
             p_ctx->b_outward_arc_extended = true;
             /* 40.0 degrees in tenths fits uint16_t. */
-            p_ctx->outward_arc_target_x10 = (uint16_t) (
-                (APP_AVOID_TURN_DEG + APP_AVOID_ARC_EXTRA_TURN_DEG) *
-                APP_DEG_X10);
+            p_ctx->outward_arc_target_x10 =
+                (uint16_t) ((APP_AVOID_TURN_DEG +
+                             APP_AVOID_ARC_EXTRA_TURN_DEG) *
+                            APP_DEG_X10);
             tm_printf((UB *) "[avoid] obstacle-side clearance %u cm; "
                              "extending turn-out to %u.%u deg\n",
                       (UINT) distance_cm,
@@ -1433,7 +1412,7 @@ static void app_check_outward_forward_clearance (app_avoid_ctx_t * p_ctx)
 /** @brief Stop and reverse by a measured distance, creating room to scan
  * and turn.  Returns false if Buddy 2 rejected the move. */
 static bool app_start_clearance_reverse (app_avoid_ctx_t * p_ctx,
-                                         uint32_t now_ms)
+                                         uint32_t          now_ms)
 {
     bool b_started = false;
 
@@ -1508,13 +1487,11 @@ static void app_end_avoidance (app_avoid_ctx_t * p_ctx, uint32_t now_ms,
  * supplies only what differs between legs: its target distance and type.
  */
 static void app_start_forward_leg (app_avoid_ctx_t * p_ctx,
-                                   int16_t current_heading_x10,
-                                   float target_mm,
-                                   app_avoid_forward_leg_t leg,
-                                   uint32_t now_ms)
+                                   int16_t now_heading_x10, float32_t target_mm,
+                                   app_avoid_forward_leg_t leg, uint32_t now_ms)
 {
     buddy2_get_motion_state(&p_ctx->forward_start_motion);
-    p_ctx->forward_start_heading_x10 = current_heading_x10;
+    p_ctx->forward_start_heading_x10 = now_heading_x10;
     p_ctx->forward_target_mm         = target_mm;
     p_ctx->forward_leg               = leg;
 
@@ -1531,8 +1508,7 @@ static void app_start_forward_leg (app_avoid_ctx_t * p_ctx,
 }
 
 /* A (new) front obstacle: forget the old route and back away to rescan. */
-static void app_restart_for_obstacle (app_avoid_ctx_t * p_ctx,
-                                      uint32_t now_ms)
+static void app_restart_for_obstacle (app_avoid_ctx_t * p_ctx, uint32_t now_ms)
 {
     robot_telemetry_clear_avoidance_scan();
     p_ctx->b_result_pending_clear = false;
@@ -1543,8 +1519,7 @@ static void app_restart_for_obstacle (app_avoid_ctx_t * p_ctx,
     {
         tm_printf((UB *) "[avoid] reverse move rejected; remaining "
                          "stopped\n");
-        robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_BLOCKED, 0,
-                                             0u);
+        robot_telemetry_set_avoidance_status(ROBOT_AVOID_STATUS_BLOCKED, 0, 0u);
         app_end_avoidance(p_ctx, now_ms, true);
     }
 }

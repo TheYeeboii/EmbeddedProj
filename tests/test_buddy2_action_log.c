@@ -138,10 +138,10 @@ int main (void)
     buddy2_set_motor_pwm(10000, 10000);
     buddy3_barcode_decoder_t cached = {0}, fresh = {0};
     buddy3_barcode_config_t  config          = {3};
-    float                    previous_cached = 0, previous_fresh = 0;
+    float32_t                previous_cached = 0, previous_fresh = 0;
     unsigned                 cached_reads = 0, fresh_reads = 0;
     const char *             groups[] = {"010010100", "001011000", "010010100"};
-    float                    boundaries[30];
+    float32_t                boundaries[30];
     boundaries[0] = 60;
     for (unsigned i = 0; i < 29; ++i)
     {

@@ -122,8 +122,8 @@ int main (int argc, char ** argv)
         robot_ir_stream_ack(&batch);
     }
     // Worst-case four-row JSON, unsigned sequence wrap and calibration values.
-    g_sequence     = UINT32_MAX - 3;
-    g_dropped      = UINT32_MAX;
+    g_sequence   = UINT32_MAX - 3;
+    g_dropped    = UINT32_MAX;
     boot         = UINT32_MAX;
     o.ts_ms      = UINT32_MAX;
     o.left_x10   = -INT32_MAX;

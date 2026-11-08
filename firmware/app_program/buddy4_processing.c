@@ -68,35 +68,36 @@
 /* Hump heights are reported as uint16_t millimetres. */
 #define BUDDY4_HEIGHT_MAX_MM (65535.0f)
 
-static float   buddy4_median (float first, float second, float third);
-static int16_t buddy4_wrap_x10 (int32_t change_x10);
-static void    buddy4_abort_hump (buddy4_processor_t * p_proc);
-static bool    buddy4_process_accel (buddy4_processor_t * p_proc,
-                                     uint32_t now_ms, uint32_t dt_ms,
-                                     bool b_accel_ok, const int16_t accel[3]);
-static void    buddy4_process_mag (buddy4_processor_t * p_proc, uint32_t now_ms,
-                                   bool b_mag_ok, const int16_t mag[3]);
-static void    buddy4_process_speed (buddy4_processor_t * p_proc,
-                                     uint32_t now_ms, float distance_mm,
-                                     float pivot_mm, bool b_odometry_fresh);
-static void    buddy4_process_hump (buddy4_processor_t * p_proc,
-                                    uint32_t now_ms, float travelled_mm,
-                                    bool b_path_valid);
-static void    buddy4_hump_flat (buddy4_processor_t * p_proc, uint32_t now_ms,
-                                 float tilt, float rise_mm, bool b_path_valid,
-                                 bool b_turning);
-static void    buddy4_hump_finish (buddy4_processor_t * p_proc);
+static float32_t buddy4_median (float32_t first, float32_t second,
+                                float32_t third);
+static int16_t   buddy4_wrap_x10 (int32_t change_x10);
+static void      buddy4_abort_hump (buddy4_processor_t * p_proc);
+static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
+                                  uint32_t dt_ms, bool b_accel_ok,
+                                  const int16_t accel[3]);
+static void buddy4_process_mag (buddy4_processor_t * p_proc, uint32_t now_ms,
+                                bool b_mag_ok, const int16_t mag[3]);
+static void buddy4_process_speed (buddy4_processor_t * p_proc, uint32_t now_ms,
+                                  float32_t distance_mm, float32_t pivot_mm,
+                                  bool b_odometry_fresh);
+static void buddy4_process_hump (buddy4_processor_t * p_proc, uint32_t now_ms,
+                                 float32_t travelled_mm, bool b_path_valid);
+static void buddy4_hump_flat (buddy4_processor_t * p_proc, uint32_t now_ms,
+                              float32_t tilt, float32_t rise_mm,
+                              bool b_path_valid, bool b_turning);
+static void buddy4_hump_finish (buddy4_processor_t * p_proc);
 static uint8_t buddy4_classify (const buddy4_processor_t * p_proc,
-                                uint32_t now_ms);
-static void    buddy4_put_bits (uint8_t * p_out, uint32_t * p_pos,
-                                uint32_t value, uint32_t width);
+                                uint32_t                   now_ms);
+static void buddy4_put_bits (uint8_t * p_out, uint32_t * p_pos, uint32_t value,
+                             uint32_t width);
 static int32_t buddy4_saturate (int32_t value, int32_t low, int32_t high,
                                 bool * p_ok);
 
-static float buddy4_median (float first, float second, float third)
+static float32_t buddy4_median (float32_t first, float32_t second,
+                                float32_t third)
 {
-    float low  = first;
-    float high = second;
+    float32_t low  = first;
+    float32_t high = second;
 
     if (low > high)
     {
@@ -160,10 +161,13 @@ static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
                                   const int16_t accel[3])
 {
     buddy4_imu_state_t * p_state = &p_proc->state;
-    float accel_x = (float) accel[0] - p_proc->calibration.accel_bias_mg[0];
-    float accel_y = (float) accel[1] - p_proc->calibration.accel_bias_mg[1];
-    float accel_z = (float) accel[2] - p_proc->calibration.accel_bias_mg[2];
-    float norm_sq =
+    float32_t            accel_x =
+        (float32_t) accel[0] - p_proc->calibration.accel_bias_mg[0];
+    float32_t accel_y =
+        (float32_t) accel[1] - p_proc->calibration.accel_bias_mg[1];
+    float32_t accel_z =
+        (float32_t) accel[2] - p_proc->calibration.accel_bias_mg[2];
+    float32_t norm_sq =
         (accel_x * accel_x) + (accel_y * accel_y) + (accel_z * accel_z);
     bool b_new = false;
 
@@ -187,12 +191,12 @@ static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
     if (b_accel_ok && isfinite(norm_sq) && (norm_sq >= BUDDY4_GRAVITY_MIN_SQ) &&
         (norm_sq <= BUDDY4_GRAVITY_MAX_SQ))
     {
-        float pitch = (atan2f(-accel_x, sqrtf((accel_y * accel_y) +
-                                              (accel_z * accel_z))) *
-                       BUDDY4_DEG10) -
-                      (float) p_proc->calibration.pitch_zero_x10;
-        float roll  = (atan2f(accel_y, accel_z) * BUDDY4_DEG10) -
-                      (float) p_proc->calibration.roll_zero_x10;
+        float32_t pitch = (atan2f(-accel_x, sqrtf((accel_y * accel_y) +
+                                                  (accel_z * accel_z))) *
+                           BUDDY4_DEG10) -
+                          (float32_t) p_proc->calibration.pitch_zero_x10;
+        float32_t roll  = (atan2f(accel_y, accel_z) * BUDDY4_DEG10) -
+                          (float32_t) p_proc->calibration.roll_zero_x10;
 
         p_proc->rejected_in_row                      = 0u;
         p_proc->pitch_history[p_proc->history_index] = pitch;
@@ -204,14 +208,14 @@ static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
         }
         if (3u == p_proc->history_count)
         {
-            float median_pitch = buddy4_median(p_proc->pitch_history[0],
-                                               p_proc->pitch_history[1],
-                                               p_proc->pitch_history[2]);
-            float median_roll =
+            float32_t median_pitch = buddy4_median(p_proc->pitch_history[0],
+                                                   p_proc->pitch_history[1],
+                                                   p_proc->pitch_history[2]);
+            float32_t median_roll =
                 buddy4_median(p_proc->roll_history[0], p_proc->roll_history[1],
                               p_proc->roll_history[2]);
-            float alpha =
-                (float) dt_ms / (BUDDY4_FILTER_TAU_MS + (float) dt_ms);
+            float32_t alpha =
+                (float32_t) dt_ms / (BUDDY4_FILTER_TAU_MS + (float32_t) dt_ms);
 
             if (!p_proc->filter_ready)
             {
@@ -233,7 +237,7 @@ static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
                 p_state->max_pitch_deg_x10 = p_state->pitch_deg_x10;
             }
             p_state->accel_timestamp_ms = now_ms;
-            b_new                      = true;
+            b_new                       = true;
         }
     }
     else
@@ -270,15 +274,17 @@ static void buddy4_process_mag (buddy4_processor_t * p_proc, uint32_t now_ms,
     }
     if (b_mag_ok)
     {
-        float mag_x   = ((float) mag[0] - p_proc->calibration.mag_bias[0]) *
-                        p_proc->calibration.mag_scale[0];
-        float mag_y   = ((float) mag[1] - p_proc->calibration.mag_bias[1]) *
-                        p_proc->calibration.mag_scale[1];
-        float heading = (atan2f(mag_y, mag_x) * BUDDY4_DEG10) +
-                        (float) p_proc->calibration.heading_offset_x10;
+        float32_t mag_x =
+            ((float32_t) mag[0] - p_proc->calibration.mag_bias[0]) *
+            p_proc->calibration.mag_scale[0];
+        float32_t mag_y =
+            ((float32_t) mag[1] - p_proc->calibration.mag_bias[1]) *
+            p_proc->calibration.mag_scale[1];
+        float32_t heading = (atan2f(mag_y, mag_x) * BUDDY4_DEG10) +
+                            (float32_t) p_proc->calibration.heading_offset_x10;
 
         b_mag_ok = isfinite(heading) && isfinite(mag_x) && isfinite(mag_y) &&
-                 (((mag_x * mag_x) + (mag_y * mag_y)) >= 1.0f);
+                   (((mag_x * mag_x) + (mag_y * mag_y)) >= 1.0f);
         if (b_mag_ok)
         {
             heading = fmodf(heading + 36000.0f, 3600.0f);
@@ -326,7 +332,7 @@ static void buddy4_process_mag (buddy4_processor_t * p_proc, uint32_t now_ms,
 
 /* Wheel odometry: forward and pivot speed per window, and the speed trend. */
 static void buddy4_process_speed (buddy4_processor_t * p_proc, uint32_t now_ms,
-                                  float distance_mm, float pivot_mm,
+                                  float32_t distance_mm, float32_t pivot_mm,
                                   bool b_odometry_fresh)
 {
     if (!b_odometry_fresh || !isfinite(distance_mm) || !isfinite(pivot_mm))
@@ -344,9 +350,9 @@ static void buddy4_process_speed (buddy4_processor_t * p_proc, uint32_t now_ms,
     }
     else if ((now_ms - p_proc->window_ms) >= BUDDY4_SPEED_WINDOW_MS)
     {
-        float seconds     = (float) (now_ms - p_proc->window_ms) / 1000.0f;
-        float speed       = (distance_mm - p_proc->window_distance) / seconds;
-        float pivot_speed = (pivot_mm - p_proc->window_pivot) / seconds;
+        float32_t seconds = (float32_t) (now_ms - p_proc->window_ms) / 1000.0f;
+        float32_t speed   = (distance_mm - p_proc->window_distance) / seconds;
+        float32_t pivot_speed = (pivot_mm - p_proc->window_pivot) / seconds;
 
         if ((fabsf(speed) > BUDDY4_MAX_SPEED_MM_S) ||
             (fabsf(pivot_speed) > BUDDY4_MAX_SPEED_MM_S))
@@ -357,7 +363,7 @@ static void buddy4_process_speed (buddy4_processor_t * p_proc, uint32_t now_ms,
         }
         else
         {
-            float change = fabsf(speed) - fabsf(p_proc->window_speed_mm_s);
+            float32_t change = fabsf(speed) - fabsf(p_proc->window_speed_mm_s);
 
             p_proc->speed_trend = 0;
             if (p_proc->speed_known && (change > BUDDY4_SPEED_CHANGE_MM_S))
@@ -393,16 +399,16 @@ static void buddy4_process_speed (buddy4_processor_t * p_proc, uint32_t now_ms,
  * So detection uses the total tilt (pitch and roll) from the flat attitude,
  * not the sign of the pitch. */
 static void buddy4_process_hump (buddy4_processor_t * p_proc, uint32_t now_ms,
-                                 float travelled_mm, bool b_path_valid)
+                                 float32_t travelled_mm, bool b_path_valid)
 {
     buddy4_imu_state_t * p_state = &p_proc->state;
-    float                pitch   = p_proc->filtered_pitch;
-    float                rise_mm =
+    float32_t            pitch   = p_proc->filtered_pitch;
+    float32_t            rise_mm =
         travelled_mm * sinf((pitch + p_proc->last_pitch) * 0.5f / BUDDY4_DEG10);
-    float tilt      = 0.0f;
-    bool  b_rising  = false;
-    bool  b_turning = (p_state->turn_rate_dps_x10 >= BUDDY4_TURNING_DPS_X10) ||
-                      (p_state->turn_rate_dps_x10 <= -BUDDY4_TURNING_DPS_X10);
+    float32_t tilt     = 0.0f;
+    bool      b_rising = false;
+    bool b_turning = (p_state->turn_rate_dps_x10 >= BUDDY4_TURNING_DPS_X10) ||
+                     (p_state->turn_rate_dps_x10 <= -BUDDY4_TURNING_DPS_X10);
 
     if (!p_proc->flat_ready)
     {
@@ -413,7 +419,7 @@ static void buddy4_process_hump (buddy4_processor_t * p_proc, uint32_t now_ms,
     }
     tilt     = hypotf(pitch - p_proc->flat_pitch,
                       p_proc->filtered_roll - p_proc->flat_roll);
-    b_rising = (tilt > (p_proc->last_tilt + (float) BUDDY4_HUMP_RISE_X10));
+    b_rising = (tilt > (p_proc->last_tilt + (float32_t) BUDDY4_HUMP_RISE_X10));
     p_proc->last_tilt = tilt;
 
     if (BUDDY4_FLAT == p_state->hump_state)
@@ -423,8 +429,7 @@ static void buddy4_process_hump (buddy4_processor_t * p_proc, uint32_t now_ms,
     }
     else
     {
-        p_proc->event_height_valid =
-            p_proc->event_height_valid && b_path_valid;
+        p_proc->event_height_valid = p_proc->event_height_valid && b_path_valid;
         if (b_path_valid)
         {
             p_proc->elevation += rise_mm;
@@ -433,7 +438,7 @@ static void buddy4_process_hump (buddy4_processor_t * p_proc, uint32_t now_ms,
         {
             p_proc->peak_elevation = p_proc->elevation;
         }
-        if (tilt > (float) p_state->hump_peak_deg_x10)
+        if (tilt > (float32_t) p_state->hump_peak_deg_x10)
         {
             /* Tilt is a small angle in tenths, so it fits int16_t. */
             p_state->hump_peak_deg_x10 = (int16_t) tilt;
@@ -449,12 +454,12 @@ static void buddy4_process_hump (buddy4_processor_t * p_proc, uint32_t now_ms,
         {
             buddy4_abort_hump(p_proc);
         }
-        else if (tilt > (float) BUDDY4_HUMP_LEVEL_X10)
+        else if (tilt > (float32_t) BUDDY4_HUMP_LEVEL_X10)
         {
             /* Still leaning: show where on the hump the wheel is. */
             p_proc->exit_count = 0u;
             if (tilt <
-                (float) (p_state->hump_peak_deg_x10 - BUDDY4_HUMP_FALL_X10))
+                (float32_t) (p_state->hump_peak_deg_x10 - BUDDY4_HUMP_FALL_X10))
             {
                 p_state->hump_state = BUDDY4_DESCENDING;
             }
@@ -486,12 +491,12 @@ static void buddy4_process_hump (buddy4_processor_t * p_proc, uint32_t now_ms,
 
 /* Flat ground: track the level attitude and confirm the start of a hump. */
 static void buddy4_hump_flat (buddy4_processor_t * p_proc, uint32_t now_ms,
-                              float tilt, float rise_mm, bool b_path_valid,
-                              bool b_turning)
+                              float32_t tilt, float32_t rise_mm,
+                              bool b_path_valid, bool b_turning)
 {
     buddy4_imu_state_t * p_state = &p_proc->state;
 
-    if (tilt <= (float) BUDDY4_HUMP_LEVEL_X10)
+    if (tilt <= (float32_t) BUDDY4_HUMP_LEVEL_X10)
     {
         p_proc->flat_pitch +=
             BUDDY4_FLAT_ALPHA * (p_proc->filtered_pitch - p_proc->flat_pitch);
@@ -500,7 +505,7 @@ static void buddy4_hump_flat (buddy4_processor_t * p_proc, uint32_t now_ms,
     }
     /* A pivot turn leans the body outwards (sideways force), so a lean that
      * starts during a turn is not a hump. */
-    if ((tilt >= (float) BUDDY4_HUMP_ENTER_X10) && !b_turning)
+    if ((tilt >= (float32_t) BUDDY4_HUMP_ENTER_X10) && !b_turning)
     {
         /* Keep the climb made during the debounce window. */
         if (0u == p_proc->enter_count)
@@ -536,16 +541,16 @@ static void buddy4_hump_flat (buddy4_processor_t * p_proc, uint32_t now_ms,
 /* Back on level ground: count the hump and record its height. */
 static void buddy4_hump_finish (buddy4_processor_t * p_proc)
 {
-    buddy4_imu_state_t * p_state     = &p_proc->state;
-    bool                 b_height_ok = p_proc->event_height_valid &&
-                           (p_proc->peak_elevation >= 0.0f) &&
-                           (p_proc->peak_elevation <= BUDDY4_HEIGHT_MAX_MM);
-    float height_mm = p_proc->peak_elevation;
+    buddy4_imu_state_t * p_state = &p_proc->state;
+    bool      b_height_ok = p_proc->event_height_valid &&
+                            (p_proc->peak_elevation >= 0.0f) &&
+                            (p_proc->peak_elevation <= BUDDY4_HEIGHT_MAX_MM);
+    float32_t height_mm   = p_proc->peak_elevation;
 
     /* No two-wheel estimate (needs calibration and odometry): use the
      * one-wheel lean, which the track hump produces. */
     if (!b_height_ok &&
-        (p_proc->peak_roll >= (float) BUDDY4_HUMP_MIN_ROLL_X10))
+        (p_proc->peak_roll >= (float32_t) BUDDY4_HUMP_MIN_ROLL_X10))
     {
         height_mm =
             BUDDY4_TRACK_WIDTH_MM * sinf(p_proc->peak_roll / BUDDY4_DEG10);
@@ -564,8 +569,7 @@ static void buddy4_hump_finish (buddy4_processor_t * p_proc)
     p_state->height_valid = b_height_ok ? 1u : 0u;
     /* The height was checked against BUDDY4_HEIGHT_MAX_MM (or comes from a
      * sine of the track width), so rounding fits uint16_t. */
-    p_state->hump_height_mm =
-        b_height_ok ? (uint16_t) (height_mm + 0.5f) : 0u;
+    p_state->hump_height_mm = b_height_ok ? (uint16_t) (height_mm + 0.5f) : 0u;
     if (b_height_ok && (p_state->hump_height_mm > p_state->highest_hump_mm))
     {
         p_state->highest_hump_mm = p_state->hump_height_mm;
@@ -619,22 +623,24 @@ static uint8_t buddy4_classify (const buddy4_processor_t * p_proc,
     return motion;
 }
 
-void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms, bool b_mag_ok,
-                     const int16_t mag[3], bool b_accel_ok,
-                     const int16_t accel[3], float distance_mm, float pivot_mm,
-                     bool b_odometry_fresh, bool b_forward_valid)
+void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
+                     bool b_mag_ok, const int16_t mag[3], bool b_accel_ok,
+                     const int16_t accel[3], float32_t distance_mm,
+                     float32_t pivot_mm, bool b_odometry_fresh,
+                     bool b_forward_valid)
 {
     buddy4_imu_state_t * p_state = &p_proc->state;
     uint32_t dt_ms = p_proc->started ? (now_ms - p_proc->last_ms) : 0u;
-    bool  b_gap = p_proc->started && ((dt_ms > BUDDY4_STALE_MS) || (0u == dt_ms));
+    bool     b_gap =
+        p_proc->started && ((dt_ms > BUDDY4_STALE_MS) || (0u == dt_ms));
     /* Travel since the last good pitch, and during this sample only. */
-    float travelled    = distance_mm - p_proc->last_distance;
-    float step         = distance_mm - p_proc->sample_distance;
-    bool  b_path_valid = b_forward_valid && p_proc->calibration.calibrated &&
-                        p_proc->calibration.distance_calibrated &&
-                        isfinite(step) && (step >= 0.0f) &&
-                        (step <= BUDDY4_HUMP_MAX_STEP_MM);
-    bool  b_new_pitch  = false;
+    float32_t travelled = distance_mm - p_proc->last_distance;
+    float32_t step      = distance_mm - p_proc->sample_distance;
+    bool b_path_valid   = b_forward_valid && p_proc->calibration.calibrated &&
+                          p_proc->calibration.distance_calibrated &&
+                          isfinite(step) && (step >= 0.0f) &&
+                          (step <= BUDDY4_HUMP_MAX_STEP_MM);
+    bool b_new_pitch    = false;
 
     p_state->sample_interval_ms =
         (dt_ms > UINT16_MAX) ? UINT16_MAX : (uint16_t) dt_ms;
@@ -648,9 +654,11 @@ void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms, bool b_mag_ok
         p_proc->rate_ready    = false;
     }
 
-    b_new_pitch = buddy4_process_accel(p_proc, now_ms, dt_ms, b_accel_ok, accel);
+    b_new_pitch =
+        buddy4_process_accel(p_proc, now_ms, dt_ms, b_accel_ok, accel);
     buddy4_process_mag(p_proc, now_ms, b_mag_ok, mag);
-    buddy4_process_speed(p_proc, now_ms, distance_mm, pivot_mm, b_odometry_fresh);
+    buddy4_process_speed(p_proc, now_ms, distance_mm, pivot_mm,
+                         b_odometry_fresh);
     p_state->imu_fault =
         ((0u == p_state->mag_ok) || (0u == p_state->accel_ok)) ? 1u : 0u;
 
@@ -742,11 +750,11 @@ bool buddy4_pack (const buddy4_imu_state_t * p_state,
         (uint32_t) buddy4_saturate(p_state->pitch_deg_x10, -900, 900, &b_fits) &
             0x7FFu,
         11u);
-    buddy4_put_bits(
-        out, &pos,
-        (uint32_t) buddy4_saturate(p_state->roll_deg_x10, -1800, 1800, &b_fits) &
-            0xFFFu,
-        12u);
+    buddy4_put_bits(out, &pos,
+                    (uint32_t) buddy4_saturate(p_state->roll_deg_x10, -1800,
+                                               1800, &b_fits) &
+                        0xFFFu,
+                    12u);
     buddy4_put_bits(out, &pos,
                     (uint32_t) buddy4_saturate(p_state->hump_peak_deg_x10, -900,
                                                900, &b_fits) &
@@ -756,7 +764,8 @@ bool buddy4_pack (const buddy4_imu_state_t * p_state,
     buddy4_put_bits(out, &pos, p_state->hump_count, 3u);
     buddy4_put_bits(
         out, &pos,
-        (uint32_t) buddy4_saturate(p_state->hump_height_mm, 0, 255, &b_fits), 8u);
+        (uint32_t) buddy4_saturate(p_state->hump_height_mm, 0, 255, &b_fits),
+        8u);
     buddy4_put_bits(out, &pos, b_fits ? 0u : 1u, 1u);
     buddy4_put_bits(out, &pos, p_state->imu_fault, 1u);
     buddy4_put_bits(out, &pos, p_state->motion_class, 3u);

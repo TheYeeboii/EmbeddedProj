@@ -68,14 +68,14 @@ static void reset (void)
     g_scan_sequence   = 0;
     g_packet_sequence = 0;
     g_dropped_scans   = 0;
-    g_b_have_state      = false;
-    int32_t cfg[]   = {2000, 2500, 0, 400, 600, 25, 0, 1500, 650, 3870, 3870};
+    g_b_have_state    = false;
+    int32_t cfg[]     = {2000, 2500, 0, 400, 600, 25, 0, 1500, 650, 3870, 3870};
     robot_barcode_trace_configure(cfg);
 }
 static void replay (bool reverse, bool interrupt)
 {
     const char * patterns[] = {"010010100", "001011000", "010010100"};
-    float        widths[29], boundaries[30];
+    float32_t    widths[29], boundaries[30];
     boundaries[0] = 7.5f;
     for (unsigned i = 0; i < 29; ++i)
     {
@@ -92,8 +92,8 @@ static void replay (bool reverse, bool interrupt)
     bool                     accepted = false, aborted = false;
     for (unsigned tick = 0; tick < 720; ++tick)
     {
-        float pos   = (float) tick * 0.0625f;
-        bool  black = false;
+        float32_t pos   = (float32_t) tick * 0.0625f;
+        bool      black = false;
         for (unsigned i = 0; i < 29; ++i)
         {
             if (pos >= boundaries[i] && pos < boundaries[i + 1])
@@ -102,7 +102,7 @@ static void replay (bool reverse, bool interrupt)
             }
         }
         bool                   before  = s.active;
-        float                  partial = s.position - s.edge_position + 0.0625f;
+        float32_t              partial = s.position - s.edge_position + 0.0625f;
         bool                   permitted = !(interrupt && pos > 11);
         buddy3_barcode_event_t event;
         bool emitted = buddy3_barcode_step(&s, &cfg, black, tick ? 0.0625f : 0,
@@ -279,13 +279,13 @@ int main (int argc, char ** argv)
     f->partial_x100 = f->trailing_x100 = f->narrow_x100 = f->ratio_x100 =
         f->max_gap_x100                                 = INT32_MAX;
     f->sample_drops                                     = UINT32_MAX;
-    g_dropped_scans                                       = UINT32_MAX;
+    g_dropped_scans                                     = UINT32_MAX;
     robot_barcode_publish(UINT32_MAX);
     for (unsigned i = 0; i < 11; ++i)
     {
         g_configuration[i] = INT32_MAX;
     }
-    g_b_have_state      = false;
+    g_b_have_state    = false;
     g_packet_sequence = UINT32_MAX - 1;
     g_reader_state    = 6;
     g_reader_blocked  = 63;

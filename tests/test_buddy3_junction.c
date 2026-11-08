@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "buddy3_junction.h"
 static buddy3_junction_output_t step (buddy3_junction_t * s, unsigned side,
-                                      uint32_t now, float l, float r)
+                                      uint32_t now, float32_t l, float32_t r)
 {
     return buddy3_junction_step(s, side, now, l, r, true, true, 12000);
 }

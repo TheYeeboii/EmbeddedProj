@@ -21,6 +21,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "robot_types.h"
 
 /** Full power in the public API (same range as the old CMake project). */
 #define BUDDY2_PWM_MAX (32767)
@@ -43,23 +44,23 @@
 
 typedef struct
 {
-    float    wheel_diameter_mm;
-    float    track_width_mm;
-    float    left_ticks_per_wheel_rev;
-    float    right_ticks_per_wheel_rev;
-    uint16_t pwm_limit;    /**< Max |PWM| accepted, in API units.  */
-    uint16_t pwm_deadband; /**< Min |PWM| that moves a wheel.      */
+    float32_t wheel_diameter_mm;
+    float32_t track_width_mm;
+    float32_t left_ticks_per_wheel_rev;
+    float32_t right_ticks_per_wheel_rev;
+    uint16_t  pwm_limit;    /**< Max |PWM| accepted, in API units.  */
+    uint16_t  pwm_deadband; /**< Min |PWM| that moves a wheel.      */
 } buddy2_calibration_t;
 
 typedef struct
 {
-    int32_t  left_ticks;
-    int32_t  right_ticks;
-    float    left_speed_mm_s;
-    float    right_speed_mm_s;
-    float    left_distance_mm;
-    float    right_distance_mm;
-    uint32_t timestamp_ms;
+    int32_t   left_ticks;
+    int32_t   right_ticks;
+    float32_t left_speed_mm_s;
+    float32_t right_speed_mm_s;
+    float32_t left_distance_mm;
+    float32_t right_distance_mm;
+    uint32_t  timestamp_ms;
     /** true = this wheel was powered for BUDDY2_ENCODER_FAULT_MS but its
      *  encoder gave no ticks (encoder/wiring fault, or the wheel is
      *  blocked).  Clears by itself as soon as ticks arrive again. */
@@ -87,8 +88,9 @@ struct robot_steering_input;
  * @param right_pwm Right command, -BUDDY2_PWM_MAX..BUDDY2_PWM_MAX.
  * @param p_input   Decision evidence, or NULL.
  */
-void buddy2_set_motor_pwm_observed (int16_t left_pwm, int16_t right_pwm,
-                                    const struct robot_steering_input * p_input);
+void buddy2_set_motor_pwm_observed (
+    int16_t left_pwm, int16_t right_pwm,
+    const struct robot_steering_input * p_input);
 
 /**
  * @brief Stop both motors and record the decision evidence.
@@ -108,10 +110,10 @@ void buddy2_get_motion_state (buddy2_motion_state_t * p_state);
 /** Odometry including ticks since the last control update. */
 typedef struct
 {
-    float left_distance_mm;
-    float right_distance_mm;
-    bool  left_encoder_fault;
-    bool  right_encoder_fault;
+    float32_t left_distance_mm;
+    float32_t right_distance_mm;
+    bool      left_encoder_fault;
+    bool      right_encoder_fault;
 } buddy2_encoder_position_t;
 
 /**
@@ -127,19 +129,19 @@ void buddy2_reset_encoders (void);
 
 /** @brief Start a closed-loop straight move forward.
  *  @return False if not initialised, max_pwm <= 0 or distance is 0. */
-bool buddy2_move_forward (float distance_mm, int16_t max_pwm);
+bool buddy2_move_forward (float32_t distance_mm, int16_t max_pwm);
 
 /** @brief Start a closed-loop straight move backward.
  *  @return False if not initialised, max_pwm <= 0 or distance is 0. */
-bool buddy2_move_backward (float distance_mm, int16_t max_pwm);
+bool buddy2_move_backward (float32_t distance_mm, int16_t max_pwm);
 
 /** @brief Start an in-place left (anticlockwise) turn.
  *  @return False if not initialised, max_pwm <= 0 or angle is 0. */
-bool buddy2_turn_left (float angle_deg, int16_t max_pwm);
+bool buddy2_turn_left (float32_t angle_deg, int16_t max_pwm);
 
 /** @brief Start an in-place right (clockwise) turn.
  *  @return False if not initialised, max_pwm <= 0 or angle is 0. */
-bool buddy2_turn_right (float angle_deg, int16_t max_pwm);
+bool buddy2_turn_right (float32_t angle_deg, int16_t max_pwm);
 
 /** @brief Tell whether a distance/turn move is still running. */
 bool buddy2_motion_active (void);

@@ -13,6 +13,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "robot_types.h"
 
 #define BUDDY3_SAMPLE_PERIOD_MS (10u)
 
@@ -30,11 +31,12 @@ typedef struct
     uint16_t maximum[3];   // Raw endpoints mapped to 1000 before inversion
     bool     line_is_dark; // Invert when black produces lower raw readings than
                            // floor
-    float proportional_gain; // Steering strength: Too high cause
-                             // overcorrection, too low causes missing the curve
-    float derivative_gain;   // Multiplies position change; unused in current
-                             // straddle mode
-    int16_t base_pwm;        // Base power of the motor: 32767 = full duty
+    float32_t
+        proportional_gain; // Steering strength: Too high cause
+                           // overcorrection, too low causes missing the curve
+    float32_t derivative_gain; // Multiplies position change; unused in current
+                               // straddle mode
+    int16_t   base_pwm;        // Base power of the motor: 32767 = full duty
 } buddy3_calibration_t; // TODO: Rename to something meaningful and refactor
 
 /* Calibration parameters for one IR sensor. */
@@ -48,11 +50,12 @@ typedef struct
 
 typedef struct
 {
-    float proportional_gain; // Steering strength: Too high cause
-                             // overcorrection, too low causes missing the curve
-    float derivative_gain;   // Multiplies position change; unused in current
-                             // straddle mode
-    int16_t base_pwm;        // Base power of the motor: 32767 = full duty
+    float32_t
+        proportional_gain; // Steering strength: Too high cause
+                           // overcorrection, too low causes missing the curve
+    float32_t derivative_gain; // Multiplies position change; unused in current
+                               // straddle mode
+    int16_t   base_pwm;        // Base power of the motor: 32767 = full duty
 } line_follow_configs_t;
 
 /* Raw and normalized values from one IR sensor. */

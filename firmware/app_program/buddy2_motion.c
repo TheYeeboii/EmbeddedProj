@@ -69,7 +69,6 @@
 #define BUDDY2_ENCODER_CHECK_MIN_PWM (3000)
 #define BUDDY2_ENCODER_FAULT_MS      (800u)
 
-
 /* Trace values are tenths and saturate just inside the integer ranges. */
 #define BUDDY2_TRACE_LIMIT     (2147480000.0f)
 #define BUDDY2_TRACE_SPEED_MAX (32767)
@@ -85,17 +84,17 @@
 
 typedef struct
 {
-    bool    b_active;
-    float   target_distance_mm;
-    float   start_left_distance_mm;
-    float   start_right_distance_mm;
-    int16_t max_pwm;
-    int8_t  left_direction;
-    int8_t  right_direction;
-    float   left_integral;
-    float   right_integral;
-    float   left_previous_error;
-    float   right_previous_error;
+    bool      b_active;
+    float32_t target_distance_mm;
+    float32_t start_left_distance_mm;
+    float32_t start_right_distance_mm;
+    int16_t   max_pwm;
+    int8_t    left_direction;
+    int8_t    right_direction;
+    float32_t left_integral;
+    float32_t right_integral;
+    float32_t left_previous_error;
+    float32_t right_previous_error;
 } buddy2_move_t;
 
 /* Written by the encoder interrupt, read by tasks. */
@@ -128,29 +127,29 @@ static bool          g_b_initialized    = false;
 static ID            g_mutex_id         = 0;
 static buddy2_move_t g_motion;
 
-static float   buddy2_absf (float value);
-static float   buddy2_clampf (float value, float limit);
-static void    buddy2_lock (void);
-static void    buddy2_unlock (void);
-static void    buddy2_encoder_isr (uint32_t gpio, uint32_t events);
-static float   buddy2_mm_per_tick (float ticks_per_rev);
-static int16_t buddy2_clamp_pwm (float value);
-static void    buddy2_apply_one (uint32_t pin_a, uint32_t pin_b, int16_t pwm);
-static void    buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm);
-static int32_t buddy2_trace_distance (float distance_mm);
-static int16_t buddy2_trace_speed (float speed);
+static float32_t buddy2_absf (float32_t value);
+static float32_t buddy2_clampf (float32_t value, float32_t limit);
+static void      buddy2_lock (void);
+static void      buddy2_unlock (void);
+static void      buddy2_encoder_isr (uint32_t gpio, uint32_t events);
+static float32_t buddy2_mm_per_tick (float32_t ticks_per_rev);
+static int16_t   buddy2_clamp_pwm (float32_t value);
+static void      buddy2_apply_one (uint32_t pin_a, uint32_t pin_b, int16_t pwm);
+static void buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm);
+static int32_t buddy2_trace_distance (float32_t distance_mm);
+static int16_t buddy2_trace_speed (float32_t speed);
 static void    buddy2_trace (int16_t left, int16_t right,
                              const robot_steering_input_t * p_input);
 static void    buddy2_stop_locked (const robot_steering_input_t * p_input);
 static void    buddy2_encoder_pin_init (uint32_t pin);
-static bool    buddy2_start_motion (float left_distance_mm,
-                                    float right_distance_mm, int16_t max_pwm);
-static bool    buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
-                                     uint32_t elapsed_ms,
-                                     uint32_t * p_no_tick_ms, bool * p_fault);
-static void    buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
-                                       float dt_s);
-static void    buddy2_run_pid (float dt_s);
+static bool buddy2_start_motion (float32_t left_distance_mm,
+                                 float32_t right_distance_mm, int16_t max_pwm);
+static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
+                                  uint32_t elapsed_ms, uint32_t * p_no_tick_ms,
+                                  bool * p_fault);
+static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
+                                    float32_t dt_s);
+static void buddy2_run_pid (float32_t dt_s);
 
 /* ------------------------------------------------------------------ *
  *  Public API
@@ -233,7 +232,8 @@ void buddy2_set_motor_pwm_observed (int16_t left_pwm, int16_t right_pwm,
 
 bool buddy2_set_speed_limit (uint8_t percent)
 {
-    bool b_valid = ((percent >= BUDDY2_SPEED_MIN) && (percent <= BUDDY2_PERCENT));
+    bool b_valid =
+        ((percent >= BUDDY2_SPEED_MIN) && (percent <= BUDDY2_PERCENT));
 
     if (b_valid)
     {
@@ -258,10 +258,9 @@ uint8_t buddy2_get_speed_limit (void)
 
 bool buddy2_set_trim (uint8_t left_pct, uint8_t right_pct)
 {
-    bool b_valid = (left_pct >= BUDDY2_TRIM_MIN) &&
-                   (left_pct <= BUDDY2_PERCENT) &&
-                   (right_pct >= BUDDY2_TRIM_MIN) &&
-                   (right_pct <= BUDDY2_PERCENT);
+    bool b_valid =
+        (left_pct >= BUDDY2_TRIM_MIN) && (left_pct <= BUDDY2_PERCENT) &&
+        (right_pct >= BUDDY2_TRIM_MIN) && (right_pct <= BUDDY2_PERCENT);
 
     if (b_valid)
     {
@@ -348,14 +347,14 @@ void buddy2_get_encoder_position (buddy2_encoder_position_t * p_position)
             (int32_t) ((uint32_t) right_ticks - (uint32_t) g_state.right_ticks);
         p_position->left_distance_mm =
             g_state.left_distance_mm +
-            ((float) left_delta *
+            ((float32_t) left_delta *
              buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev) *
-             (float) g_left_direction);
+             (float32_t) g_left_direction);
         p_position->right_distance_mm =
             g_state.right_distance_mm +
-            ((float) right_delta *
+            ((float32_t) right_delta *
              buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev) *
-             (float) g_right_direction);
+             (float32_t) g_right_direction);
         p_position->left_encoder_fault  = g_state.left_encoder_fault;
         p_position->right_encoder_fault = g_state.right_encoder_fault;
         buddy2_unlock();
@@ -372,35 +371,35 @@ void buddy2_get_motion_state (buddy2_motion_state_t * p_state)
     }
 }
 
-bool buddy2_move_forward (float distance_mm, int16_t max_pwm)
+bool buddy2_move_forward (float32_t distance_mm, int16_t max_pwm)
 {
-    float distance = buddy2_absf(distance_mm);
+    float32_t distance = buddy2_absf(distance_mm);
 
     return buddy2_start_motion(distance, distance, max_pwm);
 }
 
-bool buddy2_move_backward (float distance_mm, int16_t max_pwm)
+bool buddy2_move_backward (float32_t distance_mm, int16_t max_pwm)
 {
-    float distance = buddy2_absf(distance_mm);
+    float32_t distance = buddy2_absf(distance_mm);
 
     return buddy2_start_motion(-distance, -distance, max_pwm);
 }
 
-bool buddy2_turn_left (float angle_deg, int16_t max_pwm)
+bool buddy2_turn_left (float32_t angle_deg, int16_t max_pwm)
 {
     /* In-place turn: each wheel travels an arc of the track circle. */
-    float distance = (BUDDY2_PI * g_calibration.track_width_mm *
-                      buddy2_absf(angle_deg)) /
-                     BUDDY2_DEG_PER_TURN;
+    float32_t distance =
+        (BUDDY2_PI * g_calibration.track_width_mm * buddy2_absf(angle_deg)) /
+        BUDDY2_DEG_PER_TURN;
 
     return buddy2_start_motion(-distance, distance, max_pwm);
 }
 
-bool buddy2_turn_right (float angle_deg, int16_t max_pwm)
+bool buddy2_turn_right (float32_t angle_deg, int16_t max_pwm)
 {
-    float distance = (BUDDY2_PI * g_calibration.track_width_mm *
-                      buddy2_absf(angle_deg)) /
-                     BUDDY2_DEG_PER_TURN;
+    float32_t distance =
+        (BUDDY2_PI * g_calibration.track_width_mm * buddy2_absf(angle_deg)) /
+        BUDDY2_DEG_PER_TURN;
 
     return buddy2_start_motion(distance, -distance, max_pwm);
 }
@@ -418,8 +417,8 @@ bool buddy2_motion_active (void)
 
 void buddy2_update (uint32_t now_ms)
 {
-    uint32_t elapsed_ms = 0u;
-    float    dt_s       = 0.0f;
+    uint32_t  elapsed_ms = 0u;
+    float32_t dt_s       = 0.0f;
 
     if (g_b_initialized)
     {
@@ -428,7 +427,7 @@ void buddy2_update (uint32_t now_ms)
         if ((elapsed_ms >= BUDDY2_CONTROL_PERIOD_MS) ||
             (0u == g_last_update_ms))
         {
-            dt_s             = (float) elapsed_ms / BUDDY2_MS_PER_S;
+            dt_s             = (float32_t) elapsed_ms / BUDDY2_MS_PER_S;
             g_last_update_ms = now_ms;
             buddy2_update_odometry(now_ms, elapsed_ms, dt_s);
             if (g_motion.b_active)
@@ -469,14 +468,14 @@ void buddy2_get_calibration (buddy2_calibration_t * p_calibration)
  *  Small helpers (no libm needed)
  * ------------------------------------------------------------------ */
 
-static float buddy2_absf (float value)
+static float32_t buddy2_absf (float32_t value)
 {
     return (value < 0.0f) ? -value : value;
 }
 
-static float buddy2_clampf (float value, float limit)
+static float32_t buddy2_clampf (float32_t value, float32_t limit)
 {
-    float result = value;
+    float32_t result = value;
 
     if (value > limit)
     {
@@ -531,24 +530,24 @@ static void buddy2_encoder_isr (uint32_t gpio, uint32_t events)
  *  Motor output
  * ------------------------------------------------------------------ */
 
-static float buddy2_mm_per_tick (float ticks_per_rev)
+static float32_t buddy2_mm_per_tick (float32_t ticks_per_rev)
 {
-    float mm_per_tick = 0.0f;
+    float32_t mm_per_tick = 0.0f;
 
     if (ticks_per_rev > 0.0f)
     {
-        mm_per_tick = (BUDDY2_PI * g_calibration.wheel_diameter_mm) /
-                      ticks_per_rev;
+        mm_per_tick =
+            (BUDDY2_PI * g_calibration.wheel_diameter_mm) / ticks_per_rev;
     }
 
     return mm_per_tick;
 }
 
 /* Clamp a float command to the calibrated limit, then convert. */
-static int16_t buddy2_clamp_pwm (float value)
+static int16_t buddy2_clamp_pwm (float32_t value)
 {
     /* pwm_limit <= BUDDY2_PWM_MAX, so the clamped value fits int16_t. */
-    return (int16_t) buddy2_clampf(value, (float) g_calibration.pwm_limit);
+    return (int16_t) buddy2_clampf(value, (float32_t) g_calibration.pwm_limit);
 }
 
 /* Drive one H-bridge.  pwm is in API units (-32767..32767). */
@@ -582,8 +581,8 @@ static void buddy2_apply_one (uint32_t pin_a, uint32_t pin_b, int16_t pwm)
 /* Caller must hold the mutex. */
 static void buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm)
 {
-    int16_t left_command  = buddy2_clamp_pwm((float) left_pwm);
-    int16_t right_command = buddy2_clamp_pwm((float) right_pwm);
+    int16_t left_command  = buddy2_clamp_pwm((float32_t) left_pwm);
+    int16_t right_command = buddy2_clamp_pwm((float32_t) right_pwm);
 
     /* Keep the last direction while stopped, so coasting ticks are still
      * counted the right way. */
@@ -603,10 +602,10 @@ static void buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm)
 }
 
 /* Distance in tenths of a millimetre, saturated; NaN gives 0. */
-static int32_t buddy2_trace_distance (float distance_mm)
+static int32_t buddy2_trace_distance (float32_t distance_mm)
 {
-    float   value  = distance_mm * 10.0f;
-    int32_t result = 0;
+    float32_t value  = distance_mm * 10.0f;
+    int32_t   result = 0;
 
     if (value > BUDDY2_TRACE_LIMIT)
     {
@@ -630,7 +629,7 @@ static int32_t buddy2_trace_distance (float distance_mm)
 }
 
 /* Speed in tenths of mm/s, saturated to int16_t. */
-static int16_t buddy2_trace_speed (float speed)
+static int16_t buddy2_trace_speed (float32_t speed)
 {
     int32_t value = buddy2_trace_distance(speed);
 
@@ -669,7 +668,7 @@ static void buddy2_trace (int16_t left, int16_t right,
     event.encoder_ms      = g_state.timestamp_ms;
     /* Bit 0 left fault, bit 1 right fault. */
     event.faults    = (uint8_t) ((g_state.left_encoder_fault ? 1u : 0u) |
-                              (g_state.right_encoder_fault ? 2u : 0u));
+                                 (g_state.right_encoder_fault ? 2u : 0u));
     event.has_input = (NULL != p_input);
     if (NULL != p_input)
     {
@@ -699,13 +698,13 @@ static void buddy2_encoder_pin_init (uint32_t pin)
     (void) gpio_irq_register(pin, HAL_GPIO_EDGE_RISE, buddy2_encoder_isr);
 }
 
-static bool buddy2_start_motion (float left_distance_mm,
-                                 float right_distance_mm, int16_t max_pwm)
+static bool buddy2_start_motion (float32_t left_distance_mm,
+                                 float32_t right_distance_mm, int16_t max_pwm)
 {
-    float   left_abs  = buddy2_absf(left_distance_mm);
-    float   right_abs = buddy2_absf(right_distance_mm);
-    uint8_t direction = ROBOT_ACTION_NONE;
-    bool    b_started = false;
+    float32_t left_abs  = buddy2_absf(left_distance_mm);
+    float32_t right_abs = buddy2_absf(right_distance_mm);
+    uint8_t   direction = ROBOT_ACTION_NONE;
+    bool      b_started = false;
 
     /* A zero-length move (both distances 0) is rejected. */
     if (g_b_initialized && (max_pwm > 0) &&
@@ -730,8 +729,9 @@ static bool buddy2_start_motion (float left_distance_mm,
             (left_abs > right_abs) ? left_abs : right_abs;
         g_motion.start_left_distance_mm  = g_state.left_distance_mm;
         g_motion.start_right_distance_mm = g_state.right_distance_mm;
-        g_motion.max_pwm = buddy2_clamp_pwm(
-            ((float) max_pwm * (float) g_speed_pct) / (float) BUDDY2_PERCENT);
+        g_motion.max_pwm =
+            buddy2_clamp_pwm(((float32_t) max_pwm * (float32_t) g_speed_pct) /
+                             (float32_t) BUDDY2_PERCENT);
         g_motion.left_direction       = (left_distance_mm < 0.0f) ? -1 : 1;
         g_motion.right_direction      = (right_distance_mm < 0.0f) ? -1 : 1;
         g_motion.left_integral        = 0.0f;
@@ -799,22 +799,22 @@ static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
 /* Update distances, speeds and the encoder checks.  Caller holds the
  * mutex. */
 static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
-                                    float dt_s)
+                                    float32_t dt_s)
 {
     /* 32-bit reads are atomic on the Cortex-M0+, so no interrupt lock.
      * Each wheel uses its OWN encoder; a dead one is reported below. */
-    int32_t left_ticks    = g_left_ticks;
-    int32_t right_ticks   = g_right_ticks;
-    int32_t left_delta    = left_ticks - g_state.left_ticks;
-    int32_t right_delta   = right_ticks - g_state.right_ticks;
-    float   left_mm_tick  =
+    int32_t   left_ticks  = g_left_ticks;
+    int32_t   right_ticks = g_right_ticks;
+    int32_t   left_delta  = left_ticks - g_state.left_ticks;
+    int32_t   right_delta = right_ticks - g_state.right_ticks;
+    float32_t left_mm_tick =
         buddy2_mm_per_tick(g_calibration.left_ticks_per_wheel_rev);
-    float right_mm_tick =
+    float32_t right_mm_tick =
         buddy2_mm_per_tick(g_calibration.right_ticks_per_wheel_rev);
-    float left_distance =
-        (float) left_delta * left_mm_tick * (float) g_left_direction;
-    float right_distance =
-        (float) right_delta * right_mm_tick * (float) g_right_direction;
+    float32_t left_distance =
+        (float32_t) left_delta * left_mm_tick * (float32_t) g_left_direction;
+    float32_t right_distance =
+        (float32_t) right_delta * right_mm_tick * (float32_t) g_right_direction;
     bool b_left_new  = false;
     bool b_right_new = false;
 
@@ -826,12 +826,12 @@ static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
     g_state.right_ticks  = right_ticks;
     g_state.timestamp_ms = now_ms;
 
-    b_left_new  = buddy2_check_encoder(g_left_applied_pwm, left_delta,
-                                       elapsed_ms, &g_left_no_tick_ms,
-                                       &g_state.left_encoder_fault);
-    b_right_new = buddy2_check_encoder(g_right_applied_pwm, right_delta,
-                                       elapsed_ms, &g_right_no_tick_ms,
-                                       &g_state.right_encoder_fault);
+    b_left_new =
+        buddy2_check_encoder(g_left_applied_pwm, left_delta, elapsed_ms,
+                             &g_left_no_tick_ms, &g_state.left_encoder_fault);
+    b_right_new =
+        buddy2_check_encoder(g_right_applied_pwm, right_delta, elapsed_ms,
+                             &g_right_no_tick_ms, &g_state.right_encoder_fault);
 
     /* A distance/turn move cannot finish correctly without both encoders
      * (its PID would drive the silent wheel flat out), so stop it.  Raw
@@ -843,13 +843,13 @@ static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
 }
 
 /* Speed PID for an active distance/turn move.  Caller holds the mutex. */
-static void buddy2_run_pid (float dt_s)
+static void buddy2_run_pid (float32_t dt_s)
 {
-    float left_progress  = buddy2_absf(g_state.left_distance_mm -
-                                       g_motion.start_left_distance_mm);
-    float right_progress = buddy2_absf(g_state.right_distance_mm -
-                                       g_motion.start_right_distance_mm);
-    float progress       = (left_progress + right_progress) * 0.5f;
+    float32_t left_progress =
+        buddy2_absf(g_state.left_distance_mm - g_motion.start_left_distance_mm);
+    float32_t right_progress = buddy2_absf(g_state.right_distance_mm -
+                                           g_motion.start_right_distance_mm);
+    float32_t progress       = (left_progress + right_progress) * 0.5f;
 
     if (progress >=
         (g_motion.target_distance_mm - BUDDY2_POSITION_TOLERANCE_MM))
@@ -858,19 +858,21 @@ static void buddy2_run_pid (float dt_s)
     }
     else
     {
-        float target_speed =
-            BUDDY2_MAX_SPEED_MM_S *
-            ((float) g_motion.max_pwm / (float) g_calibration.pwm_limit);
-        float left_target  = target_speed * (float) g_motion.left_direction;
-        float right_target = target_speed * (float) g_motion.right_direction;
-        float left_error   = left_target - g_state.left_speed_mm_s;
-        float right_error  = right_target - g_state.right_speed_mm_s;
-        float left_derivative =
+        float32_t target_speed =
+            BUDDY2_MAX_SPEED_MM_S * ((float32_t) g_motion.max_pwm /
+                                     (float32_t) g_calibration.pwm_limit);
+        float32_t left_target =
+            target_speed * (float32_t) g_motion.left_direction;
+        float32_t right_target =
+            target_speed * (float32_t) g_motion.right_direction;
+        float32_t left_error  = left_target - g_state.left_speed_mm_s;
+        float32_t right_error = right_target - g_state.right_speed_mm_s;
+        float32_t left_derivative =
             (left_error - g_motion.left_previous_error) / dt_s;
-        float right_derivative =
+        float32_t right_derivative =
             (right_error - g_motion.right_previous_error) / dt_s;
-        float left_output  = 0.0f;
-        float right_output = 0.0f;
+        float32_t left_output  = 0.0f;
+        float32_t right_output = 0.0f;
 
         g_motion.left_previous_error  = left_error;
         g_motion.right_previous_error = right_error;
@@ -881,16 +883,16 @@ static void buddy2_run_pid (float dt_s)
             buddy2_clampf(g_motion.right_integral + (right_error * dt_s),
                           BUDDY2_PID_INTEGRAL_LIMIT);
 
-        left_output = ((float) g_motion.left_direction *
-                       (float) g_motion.max_pwm * BUDDY2_FEEDFORWARD_GAIN) +
+        left_output = ((float32_t) g_motion.left_direction *
+                       (float32_t) g_motion.max_pwm * BUDDY2_FEEDFORWARD_GAIN) +
                       (BUDDY2_KP * left_error) +
                       (BUDDY2_KI * g_motion.left_integral) +
                       (BUDDY2_KD * left_derivative);
-        right_output = ((float) g_motion.right_direction *
-                        (float) g_motion.max_pwm * BUDDY2_FEEDFORWARD_GAIN) +
-                       (BUDDY2_KP * right_error) +
-                       (BUDDY2_KI * g_motion.right_integral) +
-                       (BUDDY2_KD * right_derivative);
+        right_output =
+            ((float32_t) g_motion.right_direction *
+             (float32_t) g_motion.max_pwm * BUDDY2_FEEDFORWARD_GAIN) +
+            (BUDDY2_KP * right_error) + (BUDDY2_KI * g_motion.right_integral) +
+            (BUDDY2_KD * right_derivative);
 
         buddy2_set_motor_pwm_locked(buddy2_clamp_pwm(left_output),
                                     buddy2_clamp_pwm(right_output));

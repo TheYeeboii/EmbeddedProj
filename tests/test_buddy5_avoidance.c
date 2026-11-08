@@ -39,7 +39,7 @@ void buddy2_stop (void)
     left = right   = 0;
     reverse_active = false;
 }
-bool buddy2_move_backward (float distance_mm, int16_t max_pwm)
+bool buddy2_move_backward (float32_t distance_mm, int16_t max_pwm)
 {
     assert(APP_AVOID_REVERSE_DISTANCE_MM == distance_mm);
     assert(APP_AVOID_REVERSE_PWM == max_pwm);

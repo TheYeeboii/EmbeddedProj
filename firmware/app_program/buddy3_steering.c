@@ -17,7 +17,7 @@
 #define STAGE_CORNERS  2u
 #define STAGE_RECOVERY 3u
 
-static void steer_seek_output (uint8_t direction,
+static void steer_seek_output (uint8_t                    direction,
                                buddy3_steering_output_t * p_out);
 static bool steer_ambiguous (buddy3_steering_t * p_state, uint32_t now,
                              int16_t inner, int16_t outer,
@@ -102,7 +102,7 @@ buddy3_steering_output_t buddy3_steering_step (buddy3_steering_t * p_state,
 }
 
 /* Turn back towards the line: hold the wheel on the side we last saw it. */
-static void steer_seek_output (uint8_t direction,
+static void steer_seek_output (uint8_t                    direction,
                                buddy3_steering_output_t * p_out)
 {
     p_out->phase = B3_SEEK;
