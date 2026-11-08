@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=34">
+  <link rel="stylesheet" href="styles.css?v=35">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -29,6 +29,13 @@
         <p class="muted" translate="no">Pico W rover console</p>
       </div>
     </div>
+    <nav id="tabbar" class="tabbar" role="tablist" aria-label="Dashboard view">
+      <button id="tab-btn-main" class="tab" type="button" role="tab" data-tab="main" aria-controls="tab-main" aria-selected="true">Main</button>
+      <button id="tab-btn-buddy2" class="tab" type="button" role="tab" data-tab="buddy2" aria-controls="tab-buddy2" aria-selected="false" tabindex="-1">Buddy 2 <span class="tab-sub">Motion</span></button>
+      <button id="tab-btn-buddy3" class="tab" type="button" role="tab" data-tab="buddy3" aria-controls="tab-buddy3" aria-selected="false" tabindex="-1">Buddy 3 <span class="tab-sub">Line</span></button>
+      <button id="tab-btn-buddy4" class="tab" type="button" role="tab" data-tab="buddy4" aria-controls="tab-buddy4" aria-selected="false" tabindex="-1">Buddy 4 <span class="tab-sub">IMU</span></button>
+      <button id="tab-btn-buddy5" class="tab" type="button" role="tab" data-tab="buddy5" aria-controls="tab-buddy5" aria-selected="false" tabindex="-1">Buddy 5 <span class="tab-sub">Ultrasonic</span></button>
+    </nav>
     <div class="topbar-actions">
       <div id="connection" class="pill" data-state="offline" role="status" aria-live="polite">
         <span class="dot" aria-hidden="true"></span>
@@ -68,7 +75,7 @@
       </div>
     </section>
 
-    <div class="layout">
+    <div id="tab-main" class="layout" data-tab-panel="main" role="tabpanel" aria-labelledby="tab-btn-main">
       <div class="col-main">
         <div class="main-group group-status">
           <section class="card" aria-labelledby="telemetry-title">
@@ -78,7 +85,7 @@
             </header>
 
             <div class="metrics telemetry-metrics">
-              <article class="metric metric-wide">
+              <article class="metric metric-wide" data-widget="ultrasonic-distance">
                 <div class="metric-head"><span>Ultrasonic distance</span><i data-lucide="radar" aria-hidden="true"></i></div>
                 <div class="metric-value"><strong id="distance" class="num">--</strong><span class="unit">cm</span></div>
                 <svg id="distance-spark" class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
@@ -86,7 +93,7 @@
                 </svg>
               </article>
 
-              <article class="metric">
+              <article class="metric" data-widget="encoder-ticks">
                 <div class="metric-head"><span>Encoder ticks</span><i data-lucide="gauge" aria-hidden="true"></i></div>
                 <dl class="pair num">
                   <div><dt>L</dt><dd id="left-ticks">--</dd></div>
@@ -94,7 +101,7 @@
                 </dl>
               </article>
 
-              <article class="metric">
+              <article class="metric" data-widget="motor-output">
                 <div class="metric-head"><span>Motor output</span><i data-lucide="zap" aria-hidden="true"></i></div>
                 <dl class="pair num">
                   <div><dt>L</dt><dd id="motor-left">--</dd></div>
@@ -104,7 +111,7 @@
             </div>
           </section>
 
-          <section class="card" aria-labelledby="hump-title">
+          <section class="card" aria-labelledby="hump-title" data-widget="imu">
             <header class="card-header">
               <h2 id="hump-title">IMU and humps</h2>
               <span class="imu-status">
@@ -166,7 +173,7 @@
             </div>
           </section>
 
-          <section id="barcode-letter" class="card barcode-letter-card" aria-labelledby="barcode-letter-title" data-result="none">
+          <section id="barcode-letter" data-widget="barcode-letter" class="card barcode-letter-card" aria-labelledby="barcode-letter-title" data-result="none">
             <header class="card-header"><h2 id="barcode-letter-title">Barcode letter</h2><span data-letter="reader" class="badge" data-tone="muted">Reader: waiting…</span></header>
             <div class="barcode-letter-body">
               <span data-letter="symbol" class="barcode-letter-symbol num" aria-live="polite">–</span>
@@ -180,7 +187,7 @@
         </div>
 
         <div class="main-group group-ir">
-          <section class="card" aria-labelledby="line-title">
+          <section class="card" aria-labelledby="line-title" data-widget="line-sensor">
             <header class="card-header">
               <h2 id="line-title">Line sensor</h2>
               <div class="chips">
@@ -219,7 +226,7 @@
             </div>
           </section>
 
-          <section id="barcode-visual" class="card" aria-labelledby="barcode-title">
+          <section id="barcode-visual" data-widget="ir-evidence" class="card" aria-labelledby="barcode-title">
             <header class="card-header"><h2 id="barcode-title">IR / barcode evidence</h2><span data-barcode="status" class="badge" data-tone="muted">Waiting for reader…</span></header>
             <div class="trace-controls ir-mode-tabs" role="tablist" aria-label="Side IR evidence view">
               <button id="ir-continuous-tab" class="btn btn-outline btn-sm" type="button" role="tab" aria-selected="true" aria-controls="ir-continuous-panel" data-ir-mode="continuous">Continuous IR</button>
@@ -288,7 +295,7 @@
             </div>
           </section>
         </div>
-          <section id="steering-visual" class="card steering-visual" hidden aria-labelledby="steering-title" data-direction="unknown">
+          <section id="steering-visual" data-widget="steering" class="card steering-visual" hidden aria-labelledby="steering-title" data-direction="unknown">
             <header class="card-header">
               <h2 id="steering-title">Steering evidence</h2>
               <span class="badge" data-tone="muted">Commanded direction</span>
@@ -314,7 +321,7 @@
 
       <aside class="col-side">
         <div class="side-stack">
-          <section id="drive" class="card" aria-labelledby="drive-title">
+          <section id="drive" data-widget="drive" class="card" aria-labelledby="drive-title">
             <header class="card-header">
               <h2 id="drive-title">Drive</h2>
               <span id="command-result" class="muted small" role="status" aria-live="polite">Ready</span>
@@ -340,7 +347,7 @@
             <p class="hint muted small">Hold a direction to keep driving. Release, <kbd>Space</kbd> or <kbd>Esc</kbd> stops. Keys: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows.</p>
           </section>
 
-          <section class="card" aria-labelledby="servo-title">
+          <section class="card" aria-labelledby="servo-title" data-widget="servo">
             <header class="card-header">
               <h2 id="servo-title">Ultrasonic servo</h2>
               <span class="muted small num">Command: <span id="servo-current">--</span></span>
@@ -365,7 +372,7 @@
             </form>
           </section>
 
-          <section class="card" aria-labelledby="speed-title">
+          <section class="card" aria-labelledby="speed-title" data-widget="speed-limit">
             <header class="card-header">
               <h2 id="speed-title">Speed limit</h2>
               <span class="muted small num">Robot: <span id="speed-current">--</span></span>
@@ -387,7 +394,7 @@
 
         </div>
         <div class="side-stack">
-          <section class="card" aria-labelledby="line-follow-title">
+          <section class="card" aria-labelledby="line-follow-title" data-widget="line-follow">
             <header class="card-header">
               <h2 id="line-follow-title">Line following</h2>
               <span class="muted small num">Robot: <span id="line-current">--</span></span>
@@ -411,14 +418,14 @@
               </div>
             </div>
             <p id="line-error" class="field-error small" role="alert" hidden></p>
-            <p class="muted small line-hint">Speed is straight-line power. Curve power is added to the outer wheel and taken from the inner one. −/+ applies instantly, even while following. Defaults 35 / 27, reset on reboot.</p>
+            <p class="muted small line-hint">Speed is straight-line power. Curve power is added to the outer wheel and taken from the inner one. −/+, Enter and Start apply it, even while following. The robot resets to 35 / 27 on reboot or reflash; Start re-sends these boxes.</p>
             <div class="btn-grid">
               <button id="line-follow-command" class="btn btn-primary" type="button"><i data-lucide="play" aria-hidden="true"></i>Start</button>
               <button id="line-stop-command" class="btn btn-outline" type="button"><i data-lucide="square" aria-hidden="true"></i>Stop</button>
             </div>
           </section>
 
-          <section class="card" aria-labelledby="pwm-title">
+          <section class="card" aria-labelledby="pwm-title" data-widget="raw-pwm">
             <header class="card-header"><h2 id="pwm-title">Raw PWM</h2></header>
             <form id="drive-form" class="stack" novalidate>
               <div class="field-grid">
@@ -437,7 +444,7 @@
             </form>
           </section>
 
-          <section class="card" aria-labelledby="trim-title">
+          <section class="card" aria-labelledby="trim-title" data-widget="motor-trim">
             <header class="card-header">
               <h2 id="trim-title">Motor trim</h2>
               <span class="muted small num">Robot: <span id="trim-current">--</span></span>
@@ -474,7 +481,7 @@
       </aside>
     </div>
 
-    <section class="card serial-card" aria-labelledby="serial-title">
+    <section class="card serial-card" aria-labelledby="serial-title" data-tab-panel="main">
       <header class="card-header">
         <h2 id="serial-title">Serial monitor</h2>
         <div class="btn-row">
@@ -502,6 +509,124 @@
       </div>
     </section>
 
+    <!-- Buddy tabs. Each [data-slot] receives the main page's matching
+         [data-widget] element while its tab is open (see tabs-view.js). -->
+    <section id="tab-buddy2" class="buddy-panel" data-tab-panel="buddy2" role="tabpanel" aria-labelledby="tab-btn-buddy2" hidden>
+      <div class="buddy-grid">
+        <section class="card" aria-labelledby="b2-wheels-title">
+          <header class="card-header">
+            <h2 id="b2-wheels-title">Wheels</h2>
+            <span class="muted small">Motor PWM, encoders and distance</span>
+          </header>
+          <div class="metrics buddy-metrics">
+            <div class="tab-slot" data-slot="motor-output"></div>
+            <div class="tab-slot" data-slot="encoder-ticks"></div>
+            <article class="metric">
+              <div class="metric-head"><span>Distance (cm)</span><i data-lucide="route" aria-hidden="true"></i></div>
+              <dl class="pair num">
+                <div><dt>L</dt><dd id="odo-left">--</dd></div>
+                <div><dt>R</dt><dd id="odo-right">--</dd></div>
+              </dl>
+              <span class="metric-sub">From ticks: 65 mm wheel, 387 ticks/rev</span>
+            </article>
+          </div>
+        </section>
+        <div class="tab-slot" data-slot="drive"></div>
+        <div class="tab-slot" data-slot="speed-limit"></div>
+        <div class="tab-slot" data-slot="motor-trim"></div>
+        <div class="tab-slot" data-slot="raw-pwm"></div>
+        <div class="tab-slot buddy-wide" data-slot="steering" data-reveal></div>
+      </div>
+    </section>
+
+    <section id="tab-buddy3" class="buddy-panel" data-tab-panel="buddy3" role="tabpanel" aria-labelledby="tab-btn-buddy3" hidden>
+      <div class="buddy-grid">
+        <div class="tab-slot" data-slot="line-sensor"></div>
+        <div class="tab-slot" data-slot="barcode-letter"></div>
+        <div class="tab-slot" data-slot="line-follow"></div>
+        <div class="tab-slot buddy-wide" data-slot="ir-evidence"></div>
+      </div>
+    </section>
+
+    <section id="tab-buddy4" class="buddy-panel" data-tab-panel="buddy4" role="tabpanel" aria-labelledby="tab-btn-buddy4" hidden>
+      <div class="buddy-grid">
+        <section class="card" aria-labelledby="b4-health-title">
+          <header class="card-header">
+            <h2 id="b4-health-title">Sensor health</h2>
+            <span class="muted small">From rover/telemetry state</span>
+          </header>
+          <div class="metrics buddy-metrics">
+            <article class="metric">
+              <div class="metric-head"><span>Compass (mag_ok)</span><i data-lucide="compass" aria-hidden="true"></i></div>
+              <span id="mag-ok" class="badge" data-tone="muted">Waiting</span>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Accelerometer</span><i data-lucide="activity" aria-hidden="true"></i></div>
+              <span id="accel-ok" class="badge" data-tone="muted">Waiting</span>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Max pitch</span><i data-lucide="trending-up" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="max-pitch" class="num">--</strong><span class="unit">°</span></div>
+              <span class="metric-sub">since reset</span>
+            </article>
+          </div>
+        </section>
+        <div class="tab-slot buddy-wide" data-slot="imu"></div>
+      </div>
+    </section>
+
+    <section id="tab-buddy5" class="buddy-panel" data-tab-panel="buddy5" role="tabpanel" aria-labelledby="tab-btn-buddy5" hidden>
+      <div class="buddy-grid">
+        <section class="card" aria-labelledby="b5-forward-title">
+          <header class="card-header">
+            <h2 id="b5-forward-title">Forward distance</h2>
+            <span class="muted small">Servo-mounted ultrasonic</span>
+          </header>
+          <div class="metrics buddy-metrics buddy-metrics-single">
+            <div class="tab-slot" data-slot="ultrasonic-distance"></div>
+          </div>
+        </section>
+        <section class="card" aria-labelledby="b5-avoid-title">
+          <header class="card-header">
+            <h2 id="b5-avoid-title">Obstacle avoidance</h2>
+            <span id="avoid-status" class="badge" data-tone="muted">Waiting</span>
+          </header>
+          <div class="metrics buddy-metrics">
+            <article class="metric">
+              <div class="metric-head"><span>Left scan</span><i data-lucide="arrow-left" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="avoid-left" class="num">--</strong><span class="unit">cm</span></div>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Right scan</span><i data-lucide="arrow-right" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="avoid-right" class="num">--</strong><span class="unit">cm</span></div>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Decision</span><i data-lucide="split" aria-hidden="true"></i></div>
+              <div class="metric-value metric-text"><strong id="avoid-decision">--</strong></div>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Turn PWM</span><i data-lucide="zap" aria-hidden="true"></i></div>
+              <dl class="pair num">
+                <div><dt>L</dt><dd id="avoid-pwm-left">--</dd></div>
+                <div><dt>R</dt><dd id="avoid-pwm-right">--</dd></div>
+              </dl>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Heading</span><i data-lucide="compass" aria-hidden="true"></i></div>
+              <div class="metric-value metric-text"><strong id="avoid-heading" class="num">--</strong></div>
+              <span id="avoid-heading-note" class="metric-sub">turned / target °</span>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Forward progress</span><i data-lucide="move-up" aria-hidden="true"></i></div>
+              <div class="metric-value metric-text"><strong id="avoid-forward" class="num">--</strong></div>
+              <div class="track" aria-hidden="true"><div id="avoid-forward-bar" class="fill"></div></div>
+            </article>
+          </div>
+        </section>
+        <div class="tab-slot" data-slot="servo"></div>
+      </div>
+    </section>
+
     <footer class="footer muted small">
       <span>WebSocket <code id="footer-broker" translate="no">--</code></span>
       <span>Publish <code translate="no">rover/commands</code></span>
@@ -519,6 +644,8 @@
   <script src="barcode-config.js?v=1"></script>
   <script src="ir-stream-model.js?v=1"></script>
   <script src="ir-stream-view.js?v=1"></script>
-  <script src="app.js?v=27"></script>
+  <script src="tabs-view.js?v=1"></script>
+  <script src="rover-wire.js?v=1"></script>
+  <script src="app.js?v=29"></script>
 </body>
 </html>

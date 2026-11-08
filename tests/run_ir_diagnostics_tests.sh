@@ -12,7 +12,7 @@ run() {
 run steering-trace tests/test_robot_steering_trace.c
 run motor-observer tests/test_buddy2_action_log.c firmware/app_program/robot_steering_trace.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c
 run ir tests/test_buddy3_ir_junction.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_barcode_trace.c firmware/app_program/robot_ir_stream.c
-run controller tests/test_robot_barcode_controller.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_steering_trace.c
+run controller tests/test_robot_barcode_controller.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_packed.c firmware/app_program/robot_wire.c
 run actions tests/test_robot_action_log.c
 run steering tests/test_buddy3_steering.c firmware/app_program/buddy3_steering.c
 run junction tests/test_buddy3_junction.c firmware/app_program/buddy3_junction.c

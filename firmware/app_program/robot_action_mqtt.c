@@ -68,7 +68,7 @@ static bool action_publish_events (char * p_payload)
                 g_direction_names[event.direction],
                 g_source_names[event.source], (INT) event.left_pwm,
                 (INT) event.right_pwm, (UINT) event.dropped);
-            if (comms_publish(COMMS_TOPIC_ACTIONS, p_payload))
+            if (comms_publish_text(COMMS_TOPIC_ACTIONS, p_payload))
             {
                 robot_action_ack(event.seq);
             }
@@ -108,7 +108,7 @@ static void action_publish_snapshot (char * p_payload, uint32_t now_ms)
             ROBOT_MQTT_CLIENT_ID, (UINT) event.seq, (UINT) now_ms,
             g_direction_names[event.direction], g_source_names[event.source],
             (INT) event.left_pwm, (INT) event.right_pwm, (UINT) event.dropped);
-        if (comms_publish(COMMS_TOPIC_ACTIONS, p_payload))
+        if (comms_publish_text(COMMS_TOPIC_ACTIONS, p_payload))
         {
             last_snapshot_ms = now_ms;
             b_have_snapshot  = true;

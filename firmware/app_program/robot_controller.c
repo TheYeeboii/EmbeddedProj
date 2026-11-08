@@ -27,6 +27,7 @@
 #include "robot_controller.h"
 #include "robot_steering_trace.h"
 #include "robot_hal.h"
+#include "robot_wire.h"
 
 #define ROBOT_LEGACY_MAX (65535)
 
@@ -54,7 +55,6 @@
 #define ROBOT_BARCODE_ELEMENT_MAX  (1000)
 #define ROBOT_BARCODE_OFFSET_MAX   (500)
 
-#define ROBOT_NAME_MAX              (24u)
 #define ROBOT_BUTTON_DEBOUNCE_STEPS (3u) /* 3 x 20 ms = 60 ms */
 
 typedef enum
@@ -65,43 +65,6 @@ typedef enum
     ROBOT_MODE_LINE,
     ROBOT_MODE_AVOID
 } robot_mode_t;
-
-/* Commands that take one or two numbers. */
-typedef enum
-{
-    ROBOT_CMD_DRIVE,
-    ROBOT_CMD_TRIM,
-    ROBOT_CMD_SPEED_LIMIT,
-    ROBOT_CMD_SERVO_ANGLE,
-    ROBOT_CMD_BARCODE_MODE,
-    ROBOT_CMD_BARCODE_CONFIG,
-    ROBOT_CMD_LINE_STAGE,
-    ROBOT_CMD_LINE_SPEED
-} robot_command_id_t;
-
-/* A command name and the JSON keys of its numbers; in the plain-text form
- * the numbers follow the name in the same order.  p_second_key is NULL for
- * single-number commands. */
-typedef struct
-{
-    const char *       p_name;
-    const char *       p_first_key;
-    const char *       p_second_key;
-    robot_command_id_t command_id;
-} robot_command_t;
-
-static const robot_command_t g_commands[] = {
-    {"drive", "left", "right", ROBOT_CMD_DRIVE},
-    {"motor_trim", "left", "right", ROBOT_CMD_TRIM},
-    {"speed_limit", "percent", NULL, ROBOT_CMD_SPEED_LIMIT},
-    {"servo_angle", "angle", NULL, ROBOT_CMD_SERVO_ANGLE},
-    {"barcode_mode", "mode", NULL, ROBOT_CMD_BARCODE_MODE},
-    {"barcode_config", "min_element_mm", "offset_left_mm",
-     ROBOT_CMD_BARCODE_CONFIG},
-    {"line_stage", "stage", NULL, ROBOT_CMD_LINE_STAGE},
-    {"line_speed", "base", "turn", ROBOT_CMD_LINE_SPEED}};
-
-#define ROBOT_COMMAND_COUNT (sizeof(g_commands) / sizeof(g_commands[0]))
 
 static robot_mode_t g_mode          = ROBOT_MODE_IDLE;
 static uint32_t     g_drive_left    = 0u;
@@ -117,36 +80,25 @@ static uint32_t g_line_button_count   = 0u;
 /* Read-only until the demo mapping is known. */
 static uint8_t g_barcode_mode = ROBOT_BARCODE_MODE_OBSERVE;
 
-static bool robot_is_space (char character);
-static bool robot_str_equal (const char * p_first, const char * p_second);
-static const char * robot_find (const char * p_text, const char * p_needle);
-static bool         robot_parse_int (const char * p_text, int32_t * p_value,
-                                     const char ** pp_end);
-static bool         robot_json_int (const char * p_json, const char * p_key,
-                                    int32_t * p_value);
-static bool         robot_json_command (const char * p_json, char * p_name);
-static const char * robot_first_word (const char * p_text, char * p_name);
-static int16_t      robot_legacy_to_pwm (uint32_t legacy);
-static uint32_t     robot_clamp_legacy (int32_t value);
-static void         robot_stop_all (void);
-static void         robot_drive (uint32_t left, uint32_t right, int32_t sign,
-                                 uint32_t now_ms);
-static void         robot_set_trim (int32_t left, int32_t right);
-static void         robot_set_speed_limit (int32_t percent);
-static void         robot_set_servo_angle (int32_t angle);
-static void         robot_set_line_speed (int32_t base_pct, int32_t turn_pct);
-static void         robot_start_line (void);
-static void         robot_stop_line (void);
-static void         robot_set_line_stage (int32_t stage);
-static void         robot_set_barcode_mode (int32_t mode);
-static void         robot_reset_all (void);
-static bool         robot_simple_command (const char * p_name, uint32_t now_ms);
-static bool robot_command_args (const robot_command_t * p_entry, bool b_json,
-                                const char * p_command, const char * p_rest,
-                                int32_t values[2]);
-static void robot_run_command (robot_command_id_t command_id,
-                               const int32_t values[2], uint32_t now_ms);
-static void robot_log_barcode (const buddy3_barcode_event_t * p_event);
+static int16_t  robot_legacy_to_pwm (uint32_t legacy);
+static uint32_t robot_clamp_legacy (int32_t value);
+static void     robot_stop_all (void);
+static void     robot_drive (uint32_t left, uint32_t right, int32_t sign,
+                             uint32_t now_ms);
+static void     robot_set_trim (int32_t left, int32_t right);
+static void     robot_set_speed_limit (int32_t percent);
+static void     robot_set_servo_angle (int32_t angle);
+static void     robot_set_line_speed (int32_t base_pct, int32_t turn_pct);
+static void     robot_start_line (void);
+static void     robot_stop_line (void);
+static void     robot_set_line_stage (int32_t stage);
+static void     robot_set_barcode_mode (int32_t mode);
+static void     robot_reset_all (void);
+static bool     robot_run_simple (uint8_t opcode, uint32_t now_ms);
+static void     robot_drive_preset (int32_t preset, uint32_t now_ms);
+static void     robot_run_valued (const robot_wire_command_t * p_command,
+                                  uint32_t                     now_ms);
+static void     robot_log_barcode (const buddy3_barcode_event_t * p_event);
 
 /* ------------------------------------------------------------------ *
  *  Public API
@@ -161,59 +113,25 @@ void robot_controller_init (void)
     hal_gpio_input_pullup(BUTTON_LINE_PIN);
 }
 
-void robot_controller_handle_command (const char * p_command, uint32_t now_ms)
+void robot_controller_handle_command (const uint8_t * p_data, uint32_t length,
+                                      uint32_t now_ms)
 {
-    char         name[ROBOT_NAME_MAX];
-    int32_t      values[2] = {-1, -1};
-    const char * p_rest    = NULL;
-    uint32_t     index     = 0u;
-    bool         b_json    = false;
-    bool         b_named   = false;
+    robot_wire_command_t command = {0u, {0, 0}};
 
-    if ((NULL != p_command) && ('\0' != p_command[0]))
+    /* Wrong length, unknown opcode or stray padding bits: ignore it. */
+    if (!robot_wire_decode_command(p_data, length, &command))
     {
-        /* JSON form, e.g. {"cmd":"drive","left":30000,"right":30000}, or
-         * plain text, e.g. "drive 30000 30000" or "speed_limit 60". */
-        b_json = ('{' == p_command[0]);
-        if (b_json)
-        {
-            b_named = robot_json_command(p_command, name);
-        }
-        else
-        {
-            p_rest  = robot_first_word(p_command, name);
-            b_named = true;
-        }
-
-        if (!b_named)
-        {
-            tm_printf((UB *) "[cmd] ignored (no \"cmd\"): %s\n", p_command);
-        }
-        else if (robot_simple_command(name, now_ms))
-        {
-            /* Handled: a command without numbers. */
-        }
-        else
-        {
-            while ((index < ROBOT_COMMAND_COUNT) &&
-                   !robot_str_equal(name, g_commands[index].p_name))
-            {
-                index++;
-            }
-            if (ROBOT_COMMAND_COUNT == index)
-            {
-                tm_printf((UB *) "[cmd] ignored: %s\n", p_command);
-            }
-            else if (robot_command_args(&g_commands[index], b_json, p_command,
-                                        p_rest, values))
-            {
-                robot_run_command(g_commands[index].command_id, values, now_ms);
-            }
-            else
-            {
-                /* Missing numbers: ignored without a message, as before. */
-            }
-        }
+        tm_printf((UB *) "[cmd] ignored: %u-byte message is not a valid "
+                         "command\n",
+                  (UINT) length);
+    }
+    else if (robot_run_simple(command.opcode, now_ms))
+    {
+        /* Handled: a command without values. */
+    }
+    else
+    {
+        robot_run_valued(&command, now_ms);
     }
 }
 
@@ -291,6 +209,12 @@ const char * robot_controller_mode_name (void)
     return names[g_mode];
 }
 
+uint8_t robot_controller_get_mode (void)
+{
+    /* robot_mode_t has 5 values, so the index fits the 3-bit wire field. */
+    return (uint8_t) g_mode;
+}
+
 bool robot_controller_obstacle_watch_enabled (void)
 {
     /* Watched: forward manual drive, line following, and the forward move
@@ -362,182 +286,6 @@ void robot_controller_abort_obstacle_avoidance (void)
     {
         robot_stop_all();
     }
-}
-
-/* ------------------------------------------------------------------ *
- *  Tiny text helpers (no libc)
- * ------------------------------------------------------------------ */
-
-static bool robot_is_space (char character)
-{
-    return ((' ' == character) || ('\t' == character) || ('\r' == character) ||
-            ('\n' == character));
-}
-
-static bool robot_str_equal (const char * p_first, const char * p_second)
-{
-    while (('\0' != *p_first) && (*p_first == *p_second))
-    {
-        p_first++;
-        p_second++;
-    }
-
-    return (*p_first == *p_second);
-}
-
-/* Find p_needle in p_text; returns a pointer into p_text or NULL. */
-static const char * robot_find (const char * p_text, const char * p_needle)
-{
-    const char * p_start = p_text;
-    const char * p_match = NULL;
-
-    while ((NULL == p_match) && ('\0' != *p_start))
-    {
-        const char * p_text_char   = p_start;
-        const char * p_needle_char = p_needle;
-
-        while (('\0' != *p_needle_char) && (*p_text_char == *p_needle_char))
-        {
-            p_text_char++;
-            p_needle_char++;
-        }
-        if ('\0' == *p_needle_char)
-        {
-            p_match = p_start;
-        }
-        p_start++;
-    }
-
-    return p_match;
-}
-
-/* Parse a (possibly negative) decimal integer; pp_end gets the stop point. */
-static bool robot_parse_int (const char * p_text, int32_t * p_value,
-                             const char ** pp_end)
-{
-    int32_t sign     = 1;
-    int32_t value    = 0;
-    bool    b_digits = false;
-
-    while (robot_is_space(*p_text))
-    {
-        p_text++;
-    }
-    if ('-' == *p_text)
-    {
-        sign = -1;
-        p_text++;
-    }
-    while ((*p_text >= '0') && (*p_text <= '9'))
-    {
-        /* A digit character minus '0' is 0..9. */
-        value    = (value * 10) + (int32_t) (*p_text - '0');
-        b_digits = true;
-        p_text++;
-    }
-    if (NULL != pp_end)
-    {
-        *pp_end = p_text;
-    }
-    if (b_digits)
-    {
-        *p_value = sign * value;
-    }
-
-    return b_digits;
-}
-
-/* JSON: read the number after "key": */
-static bool robot_json_int (const char * p_json, const char * p_key,
-                            int32_t * p_value)
-{
-    char         pattern[ROBOT_NAME_MAX + 3u];
-    uint32_t     index   = 0u;
-    const char * p_found = NULL;
-    bool         b_found = false;
-
-    pattern[index] = '"';
-    index++;
-    while (('\0' != *p_key) && (index < (ROBOT_NAME_MAX + 1u)))
-    {
-        pattern[index] = *p_key;
-        index++;
-        p_key++;
-    }
-    pattern[index] = '"';
-    index++;
-    pattern[index] = '\0';
-
-    p_found = robot_find(p_json, pattern);
-    if (NULL != p_found)
-    {
-        p_found = robot_find(p_found, ":");
-    }
-    if (NULL != p_found)
-    {
-        b_found = robot_parse_int(p_found + 1, p_value, NULL);
-    }
-
-    return b_found;
-}
-
-/* JSON: copy the string value of "cmd" (or "command") into p_name. */
-static bool robot_json_command (const char * p_json, char * p_name)
-{
-    const char * p_found = robot_find(p_json, "\"cmd\"");
-    uint32_t     length  = 0u;
-
-    if (NULL == p_found)
-    {
-        p_found = robot_find(p_json, "\"command\"");
-    }
-    if (NULL != p_found)
-    {
-        p_found = robot_find(p_found, ":");
-    }
-    if (NULL != p_found)
-    {
-        p_found++;
-        while (robot_is_space(*p_found))
-        {
-            p_found++;
-        }
-        if ('"' == *p_found)
-        {
-            p_found++;
-            while (('"' != *p_found) && ('\0' != *p_found) &&
-                   (length < (ROBOT_NAME_MAX - 1u)))
-            {
-                p_name[length] = *p_found;
-                length++;
-                p_found++;
-            }
-        }
-    }
-    p_name[length] = '\0';
-
-    return (length > 0u);
-}
-
-/* Plain text: first word into p_name, rest returned. */
-static const char * robot_first_word (const char * p_text, char * p_name)
-{
-    uint32_t length = 0u;
-
-    while (robot_is_space(*p_text))
-    {
-        p_text++;
-    }
-    while (('\0' != *p_text) && !robot_is_space(*p_text) &&
-           (length < (ROBOT_NAME_MAX - 1u)))
-    {
-        p_name[length] = *p_text;
-        length++;
-        p_text++;
-    }
-    p_name[length] = '\0';
-
-    return p_text;
 }
 
 /* ------------------------------------------------------------------ *
@@ -765,130 +513,129 @@ static void robot_reset_all (void)
                      "cleared; defaults restored\n");
 }
 
-/* Commands without numbers.  Returns false when p_name is not one. */
-static bool robot_simple_command (const char * p_name, uint32_t now_ms)
+/* Commands without values.  Returns false when the opcode is not one. */
+static bool robot_run_simple (uint8_t opcode, uint32_t now_ms)
 {
     bool b_handled = true;
 
-    if (robot_str_equal(p_name, "stop"))
+    (void) now_ms;
+    switch (opcode)
     {
-        robot_stop_all();
-        tm_printf((UB *) "[cmd] stop\n");
-    }
-    else if (robot_str_equal(p_name, "forward"))
-    {
-        robot_drive(ROBOT_FORWARD_SPEED, ROBOT_FORWARD_SPEED, 1, now_ms);
-    }
-    else if (robot_str_equal(p_name, "reverse"))
-    {
-        robot_drive(ROBOT_REVERSE_SPEED, ROBOT_REVERSE_SPEED, -1, now_ms);
-    }
-    else if (robot_str_equal(p_name, "left"))
-    {
-        robot_drive(0u, ROBOT_FORWARD_SPEED, 1, now_ms);
-    }
-    else if (robot_str_equal(p_name, "right"))
-    {
-        robot_drive(ROBOT_FORWARD_SPEED, 0u, 1, now_ms);
-    }
-    else if (robot_str_equal(p_name, "line_follow"))
-    {
-        robot_start_line();
-    }
-    else if (robot_str_equal(p_name, "line_stop"))
-    {
-        robot_stop_line();
-    }
-    else if (robot_str_equal(p_name, "imu_reset"))
-    {
-        buddy4_reset_run();
-        tm_printf((UB *) "[cmd] imu_reset\n");
-    }
-    else if (robot_str_equal(p_name, "reset_all"))
-    {
-        robot_reset_all();
-    }
-    else
-    {
-        b_handled = false;
+        case ROBOT_WIRE_OP_STOP:
+            robot_stop_all();
+            tm_printf((UB *) "[cmd] stop\n");
+        break;
+
+        case ROBOT_WIRE_OP_LINE_FOLLOW:
+            robot_start_line();
+        break;
+
+        case ROBOT_WIRE_OP_LINE_STOP:
+            robot_stop_line();
+        break;
+
+        case ROBOT_WIRE_OP_IMU_RESET:
+            buddy4_reset_run();
+            tm_printf((UB *) "[cmd] imu_reset\n");
+        break;
+
+        case ROBOT_WIRE_OP_RESET_ALL:
+            robot_reset_all();
+        break;
+
+        default:
+            b_handled = false;
+        break;
     }
 
     return b_handled;
 }
 
-/* Read the one or two numbers of a command from its JSON keys or, in the
- * plain-text form, from the words after the name.  Returns false when a
- * number is missing. */
-static bool robot_command_args (const robot_command_t * p_entry, bool b_json,
-                                const char * p_command, const char * p_rest,
-                                int32_t values[2])
+/* The four keyboard/button moves, at the fixed speeds the old "forward",
+ * "reverse", "left" and "right" text commands used. */
+static void robot_drive_preset (int32_t preset, uint32_t now_ms)
 {
-    bool b_ok = false;
-
-    if (b_json)
+    switch (preset)
     {
-        b_ok = robot_json_int(p_command, p_entry->p_first_key, &values[0]) &&
-               ((NULL == p_entry->p_second_key) ||
-                robot_json_int(p_command, p_entry->p_second_key, &values[1]));
-    }
-    else
-    {
-        b_ok = robot_parse_int(p_rest, &values[0], &p_rest) &&
-               ((NULL == p_entry->p_second_key) ||
-                robot_parse_int(p_rest, &values[1], &p_rest));
-    }
+        case (int32_t) ROBOT_WIRE_PRESET_FORWARD:
+            robot_drive(ROBOT_FORWARD_SPEED, ROBOT_FORWARD_SPEED, 1, now_ms);
+        break;
 
-    return b_ok;
+        case (int32_t) ROBOT_WIRE_PRESET_REVERSE:
+            robot_drive(ROBOT_REVERSE_SPEED, ROBOT_REVERSE_SPEED, -1, now_ms);
+        break;
+
+        case (int32_t) ROBOT_WIRE_PRESET_LEFT:
+            robot_drive(0u, ROBOT_FORWARD_SPEED, 1, now_ms);
+        break;
+
+        default: /* ROBOT_WIRE_PRESET_RIGHT: the field has only 2 bits. */
+            robot_drive(ROBOT_FORWARD_SPEED, 0u, 1, now_ms);
+        break;
+    }
 }
 
-/* Carry out a command whose numbers were read successfully. */
-static void robot_run_command (robot_command_id_t command_id,
-                               const int32_t values[2], uint32_t now_ms)
+/* Carry out a command that carries values.  Each setter checks the range of
+ * its values and prints why it rejected one. */
+static void robot_run_valued (const robot_wire_command_t * p_command,
+                              uint32_t                     now_ms)
 {
-    switch (command_id)
+    const int32_t * p_values = p_command->values;
+
+    switch (p_command->opcode)
     {
-        case ROBOT_CMD_DRIVE:
-            robot_drive(robot_clamp_legacy(values[0]),
-                        robot_clamp_legacy(values[1]), 1, now_ms);
+        case ROBOT_WIRE_OP_DRIVE_PRESET:
+            robot_drive_preset(p_values[0], now_ms);
         break;
 
-        case ROBOT_CMD_TRIM:
-            robot_set_trim(values[0], values[1]); /* percent */
+        case ROBOT_WIRE_OP_DRIVE:
+            robot_drive(robot_clamp_legacy(p_values[0]),
+                        robot_clamp_legacy(p_values[1]), 1, now_ms);
         break;
 
-        case ROBOT_CMD_SPEED_LIMIT:
-            robot_set_speed_limit(values[0]);
+        case ROBOT_WIRE_OP_MOTOR_TRIM:
+            robot_set_trim(p_values[0], p_values[1]); /* percent */
         break;
 
-        case ROBOT_CMD_SERVO_ANGLE:
-            robot_set_servo_angle(values[0]); /* accepted only when idle */
+        case ROBOT_WIRE_OP_SPEED_LIMIT:
+            robot_set_speed_limit(p_values[0]);
         break;
 
-        case ROBOT_CMD_BARCODE_MODE:
-            robot_set_barcode_mode(values[0]);
+        case ROBOT_WIRE_OP_SERVO_ANGLE:
+            robot_set_servo_angle(p_values[0]); /* accepted only when idle */
         break;
 
-        case ROBOT_CMD_BARCODE_CONFIG:
+        case ROBOT_WIRE_OP_BARCODE_MODE:
+            robot_set_barcode_mode(p_values[0]);
+        break;
+
+        case ROBOT_WIRE_OP_BARCODE_CONFIG:
             /* Ranges are checked before the casts. */
-            if ((values[0] >= 0) && (values[0] <= ROBOT_BARCODE_ELEMENT_MAX) &&
-                (values[1] >= -ROBOT_BARCODE_OFFSET_MAX) &&
-                (values[1] <= ROBOT_BARCODE_OFFSET_MAX))
+            if ((p_values[0] >= 0) &&
+                (p_values[0] <= ROBOT_BARCODE_ELEMENT_MAX) &&
+                (p_values[1] >= -ROBOT_BARCODE_OFFSET_MAX) &&
+                (p_values[1] <= ROBOT_BARCODE_OFFSET_MAX))
             {
-                (void) buddy3_configure_barcode((uint16_t) values[0],
-                                                (int16_t) values[1]);
+                (void) buddy3_configure_barcode((uint16_t) p_values[0],
+                                                (int16_t) p_values[1]);
+            }
+            else
+            {
+                tm_printf((UB *) "[cmd] barcode config rejected: %d %d\n",
+                          (INT) p_values[0], (INT) p_values[1]);
             }
         break;
 
-        case ROBOT_CMD_LINE_STAGE:
-            robot_set_line_stage(values[0]);
+        case ROBOT_WIRE_OP_LINE_STAGE:
+            robot_set_line_stage(p_values[0]);
         break;
 
-        case ROBOT_CMD_LINE_SPEED:
-            robot_set_line_speed(values[0], values[1]); /* percent */
+        case ROBOT_WIRE_OP_LINE_SPEED:
+            robot_set_line_speed(p_values[0], p_values[1]); /* percent */
         break;
 
         default:
-            /* Every table entry is handled above. */
+            /* robot_wire_decode_command() accepts no other opcode. */
         break;
     }
 }

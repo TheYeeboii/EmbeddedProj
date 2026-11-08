@@ -447,7 +447,7 @@ static void buddy4_report (const buddy4_imu_state_t * p_state)
         (UINT) p_state->highest_hump_mm, (UINT) p_state->motion_class,
         (INT) p_state->turn_rate_dps_x10, (UINT) p_state->impact_count,
         (UINT) p_state->sample_interval_ms, hex);
-    (void) comms_publish(COMMS_TOPIC_TELEMETRY, message);
+    (void) comms_publish_text(COMMS_TOPIC_TELEMETRY, message);
 }
 
 /*** end of file ***/

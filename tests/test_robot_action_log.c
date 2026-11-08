@@ -18,11 +18,11 @@ int             tm_sprintf (unsigned char * out, unsigned char * fmt, ...)
     assert(written >= 0 && written < 256);
     return written;
 }
-uint32_t comms_get_link_state (void)
+uint8_t comms_get_link_state (void)
 {
     return g_link_state;
 }
-bool comms_publish (uint32_t topic, const char * payload)
+bool comms_publish_text (uint32_t topic, const char * payload)
 {
     assert(COMMS_TOPIC_ACTIONS == topic);
     if (!g_b_accept_publish)

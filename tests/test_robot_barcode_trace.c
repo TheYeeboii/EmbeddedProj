@@ -16,7 +16,7 @@ uint32_t        robot_diagnostics_session (void)
 {
     return 123;
 }
-uint32_t comms_get_link_state (void)
+uint8_t comms_get_link_state (void)
 {
     return g_b_online ? COMMS_LINK_MQTT_UP : 0;
 }
@@ -36,7 +36,7 @@ int tm_sprintf (unsigned char * out, unsigned char * fmt, ...)
     assert(written >= 0 && (size_t) written < remaining);
     return written;
 }
-bool comms_publish (uint32_t topic, const char * payload)
+bool comms_publish_text (uint32_t topic, const char * payload)
 {
     assert(COMMS_TOPIC_BARCODE == topic);
     assert(strlen(payload) < 512);

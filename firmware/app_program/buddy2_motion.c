@@ -75,6 +75,8 @@
 /* Trim and speed limit are percentages; both scale an open-loop command. */
 #define BUDDY2_PERCENT         (100u)
 #define BUDDY2_PERCENT_SQUARED (10000)
+/* speed_pct value meaning "use the global speed limit (g_speed_pct)". */
+#define BUDDY2_SPEED_USE_LIMIT (0u)
 #define BUDDY2_DEG_PER_TURN    (360.0f)
 #define BUDDY2_MS_PER_S        (1000.0f)
 
@@ -136,6 +138,10 @@ static float32_t buddy2_mm_per_tick (float32_t ticks_per_rev);
 static int16_t   buddy2_clamp_pwm (float32_t value);
 static void      buddy2_apply_one (uint32_t pin_a, uint32_t pin_b, int16_t pwm);
 static void buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm);
+static void buddy2_drive_locked (int16_t left_pwm, int16_t right_pwm,
+                                 const robot_steering_input_t * p_input,
+                                 uint8_t                        speed_pct);
+static bool buddy2_speed_valid (uint8_t percent);
 static int32_t buddy2_trace_distance (float32_t distance_mm);
 static int16_t buddy2_trace_speed (float32_t speed);
 static void    buddy2_trace (int16_t left, int16_t right,
@@ -143,7 +149,8 @@ static void    buddy2_trace (int16_t left, int16_t right,
 static void    buddy2_stop_locked (const robot_steering_input_t * p_input);
 static void    buddy2_encoder_pin_init (uint32_t pin);
 static bool buddy2_start_motion (float32_t left_distance_mm,
-                                 float32_t right_distance_mm, int16_t max_pwm);
+                                 float32_t right_distance_mm, int16_t max_pwm,
+                                 uint8_t speed_pct);
 static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
                                   uint32_t elapsed_ms, uint32_t * p_no_tick_ms,
                                   bool * p_fault);
@@ -210,30 +217,31 @@ void buddy2_set_motor_pwm_observed (int16_t left_pwm, int16_t right_pwm,
     if (g_b_initialized)
     {
         buddy2_lock();
-        /* trim and speed are at most 100 %, so each product divided by
-         * 100 * 100 stays within the int16_t command range. */
-        buddy2_set_motor_pwm_locked(
-            (int16_t) (((int32_t) left_pwm * (int32_t) g_left_trim_pct *
-                        (int32_t) g_speed_pct) /
-                       BUDDY2_PERCENT_SQUARED),
-            (int16_t) (((int32_t) right_pwm * (int32_t) g_right_trim_pct *
-                        (int32_t) g_speed_pct) /
-                       BUDDY2_PERCENT_SQUARED));
-        /* Observe requested steering before trim; trim alone is not a turn.
-         * Logging only queues transitions and never publishes while locked.
-         * The millisecond clock wraps; consumers use differences. */
-        robot_action_record(robot_action_direction_for_pwm(left_pwm, right_pwm),
-                            ROBOT_ACTION_PWM, left_pwm, right_pwm,
-                            (uint32_t) (hal_time_us() / 1000u));
-        buddy2_trace(left_pwm, right_pwm, p_input);
+        buddy2_drive_locked(left_pwm, right_pwm, p_input,
+                            BUDDY2_SPEED_USE_LIMIT);
         buddy2_unlock();
     }
 }
 
+bool buddy2_set_motor_pwm_at_speed (int16_t left_pwm, int16_t right_pwm,
+                                    uint8_t speed_pct)
+{
+    bool b_driven = false;
+
+    if (g_b_initialized && buddy2_speed_valid(speed_pct))
+    {
+        buddy2_lock();
+        buddy2_drive_locked(left_pwm, right_pwm, NULL, speed_pct);
+        buddy2_unlock();
+        b_driven = true;
+    }
+
+    return b_driven;
+}
+
 bool buddy2_set_speed_limit (uint8_t percent)
 {
-    bool b_valid =
-        ((percent >= BUDDY2_SPEED_MIN) && (percent <= BUDDY2_PERCENT));
+    bool b_valid = buddy2_speed_valid(percent);
 
     if (b_valid)
     {
@@ -375,14 +383,31 @@ bool buddy2_move_forward (float32_t distance_mm, int16_t max_pwm)
 {
     float32_t distance = buddy2_absf(distance_mm);
 
-    return buddy2_start_motion(distance, distance, max_pwm);
+    return buddy2_start_motion(distance, distance, max_pwm,
+                               BUDDY2_SPEED_USE_LIMIT);
 }
 
 bool buddy2_move_backward (float32_t distance_mm, int16_t max_pwm)
 {
     float32_t distance = buddy2_absf(distance_mm);
 
-    return buddy2_start_motion(-distance, -distance, max_pwm);
+    return buddy2_start_motion(-distance, -distance, max_pwm,
+                               BUDDY2_SPEED_USE_LIMIT);
+}
+
+bool buddy2_move_backward_at_speed (float32_t distance_mm, int16_t max_pwm,
+                                    uint8_t speed_pct)
+{
+    float32_t distance  = buddy2_absf(distance_mm);
+    bool      b_started = false;
+
+    if (buddy2_speed_valid(speed_pct))
+    {
+        b_started =
+            buddy2_start_motion(-distance, -distance, max_pwm, speed_pct);
+    }
+
+    return b_started;
 }
 
 bool buddy2_turn_left (float32_t angle_deg, int16_t max_pwm)
@@ -392,7 +417,8 @@ bool buddy2_turn_left (float32_t angle_deg, int16_t max_pwm)
         (BUDDY2_PI * g_calibration.track_width_mm * buddy2_absf(angle_deg)) /
         BUDDY2_DEG_PER_TURN;
 
-    return buddy2_start_motion(-distance, distance, max_pwm);
+    return buddy2_start_motion(-distance, distance, max_pwm,
+                               BUDDY2_SPEED_USE_LIMIT);
 }
 
 bool buddy2_turn_right (float32_t angle_deg, int16_t max_pwm)
@@ -401,7 +427,8 @@ bool buddy2_turn_right (float32_t angle_deg, int16_t max_pwm)
         (BUDDY2_PI * g_calibration.track_width_mm * buddy2_absf(angle_deg)) /
         BUDDY2_DEG_PER_TURN;
 
-    return buddy2_start_motion(distance, -distance, max_pwm);
+    return buddy2_start_motion(distance, -distance, max_pwm,
+                               BUDDY2_SPEED_USE_LIMIT);
 }
 
 bool buddy2_motion_active (void)
@@ -601,6 +628,46 @@ static void buddy2_set_motor_pwm_locked (int16_t left_pwm, int16_t right_pwm)
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, right_command);
 }
 
+/*
+ * Open-loop drive with trim and a speed percentage applied.  Caller must hold
+ * the mutex.  speed_pct is BUDDY2_SPEED_USE_LIMIT (global limit) or an
+ * already validated BUDDY2_SPEED_MIN..100 value.
+ */
+static void buddy2_drive_locked (int16_t left_pwm, int16_t right_pwm,
+                                 const robot_steering_input_t * p_input,
+                                 uint8_t                        speed_pct)
+{
+    uint8_t percent = speed_pct;
+
+    if (BUDDY2_SPEED_USE_LIMIT == percent)
+    {
+        percent = g_speed_pct;
+    }
+
+    /* trim and speed are at most 100 %, so each product divided by
+     * 100 * 100 stays within the int16_t command range. */
+    buddy2_set_motor_pwm_locked(
+        (int16_t) (((int32_t) left_pwm * (int32_t) g_left_trim_pct *
+                    (int32_t) percent) /
+                   BUDDY2_PERCENT_SQUARED),
+        (int16_t) (((int32_t) right_pwm * (int32_t) g_right_trim_pct *
+                    (int32_t) percent) /
+                   BUDDY2_PERCENT_SQUARED));
+    /* Observe requested steering before trim; trim alone is not a turn.
+     * Logging only queues transitions and never publishes while locked.
+     * The millisecond clock wraps; consumers use differences. */
+    robot_action_record(robot_action_direction_for_pwm(left_pwm, right_pwm),
+                        ROBOT_ACTION_PWM, left_pwm, right_pwm,
+                        (uint32_t) (hal_time_us() / 1000u));
+    buddy2_trace(left_pwm, right_pwm, p_input);
+}
+
+/* True when percent is a usable speed (BUDDY2_SPEED_MIN..100). */
+static bool buddy2_speed_valid (uint8_t percent)
+{
+    return ((percent >= BUDDY2_SPEED_MIN) && (percent <= BUDDY2_PERCENT));
+}
+
 /* Distance in tenths of a millimetre, saturated; NaN gives 0. */
 static int32_t buddy2_trace_distance (float32_t distance_mm)
 {
@@ -698,12 +765,16 @@ static void buddy2_encoder_pin_init (uint32_t pin)
     (void) gpio_irq_register(pin, HAL_GPIO_EDGE_RISE, buddy2_encoder_isr);
 }
 
+/* speed_pct is BUDDY2_SPEED_USE_LIMIT (global limit) or an already
+ * validated BUDDY2_SPEED_MIN..100 value. */
 static bool buddy2_start_motion (float32_t left_distance_mm,
-                                 float32_t right_distance_mm, int16_t max_pwm)
+                                 float32_t right_distance_mm, int16_t max_pwm,
+                                 uint8_t speed_pct)
 {
     float32_t left_abs  = buddy2_absf(left_distance_mm);
     float32_t right_abs = buddy2_absf(right_distance_mm);
     uint8_t   direction = ROBOT_ACTION_NONE;
+    uint8_t   percent   = speed_pct;
     bool      b_started = false;
 
     /* A zero-length move (both distances 0) is rejected. */
@@ -724,13 +795,17 @@ static bool buddy2_start_motion (float32_t left_distance_mm,
         }
 
         buddy2_lock();
+        if (BUDDY2_SPEED_USE_LIMIT == percent)
+        {
+            percent = g_speed_pct;
+        }
         g_motion.b_active = true;
         g_motion.target_distance_mm =
             (left_abs > right_abs) ? left_abs : right_abs;
         g_motion.start_left_distance_mm  = g_state.left_distance_mm;
         g_motion.start_right_distance_mm = g_state.right_distance_mm;
         g_motion.max_pwm =
-            buddy2_clamp_pwm(((float32_t) max_pwm * (float32_t) g_speed_pct) /
+            buddy2_clamp_pwm(((float32_t) max_pwm * (float32_t) percent) /
                              (float32_t) BUDDY2_PERCENT);
         g_motion.left_direction       = (left_distance_mm < 0.0f) ? -1 : 1;
         g_motion.right_direction      = (right_distance_mm < 0.0f) ? -1 : 1;

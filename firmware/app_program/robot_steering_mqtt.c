@@ -39,7 +39,7 @@ void robot_steering_publish (uint32_t now_ms)
         else
         {
             steering_format(payload, &event, b_queued, now_ms);
-            if (!comms_publish(COMMS_TOPIC_STEERING, payload))
+            if (!comms_publish_text(COMMS_TOPIC_STEERING, payload))
             {
                 b_more = false;
             }

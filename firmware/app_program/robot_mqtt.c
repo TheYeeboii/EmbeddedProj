@@ -23,6 +23,7 @@
 #include "comms.h"
 #include "mqtt_config.h"
 #include "robot_mqtt.h"
+#include "robot_wire.h"
 
 extern uint64_t time_us_64 (void);
 
@@ -38,9 +39,16 @@ static bool            g_b_connecting        = false;
 static bool            g_b_subscribe_pending = false;
 static bool            g_b_online_pending    = false;
 static uint64_t        g_next_attempt_us     = 0u;
-static char            g_incoming[COMMS_COMMAND_MAX];
+static uint8_t         g_incoming[COMMS_COMMAND_MAX];
 static uint32_t        g_incoming_length = 0u;
-static char            g_outgoing[COMMS_PAYLOAD_MAX];
+/* Set when a command is longer than any valid one; it is then dropped
+ * whole, never truncated into a different command. */
+static bool    g_b_incoming_too_long = false;
+static uint8_t g_outgoing[COMMS_PAYLOAD_MAX];
+/* The Last Will: one status byte (robot_wire.h).  lwIP takes it as a char
+ * pointer, but its length is passed explicitly, never measured. */
+static const char g_will_offline[] = {(char) ROBOT_WIRE_STATUS_OFFLINE_BYTE,
+                                      '\0'};
 
 /* ---------------- lwIP callbacks (radio task context) ---------------- */
 
@@ -49,28 +57,35 @@ static void robot_mqtt_incoming_publish (void * p_arg, const char * p_topic,
 {
     (void) p_arg;
     (void) p_topic; /* we only subscribe to rover/commands */
-    (void) total_length;
-    g_incoming_length = 0u;
+    g_incoming_length     = 0u;
+    g_b_incoming_too_long = (total_length > COMMS_COMMAND_MAX);
 }
 
 static void robot_mqtt_incoming_data (void * p_arg, const u8_t * p_data,
                                       u16_t length, u8_t flags)
 {
-    uint32_t space = 0u;
-    uint32_t copy  = 0u;
-
     (void) p_arg;
-    if (NULL != p_data)
+    if ((NULL == p_data) || g_b_incoming_too_long)
     {
-        space = (COMMS_COMMAND_MAX - 1u) - g_incoming_length;
-        copy  = (length < space) ? length : space;
-        memcpy(&g_incoming[g_incoming_length], p_data, copy);
-        g_incoming_length += copy;
+        /* Nothing to copy, or already being dropped. */
+    }
+    else if (length > (COMMS_COMMAND_MAX - g_incoming_length))
+    {
+        g_b_incoming_too_long = true;
+    }
+    else
+    {
+        memcpy(&g_incoming[g_incoming_length], p_data, length);
+        g_incoming_length += length;
     }
     if (0u != (flags & MQTT_DATA_FLAG_LAST))
     {
-        comms_put_incoming(g_incoming, g_incoming_length);
-        g_incoming_length = 0u;
+        if (!g_b_incoming_too_long)
+        {
+            comms_put_incoming(g_incoming, g_incoming_length);
+        }
+        g_incoming_length     = 0u;
+        g_b_incoming_too_long = false;
     }
 }
 
@@ -101,10 +116,10 @@ static void robot_mqtt_start_connect (void)
         NULL,           /* password */
         60u,            /* keep-alive, seconds */
         "rover/status", /* last will topic */
-        "{\"robot_id\":\"" ROBOT_MQTT_CLIENT_ID "\",\"state\":\"offline\"}",
-        0u, /* will length: use strlen */
-        0u, /* will QoS */
-        1u  /* will retained */
+        g_will_offline, /* last will: one status byte */
+        1u,             /* will length in bytes */
+        0u,             /* will QoS */
+        1u              /* will retained */
     };
     ip_addr_t broker = {0};
 
@@ -128,11 +143,11 @@ static void robot_mqtt_start_connect (void)
 /* Connected: subscribe, announce online and drain a few queued messages. */
 static void robot_mqtt_service (void)
 {
-    static const char online[] =
-        "{\"robot_id\":\"" ROBOT_MQTT_CLIENT_ID "\",\"state\":\"online\"}";
-    uint32_t topic  = 0u;
-    uint32_t sent   = 0u;
-    bool     b_more = true;
+    static const uint8_t online[] = {(uint8_t) ROBOT_WIRE_STATUS_ONLINE_BYTE};
+    uint32_t             topic    = 0u;
+    uint32_t             length   = 0u;
+    uint32_t             sent     = 0u;
+    bool                 b_more   = true;
 
     comms_set_link_state(COMMS_LINK_MQTT_UP);
 
@@ -147,9 +162,9 @@ static void robot_mqtt_service (void)
     if (g_b_online_pending)
     {
         /* The message is a short constant, so its length fits in u16_t. */
-        if (ERR_OK ==
-            mqtt_publish(g_p_client, g_topic_names[COMMS_TOPIC_STATUS], online,
-                         (u16_t) (sizeof(online) - 1u), 0u, 1u, NULL, NULL))
+        if (ERR_OK == mqtt_publish(g_p_client,
+                                   g_topic_names[COMMS_TOPIC_STATUS], online,
+                                   (u16_t) sizeof(online), 0u, 1u, NULL, NULL))
         {
             g_b_online_pending = false;
         }
@@ -158,12 +173,15 @@ static void robot_mqtt_service (void)
     /* Drain a couple of queued messages per poll. */
     for (sent = 0u; b_more && (sent < ROBOT_MQTT_MAX_PUBLISH_PER_POLL); sent++)
     {
-        b_more = comms_take_outgoing(&topic, g_outgoing, sizeof(g_outgoing));
-        if (b_more)
+        b_more = comms_take_outgoing(&topic, g_outgoing, sizeof(g_outgoing),
+                                     &length);
+        if (b_more && (topic < COMMS_TOPIC_COUNT))
         {
-            /* Payloads are shorter than COMMS_PAYLOAD_MAX (512 bytes). */
+            /* The length comes from the mailbox, never from strlen: packed
+             * payloads contain 0x00 bytes.  It is at most COMMS_PAYLOAD_MAX
+             * (512), so it fits in u16_t. */
             (void) mqtt_publish(g_p_client, g_topic_names[topic], g_outgoing,
-                                (u16_t) strlen(g_outgoing), 0u, 0u, NULL, NULL);
+                                (u16_t) length, 0u, 0u, NULL, NULL);
         }
     }
 }
