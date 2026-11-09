@@ -120,7 +120,7 @@ copy. So the linked image has to be repackaged.
 A normal Pico project gets this from the Pico SDK's CMake build, where
 `pico_add_extra_outputs()` builds the converter as a host tool invisibly. This
 port does not use the Pico SDK build - it inherits the upstream µT-Kernel BSP's
-plain GNU make system, the same one that builds the RX and STM32 targets, which
+plain GNU make system, the same one the upstream BSP uses for its other boards, which
 has no notion of host helper tools.
 
 So the build does it itself. `build_make/pico_rp2040.mk` carries a rule that

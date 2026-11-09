@@ -21,6 +21,8 @@ const SPARK_POINTS = 40;
 /* Buddy 4 BUDDY4_MOTION_* values (buddy4_processing.h). */
 const MOTION_NAMES = ['Unknown', 'Stationary', 'Cruising', 'Accelerating', 'Decelerating', 'Turning', 'On a hump', 'Sudden impact'];
 const MODE_TONES = { idle: 'muted', drive: 'accent', motion: 'accent', line: 'success' };
+/* Fault-byte bits worth showing while the robot is connected. */
+const FAULT_NAMES = { imu: 'IMU fault', no_echo: 'Ultrasonic not answering', encoder: 'Encoder fault', motor_stall: 'Motor stall' };
 /* Buddy 2 defaults (buddy2_motion.c): 65 mm wheel, 387 encoder ticks per turn. */
 const CM_PER_TICK = (Math.PI * 6.5) / 387;
 /* Buddy 5 avoid_status names (robot_telemetry.c) and the badge tone for each. */
@@ -156,8 +158,13 @@ function showTelemetry(data) {
   }
 
   markSeen();
-  const sensorsOk = (data.state || data.status) === 'online';
-  setText('state', sensorsOk ? 'All sensors OK' : (data.state === 'compass_error' ? 'Compass error' : (data.state || 'Unknown')));
+  /* Shared fault byte (robot_fault.h). Wi-Fi/MQTT loss cannot be seen while
+   * the message arrives, so only the sensor and motor faults are shown. */
+  const faults = (data.faults || []).filter(f => FAULT_NAMES[f]).map(f => FAULT_NAMES[f]);
+  const sensorsOk = (data.state || data.status) === 'online' && faults.length === 0;
+  const stateText = (data.state || data.status) === 'online' ? ''
+    : (data.state === 'compass_error' ? 'Compass error' : (data.state || 'Unknown'));
+  setText('state', sensorsOk ? 'All sensors OK' : [stateText, ...faults].filter(Boolean).join(', '));
   $('#state').style.color = sensorsOk ? '' : 'var(--warning)';
 
   barcodeConfiguration.robot(data.mode);

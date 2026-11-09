@@ -3,11 +3,12 @@
  * @brief Buddy 1: empty stand-ins for the diagnostic streams.
  *
  * Built only with DIAGNOSTICS=0 (the default; see pico_rp2040.mk), in place
- * of the eight modules behind the dashboard's tuning views:
- *   robot_action_log.c   / robot_action_mqtt.c    (rover/actions)
- *   robot_steering_trace.c / robot_steering_mqtt.c (rover/steering)
- *   robot_barcode_trace.c / robot_barcode_mqtt.c   (rover/barcode)
- *   robot_ir_stream.c    / robot_ir_mqtt.c         (rover/ir)
+ * of the five modules behind the dashboard's tuning views:
+ *   robot_action_log.c      (rover/actions)
+ *   robot_steering_trace.c  (rover/steering)
+ *   robot_barcode_trace.c   (rover/barcode)
+ *   robot_ir_stream.c       (rover/ir)
+ *   robot_diagnostics_mqtt.c (publishes all four)
  *
  * Those modules only record what the robot did and send it as JSON; no
  * control code reads anything back from them.  So the motor, line and
@@ -16,19 +17,16 @@
  * Requirement 1) and saves the trace buffers' RAM.  Build with
  * DIAGNOSTICS=1 to get the streams back for tuning.
  *
- * This file implements the eight modules' headers instead of one of its own
+ * This file implements the five modules' headers instead of one of its own
  * (a documented deviation from BARR-C 4.2.a, docs/CODING_STANDARD.md).
  */
 #include <stdbool.h>
 #include <stdint.h>
 
 #include "robot_action_log.h"
-#include "robot_action_mqtt.h"
-#include "robot_barcode_mqtt.h"
+#include "robot_diagnostics_mqtt.h"
 #include "robot_barcode_trace.h"
-#include "robot_ir_mqtt.h"
 #include "robot_ir_stream.h"
-#include "robot_steering_mqtt.h"
 #include "robot_steering_trace.h"
 
 /* ---- rover/actions ---- */

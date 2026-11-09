@@ -41,6 +41,14 @@ void robot_fault_set (uint8_t mask);
 void robot_fault_clear (uint8_t mask);
 
 /**
+ * @brief Clear some bits and set others in one locked step, so no reader
+ *        sees the in-between state.
+ * @param clear_mask ROBOT_FAULT_* bits to clear first.
+ * @param set_mask   ROBOT_FAULT_* bits to set after clearing.
+ */
+void robot_fault_update (uint8_t clear_mask, uint8_t set_mask);
+
+/**
  * @brief Read the whole fault byte.
  * @return The current ROBOT_FAULT_* bits.
  */

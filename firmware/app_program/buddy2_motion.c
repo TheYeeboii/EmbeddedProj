@@ -30,6 +30,7 @@
 #include "pin_config.h"
 #include "robot_hal.h"
 #include "robot_action_log.h"
+#include "robot_fault.h"
 #include "robot_steering_trace.h"
 #include "app_main.h"
 
@@ -154,6 +155,7 @@ static bool buddy2_start_motion (float32_t left_distance_mm,
 static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
                                   uint32_t elapsed_ms, uint32_t * p_no_tick_ms,
                                   bool * p_fault);
+static void buddy2_report_faults (bool b_left_fault, bool b_right_fault);
 static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
                                     float32_t dt_s);
 static void buddy2_run_pid (float32_t dt_s);
@@ -871,6 +873,35 @@ static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
     return b_new_fault;
 }
 
+/* Mirror the per-wheel verdicts into the shared fault byte (robot_fault.h).
+ * Both wheels powered with no ticks = motor stall; only one = encoder fault.
+ * Buddy 2 is the only writer of these two bits, and the byte is only touched
+ * when they change. */
+static void buddy2_report_faults (bool b_left_fault, bool b_right_fault)
+{
+    uint8_t wanted  = 0u;
+    uint8_t current = (uint8_t) (robot_fault_get() & (ROBOT_FAULT_ENCODER |
+                                                      ROBOT_FAULT_MOTOR_STALL));
+
+    if (b_left_fault && b_right_fault)
+    {
+        wanted = ROBOT_FAULT_MOTOR_STALL;
+    }
+    else if (b_left_fault || b_right_fault)
+    {
+        wanted = ROBOT_FAULT_ENCODER;
+    }
+    else
+    {
+        wanted = 0u;
+    }
+    if (wanted != current)
+    {
+        robot_fault_update(ROBOT_FAULT_ENCODER | ROBOT_FAULT_MOTOR_STALL,
+                           wanted);
+    }
+}
+
 /* Update distances, speeds and the encoder checks.  Caller holds the
  * mutex. */
 static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
@@ -907,6 +938,8 @@ static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
     b_right_new =
         buddy2_check_encoder(g_right_applied_pwm, right_delta, elapsed_ms,
                              &g_right_no_tick_ms, &g_state.right_encoder_fault);
+    buddy2_report_faults(g_state.left_encoder_fault,
+                         g_state.right_encoder_fault);
 
     /* A distance/turn move cannot finish correctly without both encoders
      * (its PID would drive the silent wheel flat out), so stop it.  Raw

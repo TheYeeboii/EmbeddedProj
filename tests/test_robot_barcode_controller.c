@@ -169,7 +169,9 @@ static void reset (void)
     g_b_accept_move     = true;
     g_b_button_high     = true;
     g_line_button_count = 0;
-    g_b_line_button_was = false;
+    g_b_link_seen       = false;
+    g_b_link_lost       = false;
+    robot_fault_update(ROBOT_FAULT_ALL, 0u);
     g_starts = g_stops = g_lefts = g_rights = g_forwards = 0;
     g_event                                              = 0;
     g_b_encoder_fault                                    = false;
@@ -189,6 +191,7 @@ typedef struct
 
 static const test_command_t g_test_commands[] = {
     {"stop", ROBOT_WIRE_OP_STOP, {0u, 0u}, 0},
+    {"preset", ROBOT_WIRE_OP_DRIVE_PRESET, {2u, 0u}, 0},
     {"line_follow", ROBOT_WIRE_OP_LINE_FOLLOW, {0u, 0u}, 0},
     {"line_stop", ROBOT_WIRE_OP_LINE_STOP, {0u, 0u}, 0},
     {"servo_angle", ROBOT_WIRE_OP_SERVO_ANGLE, {8u, 0u}, 0},
@@ -229,8 +232,53 @@ static void command (const char * c, uint32_t now_ms)
                                         now_ms);
     }
 }
+/* Change Requirement 1: mode and run flags share one locked byte. */
+static void test_packed_state (void)
+{
+    reset();
+    command("preset 0", 0); /* forward */
+    assert((uint8_t) (ROBOT_MODE_DRIVE | ROBOT_CTL_DRIVE_FORWARD) ==
+           (g_controller_state & (ROBOT_CTL_MODE_MASK | ROBOT_CTL_RUN_FLAGS)));
+    assert(robot_controller_obstacle_watch_enabled());
+    assert(1u == robot_controller_get_mode()); /* Telemetry index: drive. */
+    command("preset 1", 10);                   /* reverse */
+    assert(!robot_ctl_flag(ROBOT_CTL_DRIVE_FORWARD));
+    assert(!robot_controller_obstacle_watch_enabled());
+    command("stop", 20);
+    assert((uint8_t) ROBOT_MODE_IDLE == (g_controller_state & 0x7Fu));
+}
+
+/* Team decision: Wi-Fi loss stops line following after a 2 s grace, but
+ * only a link that was up counts. */
+static void test_link_loss (void)
+{
+    reset();
+    command("line_follow", 0);
+    robot_controller_step(1000); /* Link up: it can now be lost. */
+    robot_fault_set(ROBOT_FAULT_WIFI_LOSS);
+    robot_controller_step(1020); /* Loss seen; grace starts. */
+    robot_controller_step(3010);
+    assert(g_b_following); /* 1990 ms: still inside the grace period. */
+    robot_controller_step(3020);
+    assert(!g_b_following && (ROBOT_MODE_IDLE == robot_ctl_mode()));
+    assert(strstr(g_serial_log, "Wi-Fi lost"));
+    /* A deliberate GP21 start afterwards is not stopped again. */
+    command("line_follow", 3040);
+    robot_controller_step(9000);
+    assert(g_b_following);
+    /* A robot that never had a network is never stopped by this rule. */
+    reset();
+    robot_fault_set(ROBOT_FAULT_WIFI_LOSS);
+    command("line_follow", 0);
+    robot_controller_step(10);
+    robot_controller_step(60000);
+    assert(g_b_following);
+}
+
 int main (void)
 {
+    test_packed_state();
+    test_link_loss();
     reset();
     command("servo_angle 135", 0);
     assert(135 == g_servo_angle);
@@ -290,7 +338,7 @@ int main (void)
     assert(robot_controller_begin_obstacle_avoidance());
     assert(!g_b_following && robot_controller_obstacle_avoidance_active());
     puts("PASS: read-only letters, rejection logs, mode gate, servo commands, "
-         "GP21 start/stop, avoidance handoff");
+         "GP21 start/stop, avoidance handoff, packed state, Wi-Fi-loss stop");
     return 0;
 }
 

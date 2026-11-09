@@ -12,6 +12,16 @@
 
 #include "comms.h"
 #include "robot_fault.h"
+#include "robot_wire.h"
+
+/* Compile-time checks (a negative array size is an error): every packed
+ * message and command must fit the mailboxes. */
+typedef uint8_t
+    comms_payload_check_t[(COMMS_PAYLOAD_MAX >= ROBOT_WIRE_MESSAGE_MAX) ? 1
+                                                                        : -1];
+typedef uint8_t
+    comms_command_check_t[(COMMS_COMMAND_MAX >= ROBOT_WIRE_COMMAND_MAX) ? 1
+                                                                        : -1];
 
 #define COMMS_OUTBOX_MESSAGES (4u)
 #define COMMS_INBOX_MESSAGES  (4u)
@@ -212,8 +222,8 @@ static void comms_update_link_faults (uint8_t state)
     }
     else if (COMMS_LINK_WIFI_UP == state)
     {
-        robot_fault_clear(ROBOT_FAULT_WIFI_LOSS);
-        robot_fault_set(ROBOT_FAULT_MQTT_LOSS);
+        robot_fault_update(ROBOT_FAULT_WIFI_LOSS | ROBOT_FAULT_MQTT_LOSS,
+                           ROBOT_FAULT_MQTT_LOSS);
     }
     else
     {

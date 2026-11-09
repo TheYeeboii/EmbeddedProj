@@ -47,6 +47,13 @@
 #define WIRE_BITS_BC_ELEM   (10u)
 #define WIRE_BITS_BC_OFFSET (10u)
 #define WIRE_BITS_STAGE     (2u)
+#define WIRE_BITS_INTERVAL  (10u)
+#define WIRE_BITS_ROLL      (12u)
+#define WIRE_BITS_HUMP      (2u)
+#define WIRE_BITS_COUNT     (8u)
+#define WIRE_BITS_HEIGHT    (8u)
+#define WIRE_BITS_MOTION    (3u)
+#define WIRE_BITS_RATE      (15u)
 
 /* Stored offset of the trim fields: 50..100 % is sent as 0..50. */
 #define WIRE_TRIM_OFFSET (50u)
@@ -182,6 +189,44 @@ uint32_t robot_wire_encode_debug (const robot_wire_debug_t * p_values,
         robot_packed_put(&writer, p_values->forward_mm, WIRE_BITS_FORWARD);
         robot_packed_put(&writer, p_values->forward_target_mm,
                          WIRE_BITS_FORWARD);
+        length = robot_packed_length(&writer);
+    }
+
+    return length;
+}
+
+uint32_t robot_wire_encode_imu (const robot_wire_imu_t * p_values,
+                                uint8_t * p_buffer, uint32_t capacity)
+{
+    robot_packed_writer_t writer = {NULL, 0u, 0u, false};
+    uint32_t              length = 0u;
+
+    if (NULL != p_values)
+    {
+        robot_packed_writer_init(&writer, p_buffer, capacity);
+        robot_packed_put(&writer, robot_wire_header(ROBOT_WIRE_TYPE_IMU),
+                         WIRE_BITS_HEADER);
+        robot_packed_put(&writer, p_values->b_imu_fault ? 1u : 0u,
+                         WIRE_BITS_FLAG);
+        robot_packed_put(&writer, p_values->b_calibrated ? 1u : 0u,
+                         WIRE_BITS_FLAG);
+        robot_packed_put(&writer, p_values->b_height_valid ? 1u : 0u,
+                         WIRE_BITS_FLAG);
+        robot_packed_put(&writer, p_values->sample_interval_ms,
+                         WIRE_BITS_INTERVAL);
+        robot_packed_put_signed(&writer, p_values->roll_x10, WIRE_BITS_ROLL);
+        robot_packed_put(&writer, p_values->hump_state, WIRE_BITS_HUMP);
+        robot_packed_put(&writer, p_values->hump_sequence, WIRE_BITS_COUNT);
+        robot_packed_put_signed(&writer, p_values->hump_peak_x10,
+                                WIRE_BITS_PITCH);
+        robot_packed_put_signed(&writer, p_values->highest_peak_x10,
+                                WIRE_BITS_PITCH);
+        robot_packed_put(&writer, p_values->hump_height_mm, WIRE_BITS_HEIGHT);
+        robot_packed_put(&writer, p_values->highest_hump_mm, WIRE_BITS_HEIGHT);
+        robot_packed_put(&writer, p_values->motion_class, WIRE_BITS_MOTION);
+        robot_packed_put_signed(&writer, p_values->turn_rate_x10,
+                                WIRE_BITS_RATE);
+        robot_packed_put(&writer, p_values->impact_count, WIRE_BITS_COUNT);
         length = robot_packed_length(&writer);
     }
 

@@ -11,10 +11,10 @@
   'use strict';
 
   const VERSION = 1;
-  const TYPE = { telemetry: 1, debug: 2, heartbeat: 3, statusOffline: 4, statusOnline: 5 };
-  /* Byte 0 of the JSON reports that still share these topics: '{' = type 7. */
+  const TYPE = { telemetry: 1, debug: 2, heartbeat: 3, statusOffline: 4, statusOnline: 5, imu: 6 };
+  /* Byte 0 of the JSON diagnostic streams (DIAGNOSTICS=1 builds): '{' = type 7. */
   const JSON_FIRST_BYTE = 0x7b;
-  const LENGTH = { 1: 28, 2: 25, 3: 1, 4: 1, 5: 1 };
+  const LENGTH = { 1: 28, 2: 25, 3: 1, 4: 1, 5: 1, 6: 14 };
 
   /* Indexed by the firmware's enums. */
   const MODES = ['idle', 'drive', 'motion', 'line', 'avoid'];
@@ -116,8 +116,25 @@
     return data;
   }
 
-  /* Returns { kind, data } where kind is 'json' (an older text report),
-   * 'telemetry', 'debug', 'heartbeat', 'status', 'version_mismatch' or
+  /* Buddy 4's IMU / hump report (type 6). Same field names as its old JSON. */
+  function imu(r) {
+    const data = { imu_fault: r.get(1), imu_calibrated: r.get(1), height_valid: r.get(1) };
+    data.imu_interval_ms = r.get(10);
+    data.roll_x10 = r.signed(12);
+    data.hump_state = r.get(2);
+    data.hump_seq = r.get(8);
+    data.hump_peak_x10 = r.signed(11);
+    data.highest_peak_x10 = r.signed(11);
+    data.hump_height_mm = r.get(8);
+    data.highest_hump_mm = r.get(8);
+    data.motion = r.get(3);
+    data.turn_rate_x10 = r.signed(15);
+    data.impacts = r.get(8);
+    return data;
+  }
+
+  /* Returns { kind, data } where kind is 'json' (a diagnostic text stream),
+   * 'telemetry', 'debug', 'imu', 'heartbeat', 'status', 'version_mismatch' or
    * 'invalid'. */
   function decode(input) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
@@ -135,6 +152,7 @@
     r.get(8);
     if (type === TYPE.telemetry) return { kind: 'telemetry', data: telemetry(r) };
     if (type === TYPE.debug) return { kind: 'debug', data: debug(r) };
+    if (type === TYPE.imu) return { kind: 'imu', data: imu(r) };
     if (type === TYPE.heartbeat) return { kind: 'heartbeat', data: {} };
     return { kind: 'status', data: { state: type === TYPE.statusOnline ? 'online' : 'offline' } };
   }

@@ -16,7 +16,9 @@
 #include "buddy4_imu.h"
 #include "comms.h"
 #include "pin_config.h"
+#include "robot_fault.h"
 #include "robot_hal.h"
+#include "robot_wire.h"
 
 /* LSM303DLHC compass registers (team's original settings). */
 #define LSM303_MAG_CRA_REG       (0x00u)
@@ -72,6 +74,7 @@ static void buddy4_apply_pending (void);
 static bool buddy4_read_mag (int16_t mag[BUDDY4_AXES]);
 static bool buddy4_read_accel (int16_t accel[BUDDY4_AXES]);
 static void buddy4_report (const buddy4_imu_state_t * p_state);
+static void buddy4_report_fault (bool b_fault);
 
 bool buddy4_init (void)
 {
@@ -217,6 +220,7 @@ void buddy4_task (int32_t stacd, void * p_exinf)
 
         buddy4_update(start_ms);
         buddy4_get_state(&state);
+        buddy4_report_fault(0u != state.imu_fault);
         if (g_b_stats_cleared)
         {
             /* Counters went back to 0: not a new hump or impact.  Report
@@ -410,44 +414,56 @@ static bool buddy4_read_accel (int16_t accel[BUDDY4_AXES])
     return b_read;
 }
 
+/* Mirror imu_fault (a compass or accelerometer read failed, or went stale)
+ * into the shared fault byte.  This task is the only writer of the bit, and
+ * the byte is only touched when the bit changes. */
+static void buddy4_report_fault (bool b_fault)
+{
+    bool b_set = (0u != (robot_fault_get() & ROBOT_FAULT_IMU));
+
+    if (b_fault && !b_set)
+    {
+        robot_fault_set(ROBOT_FAULT_IMU);
+    }
+    else if (!b_fault && b_set)
+    {
+        robot_fault_clear(ROBOT_FAULT_IMU);
+    }
+    else
+    {
+        /* Unchanged. */
+    }
+}
+
 /* Publish the IMU/hump report: periodically, and at once after an event. */
 static void buddy4_report (const buddy4_imu_state_t * p_state)
 {
-    static const char digits[] = "0123456789abcdef";
-    char              message[COMMS_PAYLOAD_MAX];
-    char              hex[(BUDDY4_PACKET_SIZE * 2u) + 1u];
-    uint8_t           packet[BUDDY4_PACKET_SIZE];
-    uint32_t          index = 0u;
+    robot_wire_imu_t values = {0};
+    uint8_t          message[ROBOT_WIRE_MESSAGE_MAX];
+    uint32_t         length = 0u;
 
-    (void) buddy4_pack(p_state, packet);
-    for (index = 0u; index < BUDDY4_PACKET_SIZE; index++)
-    {
-        hex[2u * index]        = digits[packet[index] >> 4u];
-        hex[(2u * index) + 1u] = digits[packet[index] & 0x0Fu];
-    }
-    hex[BUDDY4_PACKET_SIZE * 2u] = '\0';
-
-    /* Separate small JSON report: keeps the main telemetry message unchanged.
-     * The sequence numbers repeat in every report, so a dropped one is
+    /* Packed binary report (robot_wire.h, type 6) on rover/telemetry.  The
+     * sequence numbers repeat in every report, so a dropped one is
      * recovered by the next. */
-    (void) tm_sprintf(
-        (UB *) message,
-        (UB *) "{\"imu_fault\":%u,\"imu_calibrated\":%u,\"roll_x10\":%d,"
-               "\"hump_state\":%u,\"hump_count\":%u,\"hump_seq\":%u,"
-               "\"hump_peak_x10\":%d,\"highest_peak_x10\":%d,"
-               "\"hump_height_mm\":%u,\"height_valid\":%u,"
-               "\"highest_hump_mm\":%u,"
-               "\"motion\":%u,\"turn_rate_x10\":%d,\"impacts\":%u,"
-               "\"imu_interval_ms\":%u,\"imu_packed\":\"%s\"}",
-        (UINT) p_state->imu_fault, (UINT) p_state->calibrated,
-        (INT) p_state->roll_deg_x10, (UINT) p_state->hump_state,
-        (UINT) p_state->hump_count, (UINT) p_state->hump_sequence,
-        (INT) p_state->hump_peak_deg_x10, (INT) p_state->highest_peak_deg_x10,
-        (UINT) p_state->hump_height_mm, (UINT) p_state->height_valid,
-        (UINT) p_state->highest_hump_mm, (UINT) p_state->motion_class,
-        (INT) p_state->turn_rate_dps_x10, (UINT) p_state->impact_count,
-        (UINT) p_state->sample_interval_ms, hex);
-    (void) comms_publish_text(COMMS_TOPIC_TELEMETRY, message);
+    values.b_imu_fault        = (0u != p_state->imu_fault);
+    values.b_calibrated       = (0u != p_state->calibrated);
+    values.b_height_valid     = (0u != p_state->height_valid);
+    values.sample_interval_ms = p_state->sample_interval_ms;
+    values.roll_x10           = p_state->roll_deg_x10;
+    /* Bit-fields of 2, 3 and 8 bits: the casts cannot lose data. */
+    values.hump_state   = (uint8_t) p_state->hump_state;
+    values.motion_class = (uint8_t) p_state->motion_class;
+    values.impact_count = (uint8_t) p_state->impact_count;
+    /* Only the low 8 bits of the wrapping sequence are sent. */
+    values.hump_sequence    = (uint8_t) (p_state->hump_sequence & 0xFFu);
+    values.hump_peak_x10    = p_state->hump_peak_deg_x10;
+    values.highest_peak_x10 = p_state->highest_peak_deg_x10;
+    values.hump_height_mm   = p_state->hump_height_mm;
+    values.highest_hump_mm  = p_state->highest_hump_mm;
+    values.turn_rate_x10    = p_state->turn_rate_dps_x10;
+
+    length = robot_wire_encode_imu(&values, message, sizeof(message));
+    (void) comms_publish(COMMS_TOPIC_TELEMETRY, message, length);
 }
 
 /*** end of file ***/

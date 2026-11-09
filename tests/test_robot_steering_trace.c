@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../firmware/app_program/robot_steering_trace.c"
-#include "../firmware/app_program/robot_steering_mqtt.c"
+#include "../firmware/app_program/robot_diagnostics_mqtt.c"
 
 static bool     g_b_online;
 static bool     g_b_writable;

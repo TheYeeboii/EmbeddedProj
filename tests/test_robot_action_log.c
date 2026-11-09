@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../firmware/app_program/robot_action_log.c"
-#include "../firmware/app_program/robot_action_mqtt.c"
+#include "../firmware/app_program/robot_diagnostics_mqtt.c"
 
 static uint32_t g_link_state;
 static bool     g_b_accept_publish;
