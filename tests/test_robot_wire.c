@@ -23,6 +23,7 @@
 
 #define TEST_TELEMETRY_LENGTH (28u)
 #define TEST_DEBUG_LENGTH     (25u)
+#define TEST_IMU_LENGTH       (14u)
 
 static void test_print_hex (const char * p_label, const uint8_t * p_data,
                             uint32_t length)
@@ -206,6 +207,57 @@ static void test_debug_layout (void)
     assert(robot_packed_rest_is_zero(&reader));
 }
 
+/* Golden IMU report: edges and negative signed fields. */
+static robot_wire_imu_t test_golden_imu (void)
+{
+    robot_wire_imu_t values = {0};
+
+    values.b_imu_fault        = true;
+    values.b_calibrated       = false;
+    values.b_height_valid     = true;
+    values.sample_interval_ms = 5000u; /* saturates to 1023 */
+    values.roll_x10           = -1800;
+    values.hump_state         = 3u;
+    values.hump_sequence      = 255u;
+    values.hump_peak_x10      = -900;
+    values.highest_peak_x10   = 900;
+    values.hump_height_mm     = 255u;
+    values.highest_hump_mm    = 0u;
+    values.motion_class       = 7u;
+    values.turn_rate_x10      = -9000;
+    values.impact_count       = 200u;
+
+    return values;
+}
+
+static void test_imu_layout (void)
+{
+    robot_wire_imu_t      values = test_golden_imu();
+    uint8_t               buffer[ROBOT_WIRE_MESSAGE_MAX];
+    robot_packed_reader_t reader;
+    uint32_t              length = 0u;
+
+    length = robot_wire_encode_imu(&values, buffer, sizeof(buffer));
+    assert(TEST_IMU_LENGTH == length);
+    assert(0x61u == buffer[0]); /* type 6, version 1 */
+
+    robot_packed_reader_init(&reader, buffer, length);
+    (void) robot_packed_get(&reader, 8u);
+    assert(5u == robot_packed_get(&reader, 3u)); /* fault, -, height valid */
+    assert(1023u == robot_packed_get(&reader, 10u));
+    assert(-1800 == robot_packed_get_signed(&reader, 12u));
+    assert(3u == robot_packed_get(&reader, 2u));
+    assert(255u == robot_packed_get(&reader, 8u));
+    assert(-900 == robot_packed_get_signed(&reader, 11u));
+    assert(900 == robot_packed_get_signed(&reader, 11u));
+    assert(255u == robot_packed_get(&reader, 8u));
+    assert(0u == robot_packed_get(&reader, 8u));
+    assert(7u == robot_packed_get(&reader, 3u));
+    assert(-9000 == robot_packed_get_signed(&reader, 15u));
+    assert(200u == robot_packed_get(&reader, 8u));
+    assert(robot_packed_rest_is_zero(&reader));
+}
+
 static bool test_decode (const uint8_t * p_data, uint32_t length,
                          robot_wire_command_t * p_command)
 {
@@ -268,12 +320,14 @@ int main (int argc, char * argv[])
 {
     robot_wire_telemetry_t telemetry = test_golden_telemetry();
     robot_wire_debug_t     debug     = test_golden_debug();
+    robot_wire_imu_t       imu       = test_golden_imu();
     uint8_t                buffer[ROBOT_WIRE_MESSAGE_MAX];
     uint32_t               length = 0u;
 
     test_packed_fields();
     test_telemetry_layout();
     test_debug_layout();
+    test_imu_layout();
     test_valid_commands();
     test_rejected_commands();
 
@@ -284,11 +338,14 @@ int main (int argc, char * argv[])
         test_print_hex("telemetry", buffer, length);
         length = robot_wire_encode_debug(&debug, buffer, sizeof(buffer));
         test_print_hex("debug", buffer, length);
+        length = robot_wire_encode_imu(&imu, buffer, sizeof(buffer));
+        test_print_hex("imu", buffer, length);
     }
 
-    (void) printf("PASS: packed fields, telemetry (%u bytes), debug (%u bytes) "
-                  "and command checks\n",
-                  TEST_TELEMETRY_LENGTH, TEST_DEBUG_LENGTH);
+    (void) printf(
+        "PASS: packed fields, telemetry (%u bytes), debug (%u bytes), "
+        "IMU (%u bytes) and command checks\n",
+        TEST_TELEMETRY_LENGTH, TEST_DEBUG_LENGTH, TEST_IMU_LENGTH);
 
     return 0;
 }

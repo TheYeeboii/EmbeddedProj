@@ -17,6 +17,7 @@
 #include "pin_config.h"
 #include "robot_hal.h"
 #include "robot_debug.h"
+#include "robot_fault.h"
 
 #define BUDDY5_TRIGGER_PULSE_US (10u)
 #define BUDDY5_ECHO_TIMEOUT_US  (40000u) /* ~6.8 m round trip */
@@ -36,15 +37,22 @@
 
 /* Servo angle that points the sensor straight ahead. */
 #define BUDDY5_SERVO_FORWARD_DEG (90u)
+/* Forward pings in a row with no answer from the sensor before the no-echo
+ * fault bit is set (robot_fault.h).  One good reading clears it. */
+#define BUDDY5_NO_ECHO_FAULT_COUNT (3u)
 
 static buddy5_reading_t g_last;
 static uint8_t          g_servo_angle = BUDDY5_SERVO_FORWARD_DEG;
+/* Forward pings in a row the sensor did not answer; only this task writes
+ * it.  Saturates at BUDDY5_NO_ECHO_FAULT_COUNT (2 bits used). */
+static uint8_t g_no_answer_count = 0u;
 
 static bool     buddy5_wait_while (bool level, uint64_t started_us,
                                    uint32_t timeout_us);
 static bool     buddy5_wait_for_echo_idle (void);
 static uint32_t buddy5_ping_cm (uint32_t now_ms, bool store_for_telemetry,
                                 buddy5_ping_result_t * p_result);
+static void     buddy5_report_fault (buddy5_ping_result_t result);
 
 /**
  * @brief Configure the HC-SR04+ GPIO pins, PWM servo output and initial state.
@@ -259,6 +267,7 @@ static uint32_t buddy5_ping_cm (uint32_t now_ms, bool store_for_telemetry,
         g_last.distance_cm     = distance_cm;
         g_last.servo_angle_deg = g_servo_angle;
         g_last.timestamp_ms    = now_ms;
+        buddy5_report_fault(result);
     }
     if (NULL != p_result)
     {
@@ -266,6 +275,44 @@ static uint32_t buddy5_ping_cm (uint32_t now_ms, bool store_for_telemetry,
     }
 
     return distance_cm;
+}
+
+/**
+ * @brief Keep the no-echo bit of the shared fault byte up to date.
+ *
+ * Only a sensor that does not answer counts: Echo never rising after the
+ * trigger, or stuck high before it.  Echo staying high for the whole 40 ms
+ * is the HC-SR04's normal "nothing in range" answer (open space), so it
+ * neither counts nor clears.  Forward readings only.
+ *
+ * @param result How the forward ping ended.
+ */
+static void buddy5_report_fault (buddy5_ping_result_t result)
+{
+    if (BUDDY5_PING_VALID == result)
+    {
+        if (g_no_answer_count >= BUDDY5_NO_ECHO_FAULT_COUNT)
+        {
+            robot_fault_clear(ROBOT_FAULT_NO_ECHO);
+        }
+        g_no_answer_count = 0u;
+    }
+    else if ((BUDDY5_PING_TIMEOUT_RISE == result) ||
+             (BUDDY5_PING_HIGH_BEFORE_TRIGGER == result))
+    {
+        if (g_no_answer_count < BUDDY5_NO_ECHO_FAULT_COUNT)
+        {
+            g_no_answer_count++;
+            if (BUDDY5_NO_ECHO_FAULT_COUNT == g_no_answer_count)
+            {
+                robot_fault_set(ROBOT_FAULT_NO_ECHO);
+            }
+        }
+    }
+    else
+    {
+        /* Nothing in range: the sensor answered, the fault state stays. */
+    }
 }
 
 /*** end of file ***/

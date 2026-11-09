@@ -51,7 +51,24 @@ const DEBUG = bytes('21 ff f0 01 00 0f a0 00 7d 20 c5 b4 00 c8 57 1f 1c 1f 00 02
   assert.deepEqual([d.avoid_forward_mm, d.avoid_forward_target_mm], [250, 2047]);
 }
 
-/* One-byte messages, the JSON reports that still share topics, and bad input. */
+/* Buddy 4's IMU report (type 6): every field at an edge. */
+{
+  const m = W.decode(bytes('61 bf fc 7c 7f f1 f1 c2 7f 80 7b 9b 19 00'));
+  assert.equal(m.kind, 'imu');
+  const d = m.data;
+  assert.deepEqual([d.imu_fault, d.imu_calibrated, d.height_valid], [1, 0, 1]);
+  assert.equal(d.imu_interval_ms, 1023);
+  assert.equal(d.roll_x10, -1800);
+  assert.equal(d.hump_state, 3);
+  assert.equal(d.hump_seq, 255);
+  assert.deepEqual([d.hump_peak_x10, d.highest_peak_x10], [-900, 900]);
+  assert.deepEqual([d.hump_height_mm, d.highest_hump_mm], [255, 0]);
+  assert.equal(d.motion, 7);
+  assert.equal(d.turn_rate_x10, -9000);
+  assert.equal(d.impacts, 200);
+}
+
+/* One-byte messages, the JSON diagnostic streams, and bad input. */
 assert.equal(W.decode(bytes('31')).kind, 'heartbeat');
 assert.deepEqual(W.decode(bytes('51')).data, { state: 'online' });
 assert.deepEqual(W.decode(bytes('41')).data, { state: 'offline' });
@@ -87,4 +104,4 @@ assert(['stop', 'left', 'line_follow', 'imu_reset'].every(c => W.encodeCommand(c
   assert.equal(u.update(0xfff0), 0xfff0);  /* and back again */
 }
 
-console.log('PASS: dashboard decodes the firmware golden telemetry (28 B) and debug (25 B), and packs the same command bytes');
+console.log('PASS: dashboard decodes the firmware golden telemetry (28 B), debug (25 B) and IMU (14 B), and packs the same command bytes');

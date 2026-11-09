@@ -32,6 +32,18 @@ void robot_fault_clear (uint8_t mask)
     EI(interrupt_state);
 }
 
+void robot_fault_update (uint8_t clear_mask, uint8_t set_mask)
+{
+    UINT     interrupt_state = 0u;
+    uint32_t faults          = 0u;
+
+    DI(interrupt_state);
+    faults   = ((uint32_t) g_faults & ~(uint32_t) clear_mask) |
+               ((uint32_t) set_mask & ROBOT_FAULT_ALL);
+    g_faults = (uint8_t) (faults & 0xFFu); /* Masked to one byte. */
+    EI(interrupt_state);
+}
+
 uint8_t robot_fault_get (void)
 {
     return g_faults;

@@ -25,6 +25,7 @@
 #include "buddy5_ultrasonic.h"
 #include "pin_config.h"
 #include "robot_controller.h"
+#include "robot_fault.h"
 #include "robot_steering_trace.h"
 #include "robot_hal.h"
 #include "robot_wire.h"
@@ -56,6 +57,8 @@
 #define ROBOT_BARCODE_OFFSET_MAX   (500)
 
 #define ROBOT_BUTTON_DEBOUNCE_STEPS (3u) /* 3 x 20 ms = 60 ms */
+/* Team decision: line following stops once Wi-Fi has been lost this long. */
+#define ROBOT_LINK_LOSS_GRACE_MS (2000u)
 
 typedef enum
 {
@@ -66,19 +69,47 @@ typedef enum
     ROBOT_MODE_AVOID
 } robot_mode_t;
 
-static robot_mode_t g_mode          = ROBOT_MODE_IDLE;
-static uint32_t     g_drive_left    = 0u;
-static uint32_t     g_drive_right   = 0u;
-static uint32_t     g_last_drive_ms = 0u;
-static bool         g_b_resume_line = false;
-/* Remember whether a Buddy 5 avoidance run interrupted line following. */
-static bool     g_b_avoid_resume_line = false;
-static bool     g_b_drive_is_forward  = false;
-static bool     g_b_motion_is_forward = false;
-static bool     g_b_line_button_was   = false;
-static uint32_t g_line_button_count   = 0u;
-/* Read-only until the demo mapping is known. */
+/* Packed controller state (Change Requirement 1): one byte.
+ *   bits 0-2  mode (robot_mode_t, 5 values)
+ *   bit  3    resume line following when a motion move ends
+ *   bit  4    resume line following when obstacle avoidance ends
+ *   bit  5    the manual drive is forwards (watched for obstacles)
+ *   bit  6    the motion move is forwards (watched for obstacles)
+ *   bit  7    the GP21 button was pressed at the last step
+ * Written by the controller task AND the Buddy 5 avoidance task (the
+ * robot_controller_*_obstacle_avoidance() calls), so every change is a
+ * read-modify-write inside DI()/EI() (robot_ctl_update); a read is one byte
+ * load and needs no lock. */
+#define ROBOT_CTL_MODE_MASK      (0x07u)
+#define ROBOT_CTL_RESUME_LINE    (0x08u)
+#define ROBOT_CTL_AVOID_RESUME   (0x10u)
+#define ROBOT_CTL_DRIVE_FORWARD  (0x20u)
+#define ROBOT_CTL_MOTION_FORWARD (0x40u)
+#define ROBOT_CTL_BUTTON_WAS     (0x80u)
+/* Flags that describe the current run; every mode change rewrites them. */
+#define ROBOT_CTL_RUN_FLAGS                                                    \
+    (ROBOT_CTL_RESUME_LINE | ROBOT_CTL_AVOID_RESUME |                          \
+     ROBOT_CTL_DRIVE_FORWARD | ROBOT_CTL_MOTION_FORWARD)
+#define ROBOT_CTL_ALL (0xFFu)
+
+static volatile uint8_t g_controller_state = (uint8_t) ROBOT_MODE_IDLE;
+static uint32_t         g_drive_left       = 0u;
+static uint32_t         g_drive_right      = 0u;
+static uint32_t         g_last_drive_ms    = 0u;
+/* Controller task only: GP21 debounce, 0..3 (2 bits used). */
+static uint8_t g_line_button_count = 0u;
+/* Read-only until the demo mapping is known (1 bit used). */
 static uint8_t g_barcode_mode = ROBOT_BARCODE_MODE_OBSERVE;
+/* Controller task only: Wi-Fi-loss safety stop (robot_check_link_loss). */
+static bool     g_b_link_seen  = false;
+static bool     g_b_link_lost  = false;
+static uint32_t g_link_lost_ms = 0u;
+
+static robot_mode_t robot_ctl_mode (void);
+static void         robot_ctl_enter (robot_mode_t mode, uint8_t run_flags);
+static bool         robot_ctl_flag (uint8_t flag);
+static void         robot_ctl_set_flag (uint8_t flag, bool b_value);
+static void         robot_ctl_update (uint8_t clear_mask, uint8_t set_mask);
 
 static int16_t  robot_legacy_to_pwm (uint32_t legacy);
 static uint32_t robot_clamp_legacy (int32_t value);
@@ -99,6 +130,7 @@ static void     robot_drive_preset (int32_t preset, uint32_t now_ms);
 static void     robot_run_valued (const robot_wire_command_t * p_command,
                                   uint32_t                     now_ms);
 static void     robot_log_barcode (const buddy3_barcode_event_t * p_event);
+static void     robot_check_link_loss (uint32_t now_ms);
 
 /* ------------------------------------------------------------------ *
  *  Public API
@@ -106,10 +138,7 @@ static void     robot_log_barcode (const buddy3_barcode_event_t * p_event);
 
 void robot_controller_init (void)
 {
-    g_mode                = ROBOT_MODE_IDLE;
-    g_b_drive_is_forward  = false;
-    g_b_motion_is_forward = false;
-    g_b_line_button_was   = false;
+    robot_ctl_update(ROBOT_CTL_ALL, (uint8_t) ROBOT_MODE_IDLE);
     hal_gpio_input_pullup(BUTTON_LINE_PIN);
 }
 
@@ -147,10 +176,10 @@ void robot_controller_step (uint32_t now_ms)
     {
         robot_log_barcode(&barcode);
     }
-    if ((ROBOT_MODE_MOTION == g_mode) && !b_moving && !g_b_resume_line)
+    if ((ROBOT_MODE_MOTION == robot_ctl_mode()) && !b_moving &&
+        !robot_ctl_flag(ROBOT_CTL_RESUME_LINE))
     {
-        g_b_motion_is_forward = false;
-        g_mode                = ROBOT_MODE_IDLE;
+        robot_ctl_enter(ROBOT_MODE_IDLE, 0u);
     }
 
     /* GP21 button: toggle line following (on press, not while held).
@@ -168,10 +197,11 @@ void robot_controller_step (uint32_t now_ms)
         g_line_button_count = 0u;
     }
     b_button_now = (g_line_button_count >= ROBOT_BUTTON_DEBOUNCE_STEPS);
-    if (b_button_now && !g_b_line_button_was)
+    if (b_button_now && !robot_ctl_flag(ROBOT_CTL_BUTTON_WAS))
     {
-        if (buddy3_line_following() || (ROBOT_MODE_MOTION == g_mode) ||
-            (ROBOT_MODE_AVOID == g_mode))
+        if (buddy3_line_following() ||
+            (ROBOT_MODE_MOTION == robot_ctl_mode()) ||
+            (ROBOT_MODE_AVOID == robot_ctl_mode()))
         {
             robot_stop_line();
         }
@@ -180,15 +210,16 @@ void robot_controller_step (uint32_t now_ms)
             robot_start_line();
         }
     }
-    g_b_line_button_was = b_button_now;
+    robot_ctl_set_flag(ROBOT_CTL_BUTTON_WAS, b_button_now);
 
     /* Safety: a raw drive command must be refreshed within 1 s. */
-    if ((ROBOT_MODE_DRIVE == g_mode) &&
+    if ((ROBOT_MODE_DRIVE == robot_ctl_mode()) &&
         ((now_ms - g_last_drive_ms) > ROBOT_DRIVE_TIMEOUT_MS))
     {
         robot_stop_all();
         tm_printf((UB *) "[safety] drive command timed out - stopped\n");
     }
+    robot_check_link_loss(now_ms);
 }
 
 void robot_controller_get_drive (uint32_t * p_left, uint32_t * p_right)
@@ -206,13 +237,13 @@ const char * robot_controller_mode_name (void)
     static const char * const names[] = {"idle", "drive", "motion", "line",
                                          "avoid"};
 
-    return names[g_mode];
+    return names[robot_ctl_mode()];
 }
 
 uint8_t robot_controller_get_mode (void)
 {
     /* robot_mode_t has 5 values, so the index fits the 3-bit wire field. */
-    return (uint8_t) g_mode;
+    return (uint8_t) robot_ctl_mode();
 }
 
 bool robot_controller_obstacle_watch_enabled (void)
@@ -221,31 +252,31 @@ bool robot_controller_obstacle_watch_enabled (void)
      * of a future mapped barcode action.  The monitor only takes over when
      * the forward-facing ultrasonic sensor reports an actual close echo, so
      * an idle rover never starts an avoidance move. */
-    return (((ROBOT_MODE_DRIVE == g_mode) && g_b_drive_is_forward) ||
-            ((ROBOT_MODE_LINE == g_mode) && buddy3_line_following()) ||
-            ((ROBOT_MODE_MOTION == g_mode) && g_b_motion_is_forward));
+    return (
+        ((ROBOT_MODE_DRIVE == robot_ctl_mode()) &&
+         robot_ctl_flag(ROBOT_CTL_DRIVE_FORWARD)) ||
+        ((ROBOT_MODE_LINE == robot_ctl_mode()) && buddy3_line_following()) ||
+        ((ROBOT_MODE_MOTION == robot_ctl_mode()) &&
+         robot_ctl_flag(ROBOT_CTL_MOTION_FORWARD)));
 }
 
 bool robot_controller_begin_obstacle_avoidance (void)
 {
-    bool b_begun = robot_controller_obstacle_watch_enabled();
+    bool b_begun     = robot_controller_obstacle_watch_enabled();
+    bool b_from_line = (ROBOT_MODE_LINE == robot_ctl_mode());
 
     if (b_begun)
     {
-        /* Remember the source before stopping line following so completion
-         * can hand a line-follow run back to Buddy 3. */
-        g_b_avoid_resume_line = (ROBOT_MODE_LINE == g_mode);
-
         /* This also stops line following so it cannot overwrite a turn. */
         buddy3_stop_line_follow();
         buddy2_stop();
-        g_drive_left          = 0u;
-        g_drive_right         = 0u;
-        g_b_resume_line       = false;
-        g_b_drive_is_forward  = false;
-        g_b_motion_is_forward = false;
+        g_drive_left  = 0u;
+        g_drive_right = 0u;
         robot_steering_owner(TRACE_AVOIDANCE);
-        g_mode = ROBOT_MODE_AVOID;
+        /* Remember the source (read before stopping line following) so
+         * completion can hand a line-follow run back to Buddy 3. */
+        robot_ctl_enter(ROBOT_MODE_AVOID,
+                        b_from_line ? ROBOT_CTL_AVOID_RESUME : 0u);
     }
 
     return b_begun;
@@ -253,36 +284,32 @@ bool robot_controller_begin_obstacle_avoidance (void)
 
 bool robot_controller_obstacle_avoidance_active (void)
 {
-    return (ROBOT_MODE_AVOID == g_mode);
+    return (ROBOT_MODE_AVOID == robot_ctl_mode());
 }
 
 void robot_controller_finish_obstacle_avoidance (void)
 {
-    if (ROBOT_MODE_AVOID == g_mode)
+    if (ROBOT_MODE_AVOID == robot_ctl_mode())
     {
         buddy2_stop();
-        g_drive_left          = 0u;
-        g_drive_right         = 0u;
-        g_b_drive_is_forward  = false;
-        g_b_motion_is_forward = false;
-        if (g_b_avoid_resume_line)
+        g_drive_left  = 0u;
+        g_drive_right = 0u;
+        if (robot_ctl_flag(ROBOT_CTL_AVOID_RESUME))
         {
-            g_b_avoid_resume_line = false;
             tm_printf(
                 (UB *) "[avoid] handing control back to line following\n");
-            robot_start_line();
+            robot_start_line(); /* Clears the flags, mode becomes line. */
         }
         else
         {
-            g_b_avoid_resume_line = false;
-            g_mode                = ROBOT_MODE_IDLE;
+            robot_ctl_enter(ROBOT_MODE_IDLE, 0u);
         }
     }
 }
 
 void robot_controller_abort_obstacle_avoidance (void)
 {
-    if (ROBOT_MODE_AVOID == g_mode)
+    if (ROBOT_MODE_AVOID == robot_ctl_mode())
     {
         robot_stop_all();
     }
@@ -323,13 +350,9 @@ static void robot_stop_all (void)
 {
     buddy3_stop_line_follow();
     buddy2_stop();
-    g_drive_left          = 0u;
-    g_drive_right         = 0u;
-    g_b_resume_line       = false;
-    g_b_avoid_resume_line = false;
-    g_b_drive_is_forward  = false;
-    g_b_motion_is_forward = false;
-    g_mode                = ROBOT_MODE_IDLE;
+    g_drive_left  = 0u;
+    g_drive_right = 0u;
+    robot_ctl_enter(ROBOT_MODE_IDLE, 0u);
 }
 
 /* Raw motor command.  Signs: +1 forward, -1 reverse. */
@@ -342,18 +365,16 @@ static void robot_drive (uint32_t left, uint32_t right, int32_t sign,
      * drive command must restore the forward view before motion begins. */
     buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
     robot_steering_owner(TRACE_MANUAL);
-    g_drive_left          = left;
-    g_drive_right         = right;
-    g_last_drive_ms       = now_ms;
-    g_b_resume_line       = false;
-    g_b_avoid_resume_line = false;
-    g_b_drive_is_forward  = (sign > 0) && (left > 0u) && (right > 0u);
-    g_b_motion_is_forward = false;
+    g_drive_left    = left;
+    g_drive_right   = right;
+    g_last_drive_ms = now_ms;
     /* sign is +/-1 and the PWM is at most 32767, so the products fit. */
     buddy2_set_motor_pwm((int16_t) (sign * robot_legacy_to_pwm(left)),
                          (int16_t) (sign * robot_legacy_to_pwm(right)));
-    g_mode =
-        ((0u == left) && (0u == right)) ? ROBOT_MODE_IDLE : ROBOT_MODE_DRIVE;
+    robot_ctl_enter(
+        ((0u == left) && (0u == right)) ? ROBOT_MODE_IDLE : ROBOT_MODE_DRIVE,
+        ((sign > 0) && (left > 0u) && (right > 0u)) ? ROBOT_CTL_DRIVE_FORWARD
+                                                    : 0u);
 }
 
 static void robot_set_trim (int32_t left, int32_t right)
@@ -392,7 +413,7 @@ static void robot_set_speed_limit (int32_t percent)
 /** Set the ultrasonic scanner angle for a stationary mechanical check. */
 static void robot_set_servo_angle (int32_t angle)
 {
-    if (ROBOT_MODE_IDLE != g_mode)
+    if (ROBOT_MODE_IDLE != robot_ctl_mode())
     {
         tm_printf((UB *) "[cmd] servo rejected: stop the rover before moving "
                          "the scanner\n");
@@ -441,17 +462,13 @@ static void robot_set_line_speed (int32_t base_pct, int32_t turn_pct)
 
 static void robot_start_line (void)
 {
-    g_b_resume_line = false;
     buddy2_stop();
-    g_drive_left          = 0u;
-    g_drive_right         = 0u;
-    g_b_drive_is_forward  = false;
-    g_b_motion_is_forward = false;
-    g_b_avoid_resume_line = false;
+    g_drive_left  = 0u;
+    g_drive_right = 0u;
     buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
     buddy3_start_line_follow();
     robot_steering_owner(TRACE_TRACKING);
-    g_mode = ROBOT_MODE_LINE;
+    robot_ctl_enter(ROBOT_MODE_LINE, 0u);
     tm_printf((UB *) "[cmd] line following ON\n");
 }
 
@@ -480,7 +497,7 @@ static void robot_set_line_stage (int32_t stage)
 static void robot_set_barcode_mode (int32_t mode)
 {
     if ((mode < 0) || (mode > ROBOT_BARCODE_MODE_MAX) ||
-        (ROBOT_MODE_IDLE != g_mode))
+        (ROBOT_MODE_IDLE != robot_ctl_mode()))
     {
         tm_printf((UB *) "[barcode] stop first; use 0=off or 1=observe; letter "
                          "actions are not configured\n");
@@ -663,6 +680,93 @@ static void robot_log_barcode (const buddy3_barcode_event_t * p_event)
                       : "capture",
                   (UINT) p_event->ts_ms, (UINT) p_event->dropped);
     }
+}
+
+/* Wi-Fi-loss safety stop (Change Requirement 1 fault mask, team decision):
+ * line following stops once the Wi-Fi-loss bit has been set for
+ * ROBOT_LINK_LOSS_GRACE_MS.  Only a link that was up and then dropped
+ * counts, so GP21 still starts line following on a robot that never had a
+ * network (or a build without Wi-Fi).  After such a stop the robot is
+ * treated as offline, so a deliberate GP21 press works again. */
+static void robot_check_link_loss (uint32_t now_ms)
+{
+    bool b_lost = (0u != (robot_fault_get() & ROBOT_FAULT_WIFI_LOSS));
+
+    if (!b_lost)
+    {
+        g_b_link_seen = true;
+        g_b_link_lost = false;
+    }
+    else if (!g_b_link_seen)
+    {
+        /* No link to lose. */
+    }
+    else if (!g_b_link_lost)
+    {
+        g_b_link_lost  = true;
+        g_link_lost_ms = now_ms;
+    }
+    else if (ROBOT_MODE_LINE != robot_ctl_mode())
+    {
+        /* Not line following: the grace period starts with the next run. */
+        g_link_lost_ms = now_ms;
+    }
+    else if ((now_ms - g_link_lost_ms) >= ROBOT_LINK_LOSS_GRACE_MS)
+    {
+        robot_stop_all();
+        g_b_link_seen = false;
+        g_b_link_lost = false;
+        tm_printf((UB *) "[safety] Wi-Fi lost for 2 s - line following "
+                         "stopped\n");
+    }
+    else
+    {
+        /* Line following, still within the grace period. */
+    }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Packed controller state (see g_controller_state)
+ * ------------------------------------------------------------------ */
+
+static robot_mode_t robot_ctl_mode (void)
+{
+    /* One byte load.  The field only ever holds a robot_mode_t value
+     * written by robot_ctl_enter(), so the conversion is exact. */
+    return (robot_mode_t) (g_controller_state & ROBOT_CTL_MODE_MASK);
+}
+
+/* Switch mode and replace all run flags with run_flags in one locked step,
+ * so the avoidance task never sees a new mode with stale flags. */
+static void robot_ctl_enter (robot_mode_t mode, uint8_t run_flags)
+{
+    robot_ctl_update((uint8_t) (ROBOT_CTL_MODE_MASK | ROBOT_CTL_RUN_FLAGS),
+                     (uint8_t) (((uint32_t) mode & ROBOT_CTL_MODE_MASK) |
+                                ((uint32_t) run_flags & ROBOT_CTL_RUN_FLAGS)));
+}
+
+static bool robot_ctl_flag (uint8_t flag)
+{
+    return (0u != (g_controller_state & flag));
+}
+
+static void robot_ctl_set_flag (uint8_t flag, bool b_value)
+{
+    robot_ctl_update(flag, b_value ? flag : 0u);
+}
+
+/* The only place g_controller_state is written: clear, then set, in one
+ * locked step so a write from the other task cannot be lost. */
+static void robot_ctl_update (uint8_t clear_mask, uint8_t set_mask)
+{
+    UINT     interrupt_state = 0u;
+    uint32_t state           = 0u;
+
+    DI(interrupt_state);
+    state = ((uint32_t) g_controller_state & ~(uint32_t) clear_mask) |
+            (uint32_t) set_mask;
+    g_controller_state = (uint8_t) (state & 0xFFu); /* Masked to one byte. */
+    EI(interrupt_state);
 }
 
 /*** end of file ***/

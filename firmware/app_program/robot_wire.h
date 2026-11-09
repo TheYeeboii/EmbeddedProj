@@ -32,6 +32,7 @@
 #define ROBOT_WIRE_TYPE_HEARTBEAT      (3u) /**< rover/heartbeat */
 #define ROBOT_WIRE_TYPE_STATUS_OFFLINE (4u) /**< rover/status (Last Will) */
 #define ROBOT_WIRE_TYPE_STATUS_ONLINE  (5u) /**< rover/status (bit 0 set) */
+#define ROBOT_WIRE_TYPE_IMU            (6u) /**< rover/telemetry, Buddy 4 */
 
 /* The complete one-byte rover/status payloads.  Online and offline differ
  * only in bit 4 (the low bit of the type), so the state uses 1 bit. */
@@ -124,6 +125,25 @@ typedef struct
     uint16_t forward_target_mm;  /**< 11 bits. */
 } robot_wire_debug_t;
 
+/** Values of Buddy 4's IMU / hump report (type 6), in their native units. */
+typedef struct
+{
+    bool     b_imu_fault;        /**< 1 bit. */
+    bool     b_calibrated;       /**< 1 bit. */
+    bool     b_height_valid;     /**< 1 bit. */
+    uint16_t sample_interval_ms; /**< 10 bits, saturates at 1023 ms. */
+    int16_t  roll_x10;           /**< 12 bits signed, -1800..1800. */
+    uint8_t  hump_state;         /**< 2 bits, BUDDY4_FLAT..DESCENDING. */
+    uint8_t  hump_sequence;      /**< 8 bits, completed humps (wraps). */
+    int16_t  hump_peak_x10;      /**< 11 bits signed, -900..900. */
+    int16_t  highest_peak_x10;   /**< 11 bits signed. */
+    uint16_t hump_height_mm;     /**< 8 bits, 0..255 mm. */
+    uint16_t highest_hump_mm;    /**< 8 bits. */
+    uint8_t  motion_class;       /**< 3 bits, BUDDY4_MOTION_*. */
+    int16_t  turn_rate_x10;      /**< 15 bits signed, +/-9000. */
+    uint8_t  impact_count;       /**< 8 bits, saturates at 255. */
+} robot_wire_imu_t;
+
 /** A decoded dashboard command.  Unused values are 0. */
 typedef struct
 {
@@ -157,6 +177,16 @@ uint32_t robot_wire_encode_telemetry (const robot_wire_telemetry_t * p_values,
  */
 uint32_t robot_wire_encode_debug (const robot_wire_debug_t * p_values,
                                   uint8_t * p_buffer, uint32_t capacity);
+
+/**
+ * @brief Pack Buddy 4's IMU / hump report.
+ * @param p_values Values to send.
+ * @param p_buffer Output, at least ROBOT_WIRE_MESSAGE_MAX bytes.
+ * @param capacity Size of p_buffer.
+ * @return Message length in bytes, or 0 when it did not fit.
+ */
+uint32_t robot_wire_encode_imu (const robot_wire_imu_t * p_values,
+                                uint8_t * p_buffer, uint32_t capacity);
 
 /**
  * @brief Decode and check one command from the dashboard.

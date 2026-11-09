@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../firmware/app_program/robot_barcode_trace.c"
-#include "../firmware/app_program/robot_barcode_mqtt.c"
+#include "../firmware/app_program/robot_diagnostics_mqtt.c"
 
 static bool     g_b_online   = true;
 static bool     g_b_writable = true;
@@ -12,11 +12,7 @@ static FILE *   g_p_fixture;
 static char *   g_p_format_base;
 static unsigned g_published;
 static unsigned g_largest;
-uint32_t        robot_diagnostics_session (void)
-{
-    return 123;
-}
-uint8_t comms_get_link_state (void)
+uint8_t         comms_get_link_state (void)
 {
     return g_b_online ? COMMS_LINK_MQTT_UP : 0;
 }
@@ -333,6 +329,7 @@ static void test_numeric_bounds (void)
 
 int main (int argc, char ** argv)
 {
+    robot_diagnostics_init(123); /* real steering-trace session id */
     test_reader_state();
     test_replays(argc, argv);
     test_capture_edge_cases();

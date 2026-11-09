@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../firmware/app_program/robot_ir_stream.c"
-#include "../firmware/app_program/robot_ir_mqtt.c"
+#include "../firmware/app_program/robot_diagnostics_mqtt.c"
 
 static bool     g_b_online   = true;
 static bool     g_b_writable = true;
@@ -11,12 +11,7 @@ static FILE *   g_p_fixture;
 static char *   g_p_base;
 static unsigned g_published;
 static unsigned g_largest;
-static uint32_t g_boot = 123;
-uint32_t        robot_diagnostics_session (void)
-{
-    return g_boot;
-}
-uint8_t comms_get_link_state (void)
+uint8_t         comms_get_link_state (void)
 {
     return g_b_online ? COMMS_LINK_MQTT_UP : 0;
 }
@@ -55,6 +50,8 @@ bool comms_publish_text (uint32_t topic, const char * payload)
 int main (int argc, char ** argv)
 {
     robot_barcode_observation_t observation = {0};
+
+    robot_diagnostics_init(123); /* real steering-trace session id */
     observation.blocked =
         17; // Stopped/unconfigured and no valid decoder phase.
     if (argc > 1)
@@ -125,9 +122,9 @@ int main (int argc, char ** argv)
         robot_ir_stream_ack(&batch);
     }
     // Worst-case four-row JSON, unsigned sequence wrap and calibration values.
-    g_sequence             = UINT32_MAX - 3;
-    g_dropped              = UINT32_MAX;
-    g_boot                 = UINT32_MAX;
+    g_sequence = UINT32_MAX - 3;
+    g_dropped  = UINT32_MAX;
+    robot_diagnostics_init(UINT32_MAX);
     observation.ts_ms      = UINT32_MAX;
     observation.left_x10   = -INT32_MAX;
     observation.right_x10  = INT32_MAX;

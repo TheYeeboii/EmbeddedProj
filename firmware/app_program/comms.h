@@ -33,11 +33,16 @@
 #define COMMS_TOPIC_IR_STREAM (7u) /* rover/ir (non-retained) */
 #define COMMS_TOPIC_COUNT     (8u)
 
-/* Longest outgoing payload.  The packed telemetry, debug and heartbeat
- * messages need at most ROBOT_WIRE_MESSAGE_MAX (32) bytes; this stays at 512
- * until the diagnostic streams (actions, steering, barcode, IR, Buddy 4's
- * IMU report) are packed too, since they still send JSON text. */
+/* Longest outgoing payload.  Every packed message fits in
+ * ROBOT_WIRE_MESSAGE_MAX (32) bytes.  The diagnostic streams (built only
+ * with DIAGNOSTICS=1, see pico_rp2040.mk) still send JSON text of up to
+ * about 440 bytes, so that build keeps 512.  Unset means the streams are
+ * built (other boards, host tests). */
+#if defined(ROBOT_DIAGNOSTICS) && (0 == ROBOT_DIAGNOSTICS)
+#define COMMS_PAYLOAD_MAX (32u)
+#else
 #define COMMS_PAYLOAD_MAX (512u)
+#endif
 /* Longest incoming command.  Packed commands are 1..5 bytes
  * (ROBOT_WIRE_COMMAND_MAX); anything longer is dropped, not truncated. */
 #define COMMS_COMMAND_MAX (8u)

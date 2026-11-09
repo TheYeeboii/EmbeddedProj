@@ -35,8 +35,10 @@ dashboard vM" instead of decoding garbage.
 - Values stay native (`int32_t` ticks, PID floats) inside the control loops
   and ISRs, and are packed at the boundary: when they are put in a message.
 - Type 7 and opcode 7 are reserved. 0x7B is `{`, so byte 0 tells a packed
-  message from the JSON diagnostic streams that still share some topics
-  (Buddy 4's IMU report on `rover/telemetry`).
+  message from JSON text: the diagnostic streams of a `DIAGNOSTICS=1` build,
+  or a robot running pre-binary firmware.
+- `rover/telemetry` carries two packed messages, telemetry (type 1) and
+  Buddy 4's IMU report (type 6). The type nibble tells them apart.
 
 ## Data representation table
 
@@ -78,6 +80,25 @@ dashboard vM" instead of decoding garbage.
 | Heading target | 0-359.9 deg | text tenths | 12 | Tenths |
 | Turn PWM L/R | +/-32767 | text | 16 each | Signed |
 | Forward progress / target | 0-2047 mm | text | 11 each | Plain value; saturates |
+
+### rover/telemetry: type 6, Buddy 4's IMU / hump report, 14 bytes (107 bits)
+
+Sent every second, and at once after a hump or impact. It replaced a
+283-byte JSON report that also carried its own 9-byte packet as hex text.
+
+| Field | Valid range | Before | Bits | Representation |
+|---|---|---|---|---|
+| Header | type 6, version 1 | none | 8 | `0x61` |
+| IMU fault / calibrated / height valid | yes / no | text numbers | 1 each | Bits |
+| Sample interval | ms between IMU samples | text | 10 | Saturates at 1023 (a gap) |
+| Roll | -180.0 to +180.0 deg | text tenths | 12 | Signed tenths |
+| Hump state | flat, climbing, top, descending | text | 2 | `BUDDY4_FLAT..` |
+| Hump sequence | completed humps | 16-bit text | 8 | Low 8 bits (wraps after 255) |
+| Hump peak / highest peak | about +/-90.0 deg | text tenths | 11 each | Signed tenths |
+| Hump height / highest | 0-255 mm | text | 8 each | Team decision: 8 bits |
+| Motion class | 8 classes | text | 3 | `BUDDY4_MOTION_*` |
+| Turn rate | +/-900.0 deg/s | text tenths | 15 | Signed tenths (+/-180 deg in a 200 ms window) |
+| Impacts | 0-255 | text | 8 | Saturating count |
 
 ### One-byte messages
 
@@ -131,21 +152,33 @@ controller.
 |---|---|---|---|
 | 0 | Wi-Fi loss | Buddy 1, radio task | Set while not joined (`comms_set_link_state`) |
 | 1 | MQTT loss | Buddy 1, radio task | Set while there is no broker connection |
-| 2 | IMU fault | Buddy 4 | Planned: I2C error or `mag_ok` false |
-| 3 | No echo | Buddy 5 | Planned: N timeouts in a row |
-| 4 | Encoder fault | Buddy 2 | Planned: one wheel ticks, the other doesn't, for 500 ms |
-| 5 | Motor stall | Buddy 2 | Planned: power applied, no ticks for 500 ms |
+| 2 | IMU fault | Buddy 4, IMU task (`buddy4_report_fault`) | Set while `imu_fault` is set: a compass or accelerometer read failed or went stale |
+| 3 | No echo | Buddy 5, sensor task (`buddy5_report_fault`) | Set after 3 forward pings in a row the sensor did not answer (Echo never rose, or stuck high before the trigger). Cleared by one valid reading. "Nothing in range" (Echo high for the full 40 ms) is a normal answer and does not count |
+| 4 | Encoder fault | Buddy 2, motion task (`buddy2_report_faults`) | Exactly one wheel is powered with no ticks for 800 ms (`BUDDY2_ENCODER_FAULT_MS`) |
+| 5 | Motor stall | Buddy 2, motion task | Both wheels powered with no ticks for 800 ms |
 
-Bits 0 and 1 are live and sent in telemetry. Bits 2-5 are reserved for their
-owners to set. The controller does not react to the mask yet: the agreed
-2-second Wi-Fi-loss grace stop is still to do.
+All six bits are live and sent in telemetry. Each bit has one writer, which
+only touches the byte when its bit changes. The dashboard's main panel shows
+the IMU, no-echo, encoder and stall faults next to the sensor state.
+
+Each owner already had the detection; these bits mirror it. Buddy 2's
+threshold is its existing 800 ms, not the 500 ms suggested at the meeting.
+
+**The controller's reaction (team decision):** line following stops once the
+Wi-Fi-loss bit has been set for 2 s (`robot_check_link_loss`). Only a link
+that was up and then dropped counts. A robot that never had a network (GP21
+start, or a build without Wi-Fi) keeps following. After such a stop, a
+deliberate GP21 press starts line following again. Raw drive commands
+already stop after 1 s without a refresh.
 
 ## Safe access to packed shared data
 
 | Data | Writers | Rule |
 |---|---|---|
-| Fault byte | Several tasks | Changed only through `robot_fault_set()` / `robot_fault_clear()`, which do the read-modify-write inside `DI()`/`EI()`. The M0+ has no atomic bit set on RAM. Reading is one byte load, so readers need no lock |
+| Fault byte | Several tasks | Changed only through `robot_fault_set()`, `robot_fault_clear()` or `robot_fault_update()` (clear and set in one step), which do the read-modify-write inside `DI()`/`EI()`. The M0+ has no atomic bit set on RAM. Reading is one byte load, so readers need no lock |
+| Controller state (`g_controller_state`, 8 bits: 3-bit mode + 5 flags) | Controller task and Buddy 5's avoidance task | Every change goes through `robot_ctl_update()` under `DI()`/`EI()`. `robot_ctl_enter(mode, flags)` changes the mode and its run flags in one step, so the avoidance task never sees a new mode with old flags |
 | Link state (`uint8_t`, 2 bits used) | Radio task only | Single writer; an aligned byte read is atomic |
+| GP21 debounce count (2 bits), barcode mode (1 bit), no-echo count (2 bits) | One task each | Single writer, one byte each, no lock |
 | Mailbox messages | Producer task / radio task | The kernel message buffer copies each message whole, with its length |
 | Encoder counters | Encoder ISR | Stay native 32-bit; telemetry packs a snapshot copy outside the ISR |
 
@@ -175,6 +208,7 @@ layout and checked by the tests.
 | Debug stream | 424 | 25 | 94 % |
 | Heartbeat | 38 | 1 | 97 % |
 | Status / Last Will | 38 / 39 | 1 | 97 % |
+| Buddy 4 IMU report | 283 (measured) | 14 | 95 % |
 | `stop` | 14 | 1 | 93 % |
 | `forward` | 17 | 1 | 94 % |
 | `drive` | 42 | 5 | 88 % |
@@ -182,8 +216,8 @@ layout and checked by the tests.
 | `line_speed` | 40 | 3 | 93 % |
 | `barcode_config` | 62 | 3 | 95 % |
 
-At one telemetry and one debug message per second, the rover sends about
-53 B/s of payload instead of about 800 B/s. Topic names are unchanged, so
+At one telemetry, one debug and one IMU message per second, the rover sends
+about 67 B/s of payload instead of about 1.1 KB/s. Topic names are unchanged, so
 `rover/telemetry` (15 bytes) now costs more than its payload. Shortening the
 topics is still an open team decision.
 
@@ -204,28 +238,29 @@ WIFI_DHCP=1 WIFI_MQTT=1`, Pico SDK 2.3.0, arm-none-eabi-gcc 15.2),
 | Fault byte | n/a | 1 | +1 B (replaces scattered flags) |
 | Inbox message buffer (kernel pool, not in `.bss`) | 4 x (128 + 8) = 544 | 4 x (8 + 8) = 64 | -480 B |
 | Command copy on the controller stack | 128 | 8 | -120 B |
+| `g_outgoing` (MQTT publish copy), `DIAGNOSTICS=0` | 512 | 32 | -480 B |
+| Outbox message buffer (kernel pool), `DIAGNOSTICS=0` | 4 x (512 + 1 + 8) = 2,084 | 4 x (32 + 1 + 8) = 164 | -1,920 B |
+| Outbox copy on each publisher's stack, `DIAGNOSTICS=0` | 513 | 33 | -480 B |
+| Controller mode + 5 flags | 4 + 5 = 9 | 1 | -8 B |
 
-The outbox is still 4 x 521 bytes, and `g_outgoing` is still 512. Packed
-telemetry needs only 32, but Buddy 4's IMU report is still JSON (283 bytes)
-and shares the outbox. So do the diagnostic streams when they are built in
-(below; up to 439 bytes). Once those are packed or left out,
-`COMMS_PAYLOAD_MAX` can drop to 32. That saves about 1.9 KB of kernel pool
-and 480 B of `.bss`, and each publish stops copying 513 bytes onto the
-caller's stack.
+With every default message packed, `COMMS_PAYLOAD_MAX` is 32
+(`ROBOT_WIRE_MESSAGE_MAX`). A `DIAGNOSTICS=1` build keeps 512 for its JSON
+streams. `comms.c` fails to compile if a packed message or command could
+ever be larger than its mailbox.
 
 ## Diagnostic streams: the `DIAGNOSTICS` build switch
 
 `rover/actions`, `rover/steering`, `rover/barcode` and `rover/ir` exist only
 for the dashboard's tuning views. They are JSON text, and `rover/ir` alone was
-most of the Wi-Fi traffic. Their eight modules (`robot_action_log`,
-`robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream` and the four
-`*_mqtt.c` publishers) only record what the robot did; no control code reads
+most of the Wi-Fi traffic. Their five modules (`robot_action_log`,
+`robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream`, and
+`robot_diagnostics_mqtt`, which publishes all four) only record what the robot did; no control code reads
 anything back from them.
 
 | Build | What is linked | MQTT |
 |---|---|---|
-| `make ... DIAGNOSTICS=0` (default) | `robot_diagnostics_off.c`: empty stand-ins with the same functions, so callers are unchanged | Packed binary only (plus Buddy 4's IMU report) |
-| `make ... DIAGNOSTICS=1` | The eight real modules | Adds the four JSON streams for tuning |
+| `make ... DIAGNOSTICS=0` (default) | `robot_diagnostics_off.c`: empty stand-ins with the same functions, so callers are unchanged | Packed binary only |
+| `make ... DIAGNOSTICS=1` | The five real modules | Adds the four JSON streams for tuning |
 
 The switch is part of the build profile, so changing it rebuilds everything.
 The USB banner prints which one is running. The host tests still compile the
@@ -234,12 +269,14 @@ real modules.
 | Wi-Fi build | `.text` | `.data` | `.bss` |
 |---|---|---|---|
 | Before Change Requirement 1 | 386,417 | 3,264 | 90,064 |
-| Binary MQTT, `DIAGNOSTICS=1` | 385,133 | 3,264 | 89,464 |
-| Binary MQTT, `DIAGNOSTICS=0` | 377,197 | 3,256 | 49,792 |
-| Saving vs before | -9,220 B | -8 B | **-40,272 B (-45 %)** |
+| Binary MQTT, `DIAGNOSTICS=1` | 384,405 | 3,264 | 89,464 |
+| Binary MQTT, `DIAGNOSTICS=0` | 376,317 | 3,256 | 49,312 |
+| Saving vs before | -10,100 B | -8 B | **-40,752 B (-45 %)** |
 
 Most of the RAM was the trace queues: `g_frames` (25.7 KB of barcode frames),
-two `g_queue` rings (4 KB and 7 KB), and the action and IR buffers.
+two `g_queue` rings (4 KB and 7 KB), and the action and IR buffers. The
+outbox's kernel pool (-1.9 KB above) comes on top, since `size` does not
+count the kernel's memory pool.
 
 ## Correctness evidence
 
@@ -254,7 +291,12 @@ two `g_queue` rings (4 KB and 7 KB), and the action and IR buffers.
   exact command bytes the firmware accepts, and that the encoder counts
   unwrap across 0xFFFF in both directions.
 - `tests/test_robot_barcode_controller.c`: the controller's command, button
-  and barcode tests now run on packed commands.
+  and barcode tests now run on packed commands. It also checks that the
+  packed state byte holds mode + flags, and the Wi-Fi-loss stop. That stop
+  must not fire within the 2 s grace and must fire after it. A robot that
+  never had a network is never stopped, and GP21 works again afterwards.
+- The IMU report (type 6) has its own golden message, decoded by both
+  `test_robot_wire.c` and `test_rover_wire.cjs`.
 - The dashboard was checked in the browser by feeding it the golden messages:
   every tile showed the expected value. Its commands were captured and
   matched the table above; the version-mismatch and offline badges worked.
@@ -273,6 +315,9 @@ CC=gcc sh tests/run_barcode_tests.sh
   cross-subsystem tests.
 - Timing: time `robot_telemetry_build()` with `hal_time_us()` against the old
   `tm_sprintf` build.
-- Pack the remaining JSON streams, then shrink `COMMS_PAYLOAD_MAX`.
-- Controller state as a packed byte (3-bit mode + flags). Fault bits 2-5 are
-  set by their owners. Wi-Fi-loss stop after a 2 s grace period.
+- Each buddy's own internal structs (Buddy 2 motion status and move
+  requests, Buddy 3 status flags and line-follow state, Buddy 4 IMU values,
+  Buddy 5 scan and avoidance state). Each buddy agreed to do their own.
+- The four diagnostic streams are still JSON in `DIAGNOSTICS=1` builds. They
+  are tuning tools, left out of the default build.
+- Open team decision: shorten the topic names.
