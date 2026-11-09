@@ -34,14 +34,14 @@
 #define COMMS_TOPIC_COUNT     (8u)
 
 /* Longest outgoing payload.  Every packed message fits in
- * ROBOT_WIRE_MESSAGE_MAX (32) bytes.  The diagnostic streams (built only
- * with DIAGNOSTICS=1, see pico_rp2040.mk) still send JSON text of up to
- * about 440 bytes, so that build keeps 512.  Unset means the streams are
- * built (other boards, host tests). */
+ * ROBOT_WIRE_MESSAGE_MAX (32) bytes; the packed diagnostic streams (built
+ * only with DIAGNOSTICS=1, see pico_rp2040.mk) need up to
+ * ROBOT_WIRE_DIAG_MESSAGE_MAX (96).  Unset means the streams are built
+ * (host tests).  comms.c checks both against robot_wire.h at compile time. */
 #if defined(ROBOT_DIAGNOSTICS) && (0 == ROBOT_DIAGNOSTICS)
 #define COMMS_PAYLOAD_MAX (32u)
 #else
-#define COMMS_PAYLOAD_MAX (512u)
+#define COMMS_PAYLOAD_MAX (96u)
 #endif
 /* Longest incoming command.  Packed commands are 1..5 bytes
  * (ROBOT_WIRE_COMMAND_MAX); anything longer is dropped, not truncated. */
@@ -64,14 +64,6 @@ int32_t comms_init (void);
  *         outbox is full or the arguments are invalid.
  */
 bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length);
-
-/**
- * @brief Queue a NUL-terminated text message (the JSON diagnostic streams).
- * @param topic  COMMS_TOPIC_* value.
- * @param p_text Text; at most COMMS_PAYLOAD_MAX characters are sent.
- * @return As comms_publish().
- */
-bool comms_publish_text (uint32_t topic, const char * p_text);
 
 /**
  * @brief Wait up to timeout_ms for a command from the network.

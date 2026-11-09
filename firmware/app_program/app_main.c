@@ -171,8 +171,9 @@ static void motion_task (INT stacd, void * p_exinf)
 /**
  * @brief Run Buddy 3's periodic line-sensor update.
  *
- * A cyclic handler wakes this task at BUDDY3_SAMPLE_PERIOD_MS so line,
- * junction, and barcode readings remain current for the controller.
+ * A cyclic handler wakes this task every BUDDY3_BARCODE_PERIOD_MS (2 ms) for
+ * the barcode sensor; buddy3_update() does the line and junction work every
+ * BUDDY3_SAMPLE_PERIOD_MS (10 ms) of those wake-ups.
  */
 static void line_task (INT stacd, void * p_exinf)
 {
@@ -468,8 +469,8 @@ static T_CCYC g_ccyc_line = {
     .exinf  = &g_line_task_id,
     .cycatr = TA_HLNG | TA_STA,
     .cychdr = app_wake_isr,
-    .cyctim = BUDDY3_SAMPLE_PERIOD_MS,
-    .cycphs = BUDDY3_SAMPLE_PERIOD_MS,
+    .cyctim = BUDDY3_BARCODE_PERIOD_MS,
+    .cycphs = BUDDY3_BARCODE_PERIOD_MS,
 };
 
 /**

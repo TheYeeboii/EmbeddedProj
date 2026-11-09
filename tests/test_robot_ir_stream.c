@@ -4,46 +4,41 @@
 #include <string.h>
 #include "../firmware/app_program/robot_ir_stream.c"
 #include "../firmware/app_program/robot_diagnostics_mqtt.c"
+#include "../firmware/app_program/robot_packed.c"
+#include "../firmware/app_program/robot_wire.c"
 
 static bool     g_b_online   = true;
 static bool     g_b_writable = true;
 static FILE *   g_p_fixture;
-static char *   g_p_base;
 static unsigned g_published;
 static unsigned g_largest;
 uint8_t         comms_get_link_state (void)
 {
     return g_b_online ? COMMS_LINK_MQTT_UP : 0;
 }
-int tm_sprintf (unsigned char * out, unsigned char * fmt, ...)
+bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length)
 {
-    if (strstr((char *) fmt, "\"v\":1"))
-    {
-        g_p_base = (char *) out;
-    }
-    size_t  remaining = 512 - (size_t) ((char *) out - g_p_base);
-    va_list args;
-    va_start(args, fmt);
-    int written = vsnprintf((char *) out, remaining, (char *) fmt, args);
-    va_end(args);
-    assert(written >= 0 && (size_t) written < remaining);
-    return written;
-}
-bool comms_publish_text (uint32_t topic, const char * payload)
-{
-    assert(COMMS_TOPIC_IR_STREAM == topic && strlen(payload) < 512);
+    /* Packed IR batch: type 11, version 1, within the outbox. */
+    assert(COMMS_TOPIC_IR_STREAM == topic && 0xB1u == p_data[0] &&
+           length <= ROBOT_WIRE_DIAG_MESSAGE_MAX);
     if (!g_b_writable)
     {
         return false;
     }
     ++g_published;
-    if (strlen(payload) > g_largest)
+    if (length > g_largest)
     {
-        g_largest = (unsigned) strlen(payload);
+        g_largest = (unsigned) length;
     }
     if (g_p_fixture)
     {
-        fprintf(g_p_fixture, "%s\n", payload);
+        /* One message per line, as hex; tests/test_ir_stream_wire.cjs decodes
+         * it with the dashboard's rover-wire.js. */
+        for (uint32_t index = 0u; index < length; ++index)
+        {
+            fprintf(g_p_fixture, "%02x", (unsigned) p_data[index]);
+        }
+        fputc('\n', g_p_fixture);
     }
     return true;
 }
@@ -140,7 +135,7 @@ int main (int argc, char ** argv)
     assert(0 == g_count);
     printf("PASS: independent IR capture while disabled/stationary, short "
            "pulses, final batch, offline/retry, overflow/stale ack, wrap; max "
-           "packet %u bytes\n",
+           "packed batch %u bytes\n",
            g_largest);
 }
 

@@ -4,34 +4,54 @@
 #include <string.h>
 #include "../firmware/app_program/robot_action_log.c"
 #include "../firmware/app_program/robot_diagnostics_mqtt.c"
+#include "../firmware/app_program/robot_packed.c"
+#include "../firmware/app_program/robot_wire.c"
+
+/* Bit positions in the packed action message (robot_diagnostics_mqtt.c). */
+#define ACTION_BIT_STATE     8u
+#define ACTION_BIT_ACTION    89u
+#define ACTION_BIT_DIRECTION 91u
+#define ACTION_LENGTH        16u
 
 static uint32_t g_link_state;
 static bool     g_b_accept_publish;
-static char     g_sent[16][256];
+static uint8_t  g_sent[16][ROBOT_WIRE_DIAG_MESSAGE_MAX];
+static uint32_t g_sent_length[16];
 static unsigned g_sent_count;
-int             tm_sprintf (unsigned char * out, unsigned char * fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int written = vsnprintf((char *) out, 256, (const char *) fmt, args);
-    va_end(args);
-    assert(written >= 0 && written < 256);
-    return written;
-}
-uint8_t comms_get_link_state (void)
+uint8_t         comms_get_link_state (void)
 {
     return g_link_state;
 }
-bool comms_publish_text (uint32_t topic, const char * payload)
+bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length)
 {
     assert(COMMS_TOPIC_ACTIONS == topic);
     if (!g_b_accept_publish)
     {
         return false;
     }
-    assert(g_sent_count < 16 && strlen(payload) < 256);
-    strcpy(g_sent[g_sent_count++], payload);
+    assert(g_sent_count < 16 && ACTION_LENGTH == length);
+    memcpy(g_sent[g_sent_count], p_data, length);
+    g_sent_length[g_sent_count++] = length;
     return true;
+}
+/* Read one field of a captured message. */
+static uint32_t sent_field (unsigned message, uint32_t bit, uint32_t width)
+{
+    robot_packed_reader_t reader;
+
+    robot_packed_reader_init(&reader, g_sent[message], g_sent_length[message]);
+    for (; bit > 0u; bit -= (bit > 32u) ? 32u : bit)
+    {
+        (void) robot_packed_get(&reader, (bit > 32u) ? 32u : bit);
+    }
+    return robot_packed_get(&reader, width);
+}
+/* True when message is a packed action event (or state) with this action. */
+static bool sent_action (unsigned message, bool b_state, uint32_t action)
+{
+    return (0x81u == g_sent[message][0]) &&
+           ((b_state ? 1u : 0u) == sent_field(message, ACTION_BIT_STATE, 1u)) &&
+           (action == sent_field(message, ACTION_BIT_ACTION, 2u));
 }
 int main (void)
 {
@@ -61,14 +81,14 @@ int main (void)
     g_b_accept_publish = true;
     robot_action_publish(102);
     assert(2 == g_count && 2 == g_sent_count);
-    assert(strstr(g_sent[0], "\"action\":\"turn_left\""));
-    assert(strstr(g_sent[1], "\"action\":\"stop_turn_left\""));
+    assert(sent_action(0, false, ROBOT_ACTION_TURN_LEFT));
+    assert(sent_action(1, false, ROBOT_ACTION_STOP_LEFT));
     robot_action_publish(103);
     assert(0 == g_count && 5 == g_sent_count);
-    assert(strstr(g_sent[2], "\"action\":\"turn_right\""));
-    assert(strstr(g_sent[3], "\"action\":\"stop_turn_right\""));
-    assert(strstr(g_sent[4], "\"type\":\"action_state\""));
-    assert(strstr(g_sent[4], "\"direction\":\"none\""));
+    assert(sent_action(2, false, ROBOT_ACTION_TURN_RIGHT));
+    assert(sent_action(3, false, ROBOT_ACTION_STOP_RIGHT));
+    assert(sent_action(4, true, 0u)); /* current state */
+    assert(ROBOT_ACTION_NONE == sent_field(4, ACTION_BIT_DIRECTION, 2u));
     robot_action_publish(104);
     assert(5 == g_sent_count); /* No snapshot spam. */
     robot_action_publish(1103);
@@ -94,7 +114,8 @@ int main (void)
     }
     assert(robot_action_snapshot_if_empty(&action_event));
     assert(!robot_action_peek(NULL));
-    puts("PASS: PWM direction, start/stop order, rapid reversal, "
+    puts("PASS: PWM direction, start/stop order, rapid reversal, packed "
+         "messages, "
          "deduplication, offline/backpressure retry, ordered snapshots, "
          "overflow counters, stale ack");
     return 0;

@@ -1,86 +1,106 @@
 /** @file robot_diagnostics_mqtt.c
  *
- * @brief Buddy 1: publishes the four diagnostic streams as JSON.
+ * @brief Buddy 1: publishes the four diagnostic streams as packed binary.
  *
- *   rover/actions   Buddy 2 motor actions        (robot_action_log)
- *   rover/steering  steering decisions           (robot_steering_trace)
- *   rover/barcode   barcode scans                (robot_barcode_trace)
- *   rover/ir        continuous IR samples        (robot_ir_stream)
+ *   rover/actions   type 8   Buddy 2 motor actions    (robot_action_log)
+ *   rover/steering  type 9   steering decisions       (robot_steering_trace)
+ *   rover/barcode   type 10  barcode scans            (robot_barcode_trace)
+ *   rover/ir        type 11  continuous IR samples    (robot_ir_stream)
  *
  * Each publisher sends at most two queued records per call, from the
  * controller task, and stops early when the outbox is full or offline.
  * Built only with DIAGNOSTICS=1 (pico_rp2040.mk); the default build links
- * robot_diagnostics_off.c instead.  The streams are tuning tools, so they
- * stay JSON text (docs/MQTT_BINARY_FORMAT.md).
+ * robot_diagnostics_off.c instead.
+ *
+ * Change Requirement 1: like the main messages, every field is packed at
+ * the bits its range needs (robot_packed.h, most significant bit first);
+ * the layouts are in docs/MQTT_BINARY_FORMAT.md and dashboard/rover-wire.js
+ * decodes them back into the objects the tuning views use.  Counters and
+ * timestamps that really use 32 bits (sequence numbers, boot id, ms
+ * clocks) keep 32; drop counts and lags saturate at 16 bits.
  */
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
 
 #include "comms.h"
-#include "mqtt_config.h"
 #include "robot_action_log.h"
 #include "robot_barcode_trace.h"
 #include "robot_diagnostics_mqtt.h"
 #include "robot_ir_stream.h"
+#include "robot_packed.h"
 #include "robot_steering_trace.h"
+#include "robot_wire.h"
 
-/* ---- rover/actions: Buddy 2 motor actions (robot_action_log) ---- */
+/* Field widths in bits (docs/MQTT_BINARY_FORMAT.md, diagnostic streams). */
+#define DIAG_BITS_HEADER  (8u)
+#define DIAG_BITS_FLAG    (1u)
+#define DIAG_BITS_U32     (32u)
+#define DIAG_BITS_SAT16   (16u) /* drop counts and lags, saturating */
+#define DIAG_BITS_PWM     (16u)
+#define DIAG_BITS_SMALL2  (2u)
+#define DIAG_BITS_OWNER   (3u)
+#define DIAG_BITS_PHASE   (4u)
+#define DIAG_BITS_DIST    (24u) /* x10 or x100 distances, +/-838 m */
+#define DIAG_BITS_RAW     (12u)
+#define DIAG_BITS_NORM    (10u)
+#define DIAG_BITS_PTYPE   (3u)
+#define DIAG_BITS_COUNT   (3u) /* rows in one packet, 1..4 */
+#define DIAG_BITS_EDGE    (5u) /* edge index, 0..28 */
+#define DIAG_BITS_SAMPLE  (9u) /* sample index, 0..511 */
+#define DIAG_BITS_STATE   (3u)
+#define DIAG_BITS_EDGES   (5u)  /* edges in a scan, 0..29 */
+#define DIAG_BITS_SAMPLES (10u) /* samples in a scan, 0..512 */
+#define DIAG_BITS_BLOCKED (6u)
+#define DIAG_BITS_REASON  (3u)
+#define DIAG_BITS_FORMAT  (3u)
+#define DIAG_BITS_SYMBOL  (7u)
+#define DIAG_BITS_ELEMENT (17u) /* min element x100, up to 1000 mm */
+#define DIAG_BITS_OFFSET  (14u) /* left offset x10, +/-500 mm */
+#define DIAG_BITS_GEOM    (16u) /* geometry x10 */
+#define DIAG_BITS_DT      (16u) /* ms between IR rows, saturating */
+
+/* ---- rover/actions ---- */
 #define ACTION_PACKETS_PER_CALL 2u
 #define ACTION_SNAPSHOT_MS      1000u
-#define ACTION_PAYLOAD_SIZE     256u
 
-static bool action_publish_events (char * p_payload);
-static void action_publish_snapshot (char * p_payload, uint32_t now_ms);
-
-/* Names indexed by the enum values in robot_action_log.h. */
-static const char * const g_action_names[] = {
-    "turn_left", "turn_right", "stop_turn_left", "stop_turn_right"};
-static const char * const g_direction_names[] = {"none", "left", "right"};
-static const char * const g_source_names[]    = {"pwm", "motion", "stop"};
-
-/* ---- rover/steering: steering decisions (robot_steering_trace) ---- */
+/* ---- rover/steering ---- */
 #define STEERING_PACKETS_PER_CALL 2u
 #define STEERING_SNAPSHOT_MS      1000u
 
-static void steering_format (char *                         p_payload,
-                             const robot_steering_event_t * p_event,
-                             bool b_queued, uint32_t now);
-
-/* ---- rover/barcode: barcode scans (robot_barcode_trace) ---- */
+/* ---- rover/barcode ---- */
 #define BARCODE_PACKETS_PER_CALL 2u
 
-/* tm_sprintf takes UB pointers; every value below is cast to the UINT/INT
- * its %u/%d conversion expects.  Up to four bounded rows per message; the
- * host test exercises the integer limits. */
-
-static INT  barcode_append_config (char *                         p_out,
-                                   const robot_barcode_packet_t * p_packet);
-static INT  barcode_append_rows (char *                         p_out,
-                                 const robot_barcode_packet_t * p_packet);
-static INT  barcode_append_summary (char *                         p_out,
-                                    const robot_barcode_packet_t * p_packet);
-static void barcode_format (char *                         p_payload,
-                            const robot_barcode_packet_t * p_packet,
-                            uint32_t                       now);
-
-/* Names indexed by robot_barcode_packet_type_t. */
-static const char * const g_type_names[] = {
-    "barcode_start",    "barcode_edges", "barcode_samples",
-    "barcode_progress", "barcode_end",   "barcode_state"};
-
-/* ---- rover/ir: continuous IR samples (robot_ir_stream) ---- */
+/* ---- rover/ir ---- */
 /* At most this many packets per call, so the network task is not starved. */
 #define IR_MQTT_PACKETS_PER_CALL 2u
 /* A short final batch is flushed once its oldest row is this old. */
 #define IR_MQTT_FLUSH_MS 40u
 
-static INT ir_mqtt_format (char *                          p_payload,
-                           const robot_ir_stream_batch_t * p_batch,
-                           uint32_t                        now);
+static bool     action_publish_events (uint8_t * p_payload);
+static void     action_publish_snapshot (uint8_t * p_payload, uint32_t now_ms);
+static uint32_t action_pack (uint8_t *                    p_payload,
+                             const robot_action_event_t * p_event, bool b_state,
+                             uint32_t ts_ms);
+static uint32_t steering_pack (uint8_t *                      p_payload,
+                               const robot_steering_event_t * p_event,
+                               bool b_queued, uint32_t now);
+static uint32_t barcode_pack (uint8_t *                      p_payload,
+                              const robot_barcode_packet_t * p_packet,
+                              uint32_t                       now);
+static void     barcode_put_config (robot_packed_writer_t *        p_writer,
+                                    const robot_barcode_packet_t * p_packet);
+static void     barcode_put_rows (robot_packed_writer_t *        p_writer,
+                                  const robot_barcode_packet_t * p_packet);
+static void     barcode_put_summary (robot_packed_writer_t *        p_writer,
+                                     const robot_barcode_packet_t * p_packet);
+static uint32_t ir_pack (uint8_t *                       p_payload,
+                         const robot_ir_stream_batch_t * p_batch, uint32_t now);
+static void     diag_writer_start (robot_packed_writer_t * p_writer,
+                                   uint8_t * p_payload, uint32_t type);
 
 void robot_action_publish (uint32_t now_ms)
 {
-    static char payload[ACTION_PAYLOAD_SIZE];
+    static uint8_t payload[ROBOT_WIRE_DIAG_MESSAGE_MAX];
 
     if (COMMS_LINK_MQTT_UP == comms_get_link_state())
     {
@@ -95,9 +115,10 @@ void robot_steering_publish (uint32_t now_ms)
 {
     static uint32_t        last_snapshot   = 0u;
     static bool            b_have_snapshot = false;
-    static char            payload[COMMS_PAYLOAD_MAX];
-    robot_steering_event_t event = {0};
-    uint32_t               sent  = 0u;
+    static uint8_t         payload[ROBOT_WIRE_DIAG_MESSAGE_MAX];
+    robot_steering_event_t event  = {0};
+    uint32_t               sent   = 0u;
+    uint32_t               length = 0u;
     bool b_more = (COMMS_LINK_MQTT_UP == comms_get_link_state());
 
     for (sent = 0u; b_more && (sent < STEERING_PACKETS_PER_CALL); ++sent)
@@ -113,8 +134,8 @@ void robot_steering_publish (uint32_t now_ms)
         }
         else
         {
-            steering_format(payload, &event, b_queued, now_ms);
-            if (!comms_publish_text(COMMS_TOPIC_STEERING, payload))
+            length = steering_pack(payload, &event, b_queued, now_ms);
+            if (!comms_publish(COMMS_TOPIC_STEERING, payload, length))
             {
                 b_more = false;
             }
@@ -134,9 +155,10 @@ void robot_steering_publish (uint32_t now_ms)
 
 void robot_barcode_publish (uint32_t now_ms)
 {
-    static char            payload[COMMS_PAYLOAD_MAX];
+    static uint8_t         payload[ROBOT_WIRE_DIAG_MESSAGE_MAX];
     robot_barcode_packet_t packet = {0};
     uint32_t               sent   = 0u;
+    uint32_t               length = 0u;
     bool b_more = (COMMS_LINK_MQTT_UP == comms_get_link_state());
 
     for (sent = 0u; b_more && (sent < BARCODE_PACKETS_PER_CALL); ++sent)
@@ -147,8 +169,8 @@ void robot_barcode_publish (uint32_t now_ms)
         }
         else
         {
-            barcode_format(payload, &packet, now_ms);
-            if (comms_publish_text(COMMS_TOPIC_BARCODE, payload))
+            length = barcode_pack(payload, &packet, now_ms);
+            if (comms_publish(COMMS_TOPIC_BARCODE, payload, length))
             {
                 robot_barcode_packet_ack(&packet);
             }
@@ -162,9 +184,10 @@ void robot_barcode_publish (uint32_t now_ms)
 
 void robot_ir_stream_publish (uint32_t now_ms)
 {
-    static char             payload[COMMS_PAYLOAD_MAX];
-    robot_ir_stream_batch_t batch = {0};
-    uint32_t                sent  = 0u;
+    static uint8_t          payload[ROBOT_WIRE_DIAG_MESSAGE_MAX];
+    robot_ir_stream_batch_t batch  = {0};
+    uint32_t                sent   = 0u;
+    uint32_t                length = 0u;
     bool b_more = (COMMS_LINK_MQTT_UP == comms_get_link_state());
 
     for (sent = 0u; b_more && (sent < IR_MQTT_PACKETS_PER_CALL); ++sent)
@@ -182,8 +205,8 @@ void robot_ir_stream_publish (uint32_t now_ms)
         }
         else
         {
-            (void) ir_mqtt_format(payload, &batch, now_ms);
-            if (comms_publish_text(COMMS_TOPIC_IR_STREAM, payload))
+            length = ir_pack(payload, &batch, now_ms);
+            if (comms_publish(COMMS_TOPIC_IR_STREAM, payload, length))
             {
                 robot_ir_stream_ack(&batch);
             }
@@ -195,13 +218,14 @@ void robot_ir_stream_publish (uint32_t now_ms)
     }
 }
 
-/* ---- rover/actions: Buddy 2 motor actions (robot_action_log) ---- */
+/* ---- rover/actions: type 8 ---- */
 /* Publish up to ACTION_PACKETS_PER_CALL queued events.  Returns true when
  * the queue was drained, so a snapshot cannot overtake a transition. */
-static bool action_publish_events (char * p_payload)
+static bool action_publish_events (uint8_t * p_payload)
 {
     robot_action_event_t event   = {0};
     uint32_t             sent    = 0u;
+    uint32_t             length  = 0u;
     bool                 b_more  = true;
     bool                 b_empty = false;
 
@@ -214,21 +238,8 @@ static bool action_publish_events (char * p_payload)
         }
         else
         {
-            /* tm_sprintf takes UB pointers; values are cast to the
-             * UINT/INT their %u/%d conversions expect. */
-            (void) tm_sprintf(
-                (UB *) p_payload,
-                (UB *) "{\"type\":\"action\",\"robot_id\":\"%s\",\"seq\":%u,"
-                       "\"ts_ms\":%u,"
-                       "\"action\":\"%s\",\"direction\":\"%s\","
-                       "\"source\":\"%s\","
-                       "\"left_pwm\":%d,\"right_pwm\":%d,\"dropped\":%u}",
-                ROBOT_MQTT_CLIENT_ID, (UINT) event.seq, (UINT) event.ts_ms,
-                g_action_names[event.action],
-                g_direction_names[event.direction],
-                g_source_names[event.source], (INT) event.left_pwm,
-                (INT) event.right_pwm, (UINT) event.dropped);
-            if (comms_publish_text(COMMS_TOPIC_ACTIONS, p_payload))
+            length = action_pack(p_payload, &event, false, event.ts_ms);
+            if (comms_publish(COMMS_TOPIC_ACTIONS, p_payload, length))
             {
                 robot_action_ack(event.seq);
             }
@@ -249,26 +260,19 @@ static bool action_publish_events (char * p_payload)
 }
 
 /* Send the current state once a second while the queue is empty. */
-static void action_publish_snapshot (char * p_payload, uint32_t now_ms)
+static void action_publish_snapshot (uint8_t * p_payload, uint32_t now_ms)
 {
     static uint32_t      last_snapshot_ms = 0u;
     static bool          b_have_snapshot  = false;
     robot_action_event_t event            = {0};
+    uint32_t             length           = 0u;
 
     if ((!b_have_snapshot ||
          ((now_ms - last_snapshot_ms) >= ACTION_SNAPSHOT_MS)) &&
         robot_action_snapshot_if_empty(&event))
     {
-        (void) tm_sprintf(
-            (UB *) p_payload,
-            (UB *) "{\"type\":\"action_state\",\"robot_id\":\"%s\","
-                   "\"seq\":%u,\"ts_ms\":%u,"
-                   "\"direction\":\"%s\",\"source\":\"%s\","
-                   "\"left_pwm\":%d,\"right_pwm\":%d,\"dropped\":%u}",
-            ROBOT_MQTT_CLIENT_ID, (UINT) event.seq, (UINT) now_ms,
-            g_direction_names[event.direction], g_source_names[event.source],
-            (INT) event.left_pwm, (INT) event.right_pwm, (UINT) event.dropped);
-        if (comms_publish_text(COMMS_TOPIC_ACTIONS, p_payload))
+        length = action_pack(p_payload, &event, true, now_ms);
+        if (comms_publish(COMMS_TOPIC_ACTIONS, p_payload, length))
         {
             last_snapshot_ms = now_ms;
             b_have_snapshot  = true;
@@ -276,207 +280,280 @@ static void action_publish_snapshot (char * p_payload, uint32_t now_ms)
     }
 }
 
-/* ---- rover/steering: steering decisions (robot_steering_trace) ---- */
-/* All values are fixed-range integers. Worst-case JSON is <512 bytes; the
- * host serialization test exercises every numeric bound.  tm_sprintf takes
- * UB pointers and each value is cast to the UINT/INT its conversion
- * expects. */
-static void steering_format (char *                         p_payload,
-                             const robot_steering_event_t * p_event,
-                             bool b_queued, uint32_t now)
+/* Action event (b_state false) or current state (true): 16 bytes. */
+static uint32_t action_pack (uint8_t *                    p_payload,
+                             const robot_action_event_t * p_event, bool b_state,
+                             uint32_t ts_ms)
 {
-    const robot_steering_input_t * p_in = &p_event->input;
+    robot_packed_writer_t writer = {NULL, 0u, 0u, false};
 
-    (void) tm_sprintf(
-        (UB *) p_payload,
-        (UB *) "{\"v\":1,\"type\":\"%s\",\"boot\":%u,\"seq\":%u,"
-               "\"ts_ms\":%u,\"lag_ms\":%u,\"dropped\":%u,"
-               "\"owner\":%u,\"phase\":%u,\"direction\":%u,"
-               "\"requested\":[%d,%d],\"applied\":[%d,%d],"
-               "\"encoder_ms\":%u,\"distance\":[%d,%d],\"speed\":[%d,%d],"
-               "\"faults\":%u,"
-               "\"sample_ms\":%u,\"ir\":[%u,%u,%u,%u,%u,%u,%u,%u,%u,%u],"
-               "\"has_input\":%u}",
-        b_queued ? "steering" : "steering_state",
-        (UINT) robot_diagnostics_session(), (UINT) p_event->seq,
-        (UINT) p_event->ts_ms, b_queued ? (UINT) (now - p_event->ts_ms) : 0u,
-        (UINT) p_event->dropped, (UINT) p_event->owner, (UINT) p_in->phase,
-        (UINT) p_event->direction, (INT) p_event->requested[0],
-        (INT) p_event->requested[1], (INT) p_event->applied[0],
-        (INT) p_event->applied[1], (UINT) p_event->encoder_ms,
-        (INT) p_event->distance_x10[0], (INT) p_event->distance_x10[1],
-        (INT) p_event->speed_x10[0], (INT) p_event->speed_x10[1],
-        (UINT) p_event->faults, (UINT) p_in->ts_ms, (UINT) p_in->raw[0],
-        (UINT) p_in->raw[1], (UINT) p_in->norm[0], (UINT) p_in->norm[1],
-        (UINT) p_in->threshold, (UINT) p_in->calibration[0],
-        (UINT) p_in->calibration[1], (UINT) p_in->calibration[2],
-        (UINT) p_in->calibration[3], (UINT) p_in->dark,
-        (UINT) p_event->has_input);
+    diag_writer_start(&writer, p_payload, ROBOT_WIRE_TYPE_ACTION);
+    robot_packed_put(&writer, b_state ? 1u : 0u, DIAG_BITS_FLAG);
+    robot_packed_put(&writer, p_event->seq, DIAG_BITS_U32);
+    robot_packed_put(&writer, ts_ms, DIAG_BITS_U32);
+    robot_packed_put(&writer, p_event->dropped, DIAG_BITS_SAT16);
+    robot_packed_put(&writer, b_state ? 0u : p_event->action, DIAG_BITS_SMALL2);
+    robot_packed_put(&writer, p_event->direction, DIAG_BITS_SMALL2);
+    robot_packed_put(&writer, p_event->source, DIAG_BITS_SMALL2);
+    robot_packed_put_signed(&writer, p_event->left_pwm, DIAG_BITS_PWM);
+    robot_packed_put_signed(&writer, p_event->right_pwm, DIAG_BITS_PWM);
+
+    return robot_packed_length(&writer);
 }
 
-/* ---- rover/barcode: barcode scans (robot_barcode_trace) ---- */
-/* Build the whole JSON object for one packet. */
-static void barcode_format (char *                         p_payload,
-                            const robot_barcode_packet_t * p_packet,
-                            uint32_t                       now)
+/* ---- rover/steering: type 9, 58 bytes ---- */
+static uint32_t steering_pack (uint8_t *                      p_payload,
+                               const robot_steering_event_t * p_event,
+                               bool b_queued, uint32_t now)
 {
-    INT length = tm_sprintf(
-        (UB *) p_payload,
-        (UB *) "{\"v\":1,\"type\":\"%s\",\"boot\":%u,\"seq\":%u,"
-               "\"scan\":%u,\"ts_ms\":%u,\"dropped\":%u,\"lag_ms\":%u",
-        g_type_names[p_packet->type], (UINT) robot_diagnostics_session(),
-        (UINT) p_packet->seq, (UINT) p_packet->scan, (UINT) p_packet->ts_ms,
-        (UINT) p_packet->dropped, (UINT) (now - p_packet->ts_ms));
+    const robot_steering_input_t * p_in   = &p_event->input;
+    robot_packed_writer_t          writer = {NULL, 0u, 0u, false};
+    uint32_t                       index  = 0u;
+
+    diag_writer_start(&writer, p_payload, ROBOT_WIRE_TYPE_STEERING);
+    robot_packed_put(&writer, b_queued ? 0u : 1u, DIAG_BITS_FLAG); /* state */
+    robot_packed_put(&writer, robot_diagnostics_session(), DIAG_BITS_U32);
+    robot_packed_put(&writer, p_event->seq, DIAG_BITS_U32);
+    robot_packed_put(&writer, p_event->ts_ms, DIAG_BITS_U32);
+    robot_packed_put(&writer, b_queued ? (now - p_event->ts_ms) : 0u,
+                     DIAG_BITS_SAT16);
+    robot_packed_put(&writer, p_event->dropped, DIAG_BITS_SAT16);
+    robot_packed_put(&writer, p_event->owner, DIAG_BITS_OWNER);
+    robot_packed_put(&writer, p_in->phase, DIAG_BITS_PHASE);
+    robot_packed_put(&writer, p_event->direction, DIAG_BITS_SMALL2);
+    for (index = 0u; index < 2u; index++)
+    {
+        robot_packed_put_signed(&writer, p_event->requested[index],
+                                DIAG_BITS_PWM);
+    }
+    for (index = 0u; index < 2u; index++)
+    {
+        robot_packed_put_signed(&writer, p_event->applied[index],
+                                DIAG_BITS_PWM);
+    }
+    robot_packed_put(&writer, p_event->encoder_ms, DIAG_BITS_U32);
+    for (index = 0u; index < 2u; index++)
+    {
+        robot_packed_put_signed(&writer, p_event->distance_x10[index],
+                                DIAG_BITS_DIST);
+    }
+    for (index = 0u; index < 2u; index++)
+    {
+        robot_packed_put_signed(&writer, p_event->speed_x10[index],
+                                DIAG_BITS_PWM);
+    }
+    robot_packed_put(&writer, p_event->faults, DIAG_BITS_SMALL2);
+    robot_packed_put(&writer, p_in->ts_ms, DIAG_BITS_U32);
+    for (index = 0u; index < 2u; index++)
+    {
+        robot_packed_put(&writer, p_in->raw[index], DIAG_BITS_RAW);
+    }
+    for (index = 0u; index < 2u; index++)
+    {
+        robot_packed_put(&writer, p_in->norm[index], DIAG_BITS_NORM);
+    }
+    robot_packed_put(&writer, p_in->threshold, DIAG_BITS_NORM);
+    for (index = 0u; index < 4u; index++)
+    {
+        robot_packed_put(&writer, p_in->calibration[index], DIAG_BITS_RAW);
+    }
+    robot_packed_put(&writer, p_in->dark, DIAG_BITS_SMALL2);
+    robot_packed_put(&writer, p_event->has_input ? 1u : 0u, DIAG_BITS_FLAG);
+
+    return robot_packed_length(&writer);
+}
+
+/* ---- rover/barcode: type 10 ---- */
+/* Common header, then the part that depends on the packet type. */
+static uint32_t barcode_pack (uint8_t *                      p_payload,
+                              const robot_barcode_packet_t * p_packet,
+                              uint32_t                       now)
+{
+    robot_packed_writer_t writer = {NULL, 0u, 0u, false};
+    uint32_t              index  = 0u;
+
+    diag_writer_start(&writer, p_payload, ROBOT_WIRE_TYPE_BARCODE);
+    robot_packed_put(&writer, p_packet->type, DIAG_BITS_PTYPE);
+    robot_packed_put(&writer, robot_diagnostics_session(), DIAG_BITS_U32);
+    robot_packed_put(&writer, p_packet->seq, DIAG_BITS_U32);
+    robot_packed_put(&writer, p_packet->scan, DIAG_BITS_U32);
+    robot_packed_put(&writer, p_packet->ts_ms, DIAG_BITS_U32);
+    robot_packed_put(&writer, p_packet->dropped, DIAG_BITS_SAT16);
+    robot_packed_put(&writer, now - p_packet->ts_ms, DIAG_BITS_SAT16);
 
     if (BC_PACKET_START == p_packet->type)
     {
-        length += tm_sprintf((UB *) p_payload + length,
-                             (UB *) ",\"leading\":%d", (INT) p_packet->leading);
-        length += barcode_append_config(p_payload + length, p_packet);
+        robot_packed_put_signed(&writer, p_packet->leading, DIAG_BITS_DIST);
+        barcode_put_config(&writer, p_packet);
     }
     else if ((BC_PACKET_EDGES == p_packet->type) ||
              (BC_PACKET_SAMPLES == p_packet->type))
     {
-        length += barcode_append_rows(p_payload + length, p_packet);
+        barcode_put_rows(&writer, p_packet);
     }
     else
     {
-        length += barcode_append_summary(p_payload + length, p_packet);
+        barcode_put_summary(&writer, p_packet);
     }
 
     if (BC_PACKET_STATE == p_packet->type)
     {
-        length += barcode_append_config(p_payload + length, p_packet);
-        length += tm_sprintf(
-            (UB *) p_payload + length,
-            (UB *) ",\"readiness\":[%d,%d,%d,%d,%d,%d,%d,%u]",
-            (INT) p_packet->readiness[0], (INT) p_packet->readiness[1],
-            (INT) p_packet->readiness[2], (INT) p_packet->readiness[3],
-            (INT) p_packet->readiness[4], (INT) p_packet->readiness[5],
-            (INT) p_packet->readiness[6], (UINT) p_packet->rejected_steps);
+        barcode_put_config(&writer, p_packet);
+        /* Side-sensor raw, normalized, black, then four signed distances. */
+        robot_packed_put(&writer, (uint32_t) p_packet->readiness[0],
+                         DIAG_BITS_RAW);
+        robot_packed_put(&writer, (uint32_t) p_packet->readiness[1],
+                         DIAG_BITS_NORM);
+        robot_packed_put(&writer, (uint32_t) p_packet->readiness[2],
+                         DIAG_BITS_FLAG);
+        for (index = 3u; index < BARCODE_READINESS_COUNT; index++)
+        {
+            robot_packed_put_signed(&writer, p_packet->readiness[index],
+                                    DIAG_BITS_DIST);
+        }
+        robot_packed_put(&writer, p_packet->rejected_steps, DIAG_BITS_SAT16);
     }
-    (void) tm_sprintf((UB *) p_payload + length, (UB *) "}");
+
+    return robot_packed_length(&writer);
 }
 
-/* ,"config":[...] with the eleven reader settings. */
-static INT barcode_append_config (char *                         p_out,
-                                  const robot_barcode_packet_t * p_packet)
-{
-    return tm_sprintf((UB *) p_out,
-                      (UB *) ",\"config\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
-                      (INT) p_packet->config[0], (INT) p_packet->config[1],
-                      (INT) p_packet->config[2], (INT) p_packet->config[3],
-                      (INT) p_packet->config[4], (INT) p_packet->config[5],
-                      (INT) p_packet->config[6], (INT) p_packet->config[7],
-                      (INT) p_packet->config[8], (INT) p_packet->config[9],
-                      (INT) p_packet->config[10]);
-}
-
-/* ,"rows":[...] with the edges or samples of the packet. */
-static INT barcode_append_rows (char *                         p_out,
+/* The eleven reader settings (robot_barcode_trace_configure order). */
+static void barcode_put_config (robot_packed_writer_t *        p_writer,
                                 const robot_barcode_packet_t * p_packet)
 {
-    INT      length = tm_sprintf((UB *) p_out, (UB *) ",\"rows\":[");
-    uint32_t row    = 0u;
+    /* Raw endpoints, inversion and thresholds are never negative; the casts
+     * keep the bit pattern of values already inside their fields. */
+    robot_packed_put(p_writer, (uint32_t) p_packet->config[0], DIAG_BITS_RAW);
+    robot_packed_put(p_writer, (uint32_t) p_packet->config[1], DIAG_BITS_RAW);
+    robot_packed_put(p_writer, (uint32_t) p_packet->config[2], DIAG_BITS_FLAG);
+    robot_packed_put(p_writer, (uint32_t) p_packet->config[3], DIAG_BITS_NORM);
+    robot_packed_put(p_writer, (uint32_t) p_packet->config[4], DIAG_BITS_NORM);
+    /* Minimum element x100: 0 (unconfigured) up to 100000 (1000 mm). */
+    robot_packed_put(p_writer, (uint32_t) p_packet->config[5],
+                     DIAG_BITS_ELEMENT);
+    robot_packed_put_signed(p_writer, p_packet->config[6], DIAG_BITS_OFFSET);
+    robot_packed_put_signed(p_writer, p_packet->config[7], DIAG_BITS_GEOM);
+    robot_packed_put_signed(p_writer, p_packet->config[8], DIAG_BITS_GEOM);
+    robot_packed_put_signed(p_writer, p_packet->config[9], DIAG_BITS_GEOM);
+    robot_packed_put_signed(p_writer, p_packet->config[10], DIAG_BITS_GEOM);
+}
 
-    for (row = 0u; row < p_packet->count; ++row)
+/* Edge or sample rows; row numbers are the offset plus the row index. */
+static void barcode_put_rows (robot_packed_writer_t *        p_writer,
+                              const robot_barcode_packet_t * p_packet)
+{
+    uint32_t row = 0u;
+
+    robot_packed_put(p_writer, p_packet->count, DIAG_BITS_COUNT);
+    if (BC_PACKET_EDGES == p_packet->type)
     {
-        const char * p_comma = (0u != row) ? "," : "";
-
-        if (BC_PACKET_EDGES == p_packet->type)
+        robot_packed_put(p_writer, p_packet->offset, DIAG_BITS_EDGE);
+        for (row = 0u; row < p_packet->count; ++row)
         {
             const robot_barcode_edge_t * p_edge = &p_packet->edges[row];
 
-            length +=
-                tm_sprintf((UB *) p_out + length, (UB *) "%s[%u,%u,%d,%d,%d]",
-                           p_comma, (UINT) (p_packet->offset + row),
-                           (UINT) p_edge->ts_ms, (INT) p_edge->width_x100,
-                           (INT) p_edge->left_x10, (INT) p_edge->right_x10);
+            robot_packed_put(p_writer, p_edge->ts_ms, DIAG_BITS_U32);
+            robot_packed_put_signed(p_writer, p_edge->width_x100,
+                                    DIAG_BITS_DIST);
+            robot_packed_put_signed(p_writer, p_edge->left_x10, DIAG_BITS_DIST);
+            robot_packed_put_signed(p_writer, p_edge->right_x10,
+                                    DIAG_BITS_DIST);
         }
-        else
+    }
+    else
+    {
+        robot_packed_put(p_writer, p_packet->offset, DIAG_BITS_SAMPLE);
+        for (row = 0u; row < p_packet->count; ++row)
         {
             const robot_barcode_sample_t * p_sample = &p_packet->samples[row];
 
-            length += tm_sprintf(
-                (UB *) p_out + length, (UB *) "%s[%u,%u,%u,%u,%d,%d,%d,%u]",
-                p_comma, (UINT) (p_packet->offset + row),
-                (UINT) p_sample->ts_ms, (UINT) p_sample->raw,
-                (UINT) p_sample->normalized, (INT) p_sample->left_x10,
-                (INT) p_sample->right_x10, (INT) p_sample->position_x100,
-                (UINT) p_sample->black);
+            robot_packed_put(p_writer, p_sample->ts_ms, DIAG_BITS_U32);
+            robot_packed_put(p_writer, p_sample->raw, DIAG_BITS_RAW);
+            robot_packed_put(p_writer, p_sample->normalized, DIAG_BITS_NORM);
+            robot_packed_put_signed(p_writer, p_sample->left_x10,
+                                    DIAG_BITS_DIST);
+            robot_packed_put_signed(p_writer, p_sample->right_x10,
+                                    DIAG_BITS_DIST);
+            robot_packed_put_signed(p_writer, p_sample->position_x100,
+                                    DIAG_BITS_DIST);
+            robot_packed_put(p_writer, p_sample->black, DIAG_BITS_FLAG);
         }
     }
-    length += tm_sprintf((UB *) p_out + length, (UB *) "]");
-
-    return length;
 }
 
 /* Scan summary for progress, end and state packets. */
-static INT barcode_append_summary (char *                         p_out,
-                                   const robot_barcode_packet_t * p_packet)
+static void barcode_put_summary (robot_packed_writer_t *        p_writer,
+                                 const robot_barcode_packet_t * p_packet)
 {
-    INT length = tm_sprintf(
-        (UB *) p_out,
-        (UB *) ",\"state\":%u,\"count\":%u,\"samples\":%u,"
-               "\"sample_drops\":%u,\"partial\":%d,\"blocked\":%u",
-        (UINT) p_packet->state, (UINT) p_packet->total_edges,
-        (UINT) p_packet->total_samples, (UINT) p_packet->sample_drops,
-        (INT) p_packet->partial, (UINT) p_packet->blocked);
+    robot_packed_put(p_writer, p_packet->state, DIAG_BITS_STATE);
+    robot_packed_put(p_writer, p_packet->total_edges, DIAG_BITS_EDGES);
+    robot_packed_put(p_writer, p_packet->total_samples, DIAG_BITS_SAMPLES);
+    robot_packed_put(p_writer, p_packet->sample_drops, DIAG_BITS_SAT16);
+    robot_packed_put_signed(p_writer, p_packet->partial, DIAG_BITS_DIST);
+    robot_packed_put(p_writer, p_packet->blocked, DIAG_BITS_BLOCKED);
 
     if (BC_PACKET_END == p_packet->type)
     {
-        length +=
-            tm_sprintf((UB *) p_out + length,
-                       (UB *) ",\"reason\":%u,\"format\":%u,\"symbol\":%u,"
-                              "\"reversed\":%u,\"leading\":%d,\"trailing\":%d,"
-                              "\"narrow\":%d,\"ratio\":%d,\"max_gap\":%d",
-                       (UINT) p_packet->reason, (UINT) p_packet->format,
-                       (UINT) p_packet->symbol, (UINT) p_packet->reversed,
-                       (INT) p_packet->leading, (INT) p_packet->trailing,
-                       (INT) p_packet->narrow, (INT) p_packet->ratio,
-                       (INT) p_packet->max_gap);
+        robot_packed_put(p_writer, p_packet->reason, DIAG_BITS_REASON);
+        robot_packed_put(p_writer, p_packet->format, DIAG_BITS_FORMAT);
+        robot_packed_put(p_writer, p_packet->symbol, DIAG_BITS_SYMBOL);
+        robot_packed_put(p_writer, p_packet->reversed, DIAG_BITS_FLAG);
+        robot_packed_put_signed(p_writer, p_packet->leading, DIAG_BITS_DIST);
+        robot_packed_put_signed(p_writer, p_packet->trailing, DIAG_BITS_DIST);
+        robot_packed_put_signed(p_writer, p_packet->narrow, DIAG_BITS_DIST);
+        robot_packed_put_signed(p_writer, p_packet->ratio, DIAG_BITS_DIST);
+        robot_packed_put_signed(p_writer, p_packet->max_gap, DIAG_BITS_DIST);
     }
-
-    return length;
 }
 
-/* ---- rover/ir: continuous IR samples (robot_ir_stream) ---- */
-/* Format one batch as JSON into p_payload (COMMS_PAYLOAD_MAX bytes; the
- * worst-case four-row packet is about 440 bytes). Returns the length. */
-static INT ir_mqtt_format (char *                          p_payload,
-                           const robot_ir_stream_batch_t * p_batch,
-                           uint32_t                        now)
+/* ---- rover/ir: type 11, 75 bytes for four rows ---- */
+/* Rows are consecutive samples: the first carries its full sequence number
+ * and time, later rows only the time step since the row before. */
+static uint32_t ir_pack (uint8_t *                       p_payload,
+                         const robot_ir_stream_batch_t * p_batch, uint32_t now)
 {
     const robot_ir_stream_sample_t * p_last =
         &p_batch->rows[p_batch->count - 1u];
-    uint32_t row    = 0u;
-    INT      length = 0;
+    robot_packed_writer_t writer = {NULL, 0u, 0u, false};
+    uint32_t              row    = 0u;
 
-    /* WARNING: tm_sprintf takes UB pointers; the char buffers are reused as
-     * bytes and every value is cast to the UINT/INT its %u/%d expects. */
-    length = tm_sprintf(
-        (UB *) p_payload,
-        (UB *) "{\"v\":1,\"type\":\"ir_stream\",\"boot\":%u,\"ts_ms\":%u,"
-               "\"lag_ms\":%u,\"dropped\":%u,"
-               "\"period_ms\":10,\"white\":400,\"black\":600,\"rows\":[",
-        (UINT) robot_diagnostics_session(), (UINT) p_last->ts_ms,
-        (UINT) (now - p_last->ts_ms), (UINT) p_batch->dropped);
+    diag_writer_start(&writer, p_payload, ROBOT_WIRE_TYPE_IR);
+    robot_packed_put(&writer, robot_diagnostics_session(), DIAG_BITS_U32);
+    robot_packed_put(&writer, now - p_last->ts_ms, DIAG_BITS_SAT16);
+    robot_packed_put(&writer, p_batch->dropped, DIAG_BITS_SAT16);
+    robot_packed_put(&writer, p_batch->count, DIAG_BITS_COUNT);
+    robot_packed_put(&writer, p_batch->rows[0].seq, DIAG_BITS_U32);
+    robot_packed_put(&writer, p_batch->rows[0].ts_ms, DIAG_BITS_U32);
     for (row = 0u; row < p_batch->count; ++row)
     {
         const robot_ir_stream_sample_t * p_row = &p_batch->rows[row];
 
-        length += tm_sprintf((UB *) p_payload + length,
-                             (UB *) "%s[%u,%u,%u,%u,%u,%d,%d,%u,%u,%u,%u]",
-                             (0u != row) ? "," : "", (UINT) p_row->seq,
-                             (UINT) p_row->ts_ms, (UINT) p_row->raw,
-                             (UINT) p_row->normalized, (UINT) p_row->black,
-                             (INT) p_row->left_x10, (INT) p_row->right_x10,
-                             (UINT) p_row->blocked, (UINT) p_row->minimum,
-                             (UINT) p_row->maximum, (UINT) p_row->inverted);
+        if (0u != row)
+        {
+            robot_packed_put(&writer,
+                             p_row->ts_ms - p_batch->rows[row - 1u].ts_ms,
+                             DIAG_BITS_DT);
+        }
+        robot_packed_put(&writer, p_row->raw, DIAG_BITS_RAW);
+        robot_packed_put(&writer, p_row->normalized, DIAG_BITS_NORM);
+        robot_packed_put(&writer, p_row->black, DIAG_BITS_FLAG);
+        robot_packed_put_signed(&writer, p_row->left_x10, DIAG_BITS_DIST);
+        robot_packed_put_signed(&writer, p_row->right_x10, DIAG_BITS_DIST);
+        robot_packed_put(&writer, p_row->blocked, DIAG_BITS_BLOCKED);
+        robot_packed_put(&writer, p_row->minimum, DIAG_BITS_RAW);
+        robot_packed_put(&writer, p_row->maximum, DIAG_BITS_RAW);
+        robot_packed_put(&writer, p_row->inverted, DIAG_BITS_FLAG);
     }
-    length += tm_sprintf((UB *) p_payload + length, (UB *) "]}");
 
-    return length;
+    return robot_packed_length(&writer);
+}
+
+/* Start a diagnostic message: clear the buffer and write its header byte. */
+static void diag_writer_start (robot_packed_writer_t * p_writer,
+                               uint8_t * p_payload, uint32_t type)
+{
+    robot_packed_writer_init(p_writer, p_payload, ROBOT_WIRE_DIAG_MESSAGE_MAX);
+    robot_packed_put(p_writer, robot_wire_header(type), DIAG_BITS_HEADER);
 }
 
 /*** end of file ***/

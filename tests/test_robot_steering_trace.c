@@ -4,34 +4,43 @@
 #include <string.h>
 #include "../firmware/app_program/robot_steering_trace.c"
 #include "../firmware/app_program/robot_diagnostics_mqtt.c"
+#include "../firmware/app_program/robot_packed.c"
+#include "../firmware/app_program/robot_wire.c"
+
+/* Packed steering message (robot_diagnostics_mqtt.c): 461 bits. */
+#define STEERING_LENGTH 58u
 
 static bool     g_b_online;
 static bool     g_b_writable;
 static unsigned g_published;
-static char     g_last_payload[512];
-int             tm_sprintf (unsigned char * out, unsigned char * fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int size = vsnprintf((char *) out, 512, (char *) fmt, args);
-    va_end(args);
-    assert(size > 0 && size < 512);
-    return size;
-}
-uint8_t comms_get_link_state (void)
+static uint8_t  g_last_payload[ROBOT_WIRE_DIAG_MESSAGE_MAX];
+static uint32_t g_last_length;
+uint8_t         comms_get_link_state (void)
 {
     return g_b_online ? COMMS_LINK_MQTT_UP : 0;
 }
-bool comms_publish_text (uint32_t topic, const char * payload)
+bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length)
 {
     assert(COMMS_TOPIC_STEERING == topic);
+    assert(STEERING_LENGTH == length);
     if (!g_b_writable)
     {
         return false;
     }
-    strcpy(g_last_payload, payload);
+    memcpy(g_last_payload, p_data, length);
+    g_last_length = length;
     ++g_published;
     return true;
+}
+/* Header, state flag and boot id of the last message. */
+static void last_header (uint32_t * p_state, uint32_t * p_boot)
+{
+    robot_packed_reader_t reader;
+
+    robot_packed_reader_init(&reader, g_last_payload, g_last_length);
+    assert(0x91u == robot_packed_get(&reader, 8u)); /* type 9, version 1 */
+    *p_state = robot_packed_get(&reader, 1u);
+    *p_boot  = robot_packed_get(&reader, 32u);
 }
 int main (void)
 {
@@ -60,8 +69,9 @@ int main (void)
     robot_steering_publish(40);
     assert(0 == g_count && 2 == g_published);
     robot_steering_publish(50);
-    assert(strstr(g_last_payload, "steering_state"));
-    assert(strstr(g_last_payload, "\"boot\":123"));
+    uint32_t state = 0u, boot = 0u;
+    last_header(&state, &boot);
+    assert(1u == state && 123u == boot); /* steering_state of boot 123 */
     unsigned before = g_published;
     robot_steering_publish(60);
     assert(g_published == before);
@@ -109,8 +119,10 @@ int main (void)
     g_session_id      = UINT32_MAX;
     robot_steering_record(&event);
     robot_steering_publish(UINT32_MAX - 1);
+    last_header(&state, &boot); /* still exactly 58 bytes at every bound */
+    assert(UINT32_MAX == boot);
     puts("PASS: steering pulse capture, coalescing, ownership, drops, stale "
-         "ack, offline/backpressure retry and worst-case JSON bounds");
+         "ack, offline/backpressure retry and packed 58-byte bounds");
 }
 
 /*** end of file ***/

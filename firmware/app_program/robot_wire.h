@@ -25,14 +25,21 @@
 #define ROBOT_WIRE_VERSION (1u)
 
 /* Message types (high nibble of the header byte).  Type 7 is never used:
- * 0x7B is '{', the first byte of the JSON reports that still share these
- * topics, so the dashboard can tell the two apart from byte 0. */
+ * 0x7B is '{', the first byte of JSON text (older firmware), so the
+ * dashboard can tell the two apart from byte 0. */
 #define ROBOT_WIRE_TYPE_TELEMETRY      (1u) /**< rover/telemetry */
 #define ROBOT_WIRE_TYPE_DEBUG          (2u) /**< rover/debug */
 #define ROBOT_WIRE_TYPE_HEARTBEAT      (3u) /**< rover/heartbeat */
 #define ROBOT_WIRE_TYPE_STATUS_OFFLINE (4u) /**< rover/status (Last Will) */
 #define ROBOT_WIRE_TYPE_STATUS_ONLINE  (5u) /**< rover/status (bit 0 set) */
 #define ROBOT_WIRE_TYPE_IMU            (6u) /**< rover/telemetry, Buddy 4 */
+/* Diagnostic streams (DIAGNOSTICS=1 builds, robot_diagnostics_mqtt.c). */
+#define ROBOT_WIRE_TYPE_ACTION   (8u)  /**< rover/actions */
+#define ROBOT_WIRE_TYPE_STEERING (9u)  /**< rover/steering */
+#define ROBOT_WIRE_TYPE_BARCODE  (10u) /**< rover/barcode */
+#define ROBOT_WIRE_TYPE_IR       (11u) /**< rover/ir */
+/** Largest diagnostic message (a 4-row barcode sample packet), in bytes. */
+#define ROBOT_WIRE_DIAG_MESSAGE_MAX (96u)
 
 /* The complete one-byte rover/status payloads.  Online and offline differ
  * only in bit 4 (the low bit of the type), so the state uses 1 bit. */

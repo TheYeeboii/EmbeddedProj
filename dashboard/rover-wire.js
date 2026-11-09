@@ -11,10 +11,14 @@
   'use strict';
 
   const VERSION = 1;
-  const TYPE = { telemetry: 1, debug: 2, heartbeat: 3, statusOffline: 4, statusOnline: 5, imu: 6 };
-  /* Byte 0 of the JSON diagnostic streams (DIAGNOSTICS=1 builds): '{' = type 7. */
+  const TYPE = { telemetry: 1, debug: 2, heartbeat: 3, statusOffline: 4, statusOnline: 5, imu: 6,
+    action: 8, steering: 9, barcode: 10, ir: 11 };
+  /* Byte 0 of JSON text from older firmware: '{' = type 7. */
   const JSON_FIRST_BYTE = 0x7b;
+  /* Exact lengths; the diagnostic types (8-11) vary and are checked by
+   * reading them to the end instead. */
   const LENGTH = { 1: 28, 2: 25, 3: 1, 4: 1, 5: 1, 6: 14 };
+  const DIAGNOSTIC = new Set([8, 9, 10, 11]);
 
   /* Indexed by the firmware's enums. */
   const MODES = ['idle', 'drive', 'motion', 'line', 'avoid'];
@@ -34,10 +38,11 @@
   const TRIM_OFFSET = 50;
 
   class Reader {
-    constructor(bytes) { this.bytes = bytes; this.bit = 0; }
+    constructor(bytes) { this.bytes = bytes; this.bit = 0; this.overrun = false; }
     get(width) {
       let value = 0;
       for (let i = 0; i < width; i++, this.bit++) {
+        if ((this.bit >> 3) >= this.bytes.length) { this.overrun = true; return 0; }
         const byte = this.bytes[this.bit >> 3];
         value = value * 2 + ((byte >> (7 - (this.bit & 7))) & 1);
       }
@@ -133,9 +138,111 @@
     return data;
   }
 
-  /* Returns { kind, data } where kind is 'json' (a diagnostic text stream),
-   * 'telemetry', 'debug', 'imu', 'heartbeat', 'status', 'version_mismatch' or
-   * 'invalid'. */
+
+  /* ---- Diagnostic streams (DIAGNOSTICS=1 builds), robot_diagnostics_mqtt.c.
+   * Each returns the same object the old JSON message had, so the tuning
+   * views (action-log, steering-view, barcode-model, ir-stream-model) and
+   * their saved sessions did not change. */
+  const ACTIONS = ['turn_left', 'turn_right', 'stop_turn_left', 'stop_turn_right'];
+  const DIRECTIONS = ['none', 'left', 'right'];
+  const SOURCES = ['pwm', 'motion', 'stop'];
+  const BARCODE_TYPES = ['barcode_start', 'barcode_edges', 'barcode_samples',
+    'barcode_progress', 'barcode_end', 'barcode_state'];
+  const pair = read => [read(), read()];
+
+  function action(r) {
+    const state = r.flag();
+    const data = { type: state ? 'action_state' : 'action', seq: r.get(32), ts_ms: r.get(32), dropped: r.get(16) };
+    const name = ACTIONS[r.get(2)];
+    if (!state) data.action = name;
+    data.direction = DIRECTIONS[r.get(2)] ?? 'none';
+    data.source = SOURCES[r.get(2)] ?? 'pwm';
+    data.left_pwm = r.signed(16);
+    data.right_pwm = r.signed(16);
+    return data;
+  }
+
+  function steering(r) {
+    const d = { v: 1, type: r.flag() ? 'steering_state' : 'steering' };
+    d.boot = r.get(32); d.seq = r.get(32); d.ts_ms = r.get(32);
+    d.lag_ms = r.get(16); d.dropped = r.get(16);
+    d.owner = r.get(3); d.phase = r.get(4); d.direction = r.get(2);
+    d.requested = pair(() => r.signed(16));
+    d.applied = pair(() => r.signed(16));
+    d.encoder_ms = r.get(32);
+    d.distance = pair(() => r.signed(24));
+    d.speed = pair(() => r.signed(16));
+    d.faults = r.get(2);
+    d.sample_ms = r.get(32);
+    const raw = pair(() => r.get(12));
+    const norm = pair(() => r.get(10));
+    const threshold = r.get(10);
+    const calibration = [r.get(12), r.get(12), r.get(12), r.get(12)];
+    d.ir = [...raw, ...norm, threshold, ...calibration, r.get(2)];
+    d.has_input = r.get(1);
+    return d;
+  }
+
+  function barcodeConfig(r) {
+    return [r.get(12), r.get(12), r.get(1), r.get(10), r.get(10), r.get(17),
+      r.signed(14), r.signed(16), r.signed(16), r.signed(16), r.signed(16)];
+  }
+
+  function barcode(r) {
+    const d = { v: 1, type: BARCODE_TYPES[r.get(3)] };
+    d.boot = r.get(32); d.seq = r.get(32); d.scan = r.get(32); d.ts_ms = r.get(32);
+    d.dropped = r.get(16); d.lag_ms = r.get(16);
+    if (d.type === 'barcode_start') {
+      d.leading = r.signed(24);
+      d.config = barcodeConfig(r);
+    } else if (d.type === 'barcode_edges' || d.type === 'barcode_samples') {
+      const edges = d.type === 'barcode_edges';
+      const count = r.get(3);
+      const offset = r.get(edges ? 5 : 9);
+      d.rows = [];
+      for (let i = 0; i < count; i++) {
+        d.rows.push(edges ? [offset + i, r.get(32), r.signed(24), r.signed(24), r.signed(24)]
+          : [offset + i, r.get(32), r.get(12), r.get(10), r.signed(24), r.signed(24), r.signed(24), r.get(1)]);
+      }
+    } else {
+      d.state = r.get(3); d.count = r.get(5); d.samples = r.get(10);
+      d.sample_drops = r.get(16); d.partial = r.signed(24); d.blocked = r.get(6);
+      if (d.type === 'barcode_end') {
+        d.reason = r.get(3); d.format = r.get(3); d.symbol = r.get(7); d.reversed = r.get(1);
+        for (const k of ['leading', 'trailing', 'narrow', 'ratio', 'max_gap']) d[k] = r.signed(24);
+      }
+      if (d.type === 'barcode_state') {
+        d.config = barcodeConfig(r);
+        d.readiness = [r.get(12), r.get(10), r.get(1), r.signed(24), r.signed(24), r.signed(24),
+          r.signed(24), r.get(16)];
+      }
+    }
+    return d;
+  }
+
+  /* Rows are consecutive samples: sequence +1 each, time as a step. */
+  function irStream(r) {
+    const d = { v: 1, type: 'ir_stream', boot: r.get(32), lag_ms: r.get(16), dropped: r.get(16) };
+    const count = r.get(3);
+    const seq = r.get(32);
+    let ts = r.get(32);
+    d.rows = [];
+    for (let i = 0; i < count; i++) {
+      if (i) ts = (ts + r.get(16)) >>> 0;
+      d.rows.push([(seq + i) >>> 0, ts, r.get(12), r.get(10), r.get(1), r.signed(24), r.signed(24),
+        r.get(6), r.get(12), r.get(12), r.get(1)]);
+    }
+    d.ts_ms = ts;
+    /* Fixed in the firmware (10 ms IR task, Buddy 3 white/black thresholds). */
+    d.period_ms = 10; d.white = 400; d.black = 600;
+    return d;
+  }
+
+  const DECODERS = { 8: ['action', action], 9: ['steering', steering], 10: ['barcode', barcode], 11: ['ir', irStream] };
+
+  /* Returns { kind, data } where kind is 'json' (text from older firmware),
+   * 'telemetry', 'debug', 'imu', 'heartbeat', 'status', 'action', 'steering',
+   * 'barcode', 'ir', 'version_mismatch' or 'invalid'. */
   function decode(input) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (bytes.length === 0) return { kind: 'invalid', data: null };
@@ -145,11 +252,17 @@
     }
     const type = bytes[0] >> 4;
     const version = bytes[0] & 0x0f;
-    if (!LENGTH[type]) return { kind: 'invalid', data: null };
+    if (!LENGTH[type] && !DIAGNOSTIC.has(type)) return { kind: 'invalid', data: null };
     if (version !== VERSION) return { kind: 'version_mismatch', data: { type, version, expected: VERSION } };
-    if (bytes.length !== LENGTH[type]) return { kind: 'invalid', data: null };
+    if (LENGTH[type] && bytes.length !== LENGTH[type]) return { kind: 'invalid', data: null };
     const r = new Reader(bytes);
     r.get(8);
+    if (DIAGNOSTIC.has(type)) {
+      const [kind, read] = DECODERS[type];
+      const data = read(r);
+      /* The message must end exactly in its last byte. */
+      return r.overrun || Math.ceil(r.bit / 8) !== bytes.length ? { kind: 'invalid', data: null } : { kind, data };
+    }
     if (type === TYPE.telemetry) return { kind: 'telemetry', data: telemetry(r) };
     if (type === TYPE.debug) return { kind: 'debug', data: debug(r) };
     if (type === TYPE.imu) return { kind: 'imu', data: imu(r) };

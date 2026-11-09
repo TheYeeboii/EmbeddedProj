@@ -267,7 +267,9 @@ bool robot_controller_begin_obstacle_avoidance (void)
 
     if (b_begun)
     {
-        /* This also stops line following so it cannot overwrite a turn. */
+        /* This also stops line following so it cannot overwrite a turn;
+         * avoidance turns would spoil a manual barcode read too. */
+        buddy3_set_manual_barcode(false);
         buddy3_stop_line_follow();
         buddy2_stop();
         g_drive_left  = 0u;
@@ -348,6 +350,7 @@ static uint32_t robot_clamp_legacy (int32_t value)
 
 static void robot_stop_all (void)
 {
+    buddy3_set_manual_barcode(false);
     buddy3_stop_line_follow();
     buddy2_stop();
     g_drive_left  = 0u;
@@ -359,7 +362,17 @@ static void robot_stop_all (void)
 static void robot_drive (uint32_t left, uint32_t right, int32_t sign,
                          uint32_t now_ms)
 {
-    buddy3_stop_line_follow();
+    bool b_forward = (sign > 0) && (left > 0u) && (right > 0u);
+
+    /* Only stop line following when it is running: a held key re-sends this
+     * command every 300 ms, and stopping again would restart the barcode
+     * reader in the middle of a barcode. */
+    if (buddy3_line_following())
+    {
+        buddy3_stop_line_follow();
+    }
+    /* Both wheels forward: let the side sensor read barcodes by hand. */
+    buddy3_set_manual_barcode(b_forward);
     buddy2_stop();
     /* A manual sonar test may have left the scanner looking sideways. Any
      * drive command must restore the forward view before motion begins. */
@@ -371,10 +384,9 @@ static void robot_drive (uint32_t left, uint32_t right, int32_t sign,
     /* sign is +/-1 and the PWM is at most 32767, so the products fit. */
     buddy2_set_motor_pwm((int16_t) (sign * robot_legacy_to_pwm(left)),
                          (int16_t) (sign * robot_legacy_to_pwm(right)));
-    robot_ctl_enter(
-        ((0u == left) && (0u == right)) ? ROBOT_MODE_IDLE : ROBOT_MODE_DRIVE,
-        ((sign > 0) && (left > 0u) && (right > 0u)) ? ROBOT_CTL_DRIVE_FORWARD
-                                                    : 0u);
+    robot_ctl_enter(((0u == left) && (0u == right)) ? ROBOT_MODE_IDLE
+                                                    : ROBOT_MODE_DRIVE,
+                    b_forward ? ROBOT_CTL_DRIVE_FORWARD : 0u);
 }
 
 static void robot_set_trim (int32_t left, int32_t right)
@@ -466,6 +478,7 @@ static void robot_start_line (void)
     g_drive_left  = 0u;
     g_drive_right = 0u;
     buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
+    buddy3_set_manual_barcode(false); /* Line following reads them itself. */
     buddy3_start_line_follow();
     robot_steering_owner(TRACE_TRACKING);
     robot_ctl_enter(ROBOT_MODE_LINE, 0u);

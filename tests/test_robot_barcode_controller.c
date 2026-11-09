@@ -12,6 +12,7 @@ static bool     g_b_accept_move = true;
 static bool     g_b_calibrated  = true;
 static bool     g_b_button_high = true;
 static bool     g_b_encoder_fault;
+static bool     g_b_manual_scan;
 static uint8_t  g_stage = 1;
 static uint8_t  g_event;
 static uint8_t  g_servo_angle = 90;
@@ -117,6 +118,10 @@ void buddy3_stop_line_follow (void)
 bool buddy3_line_following (void)
 {
     return g_b_following;
+}
+void buddy3_set_manual_barcode (bool b_enabled)
+{
+    g_b_manual_scan = b_enabled;
 }
 bool buddy3_take_barcode (buddy3_barcode_event_t * p_event)
 {
@@ -248,6 +253,30 @@ static void test_packed_state (void)
     assert((uint8_t) ROBOT_MODE_IDLE == (g_controller_state & 0x7Fu));
 }
 
+/* Manual barcode reading: on only while both wheels drive forward, and a
+ * held key (the same drive command again) keeps it on without restarting. */
+static void test_manual_barcode (void)
+{
+    reset();
+    command("preset 0", 0); /* forward */
+    assert(g_b_manual_scan && !g_b_following);
+    command("preset 0", 300); /* key held: same drive again */
+    assert(g_b_manual_scan);
+    command("preset 2", 600); /* left: one wheel stopped, not straight */
+    assert(!g_b_manual_scan);
+    command("preset 0", 900);
+    command("preset 1", 1200); /* reverse */
+    assert(!g_b_manual_scan);
+    command("preset 0", 1500);
+    command("stop", 1600);
+    assert(!g_b_manual_scan);
+    command("preset 0", 1700);
+    command("line_follow", 1800); /* line following reads barcodes itself */
+    assert(!g_b_manual_scan && g_b_following);
+    command("preset 0", 1900); /* driving by hand stops line following */
+    assert(g_b_manual_scan && !g_b_following);
+}
+
 /* Team decision: Wi-Fi loss stops line following after a 2 s grace, but
  * only a link that was up counts. */
 static void test_link_loss (void)
@@ -278,6 +307,7 @@ static void test_link_loss (void)
 int main (void)
 {
     test_packed_state();
+    test_manual_barcode();
     test_link_loss();
     reset();
     command("servo_angle 135", 0);
@@ -338,7 +368,8 @@ int main (void)
     assert(robot_controller_begin_obstacle_avoidance());
     assert(!g_b_following && robot_controller_obstacle_avoidance_active());
     puts("PASS: read-only letters, rejection logs, mode gate, servo commands, "
-         "GP21 start/stop, avoidance handoff, packed state, Wi-Fi-loss stop");
+         "GP21 start/stop, avoidance handoff, packed state, manual barcode, "
+         "Wi-Fi-loss stop");
     return 0;
 }
 

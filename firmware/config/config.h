@@ -38,7 +38,9 @@
 
 #define	CNF_MAX_TSKPRI		32	/* Task Max priority */
 
-#define CNF_TIMER_PERIOD	10	/* System timer period */
+#define CNF_TIMER_PERIOD	1	/* System timer period (ms); 1 ms so the
+					 * barcode sensor can be read every 2 ms
+					 * (BUDDY3_BARCODE_PERIOD_MS) */
 
 /* Maximum number of kernel objects */
 #define CNF_MAX_TSKID		32	/* Task */

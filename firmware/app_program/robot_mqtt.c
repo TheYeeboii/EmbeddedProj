@@ -179,7 +179,7 @@ static void robot_mqtt_service (void)
         {
             /* The length comes from the mailbox, never from strlen: packed
              * payloads contain 0x00 bytes.  It is at most COMMS_PAYLOAD_MAX
-             * (512), so it fits in u16_t. */
+             * (96), so it fits in u16_t. */
             (void) mqtt_publish(g_p_client, g_topic_names[topic], g_outgoing,
                                 (u16_t) length, 0u, 0u, NULL, NULL);
         }

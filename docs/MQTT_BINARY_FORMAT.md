@@ -35,8 +35,9 @@ dashboard vM" instead of decoding garbage.
 - Values stay native (`int32_t` ticks, PID floats) inside the control loops
   and ISRs, and are packed at the boundary: when they are put in a message.
 - Type 7 and opcode 7 are reserved. 0x7B is `{`, so byte 0 tells a packed
-  message from JSON text: the diagnostic streams of a `DIAGNOSTICS=1` build,
-  or a robot running pre-binary firmware.
+  message from JSON text, i.e. a robot still running pre-binary firmware.
+  Every message the firmware sends now, including the diagnostic streams,
+  is packed binary.
 - `rover/telemetry` carries two packed messages, telemetry (type 1) and
   Buddy 4's IMU report (type 6). The type nibble tells them apart.
 
@@ -99,6 +100,27 @@ Sent every second, and at once after a hump or impact. It replaced a
 | Motion class | 8 classes | text | 3 | `BUDDY4_MOTION_*` |
 | Turn rate | +/-900.0 deg/s | text tenths | 15 | Signed tenths (+/-180 deg in a 200 ms window) |
 | Impacts | 0-255 | text | 8 | Saturating count |
+
+### Diagnostic streams (`DIAGNOSTICS=1` builds only): types 8-11
+
+The tuning views' streams are packed the same way (`robot_diagnostics_mqtt.c`)
+and `rover-wire.js` turns them back into the objects the views always used.
+Sequence numbers, the boot id and millisecond timestamps genuinely use 32
+bits and keep them. Drop counts and lags saturate at 16 bits. Distances
+(x10 or x100 mm) use 24 signed bits (+/-838 m).
+
+| Topic | Type | Fields (bits) | Size | Was (JSON) |
+|---|---|---|---|---|
+| `rover/actions` | 8 | header 8, state flag 1, seq 32, time 32, dropped 16, action 2, direction 2, source 2, PWM L/R 16 each | 16 B | ~139 B |
+| `rover/steering` | 9 | header 8, state flag 1, boot/seq/time 32 each, lag 16, dropped 16, owner 3, phase 4, direction 2, requested 2x16, applied 2x16, encoder time 32, distance 2x24, speed 2x16, faults 2, sample time 32, IR raw 2x12, norm 2x10, threshold 10, calibration 4x12, dark 2, has input 1 | 58 B | ~268 B |
+| `rover/barcode` | 10 | header 8, packet type 3, boot/seq/scan/time 32 each, dropped 16, lag 16, then by type: start (leading 24 + config 145), edges/samples (count 3, first index 5/9, up to 4 rows), progress/end/state (state 3, edges 5, samples 10, sample drops 16, partial 24, blocked 6; end adds reason 3, format 3, symbol 7, reversed 1, 5x24; state adds config 145 and readiness 135) | 22-87 B | up to ~405 B |
+| `rover/ir` | 11 | header 8, boot 32, lag 16, dropped 16, rows 3, first sequence 32 and time 32, then per row: time step 16 (rows 2-4), raw 12, normalized 10, black 1, distances 2x24, blocked 6, calibration 2x12, inverted 1 | 75 B (4 rows) | ~295-439 B |
+
+Barcode config (145 bits): raw endpoints 2x12, inversion 1, white/black
+thresholds 2x10, minimum element x100 17 (up to 1000 mm), left offset x10
+14 signed, track width / wheel diameter / ticks per revolution x10 4x16.
+IR rows are consecutive samples, so only the first carries its sequence
+number and full time.
 
 ### One-byte messages
 
@@ -187,8 +209,7 @@ already stop after 1 s without a refresh.
 Binary payloads contain 0x00 bytes, and three places assumed text:
 
 1. `comms_publish()` measured the payload with `comms_strlen`. It is now
-   `comms_publish(topic, data, len)`. The JSON streams call
-   `comms_publish_text()`.
+   `comms_publish(topic, data, len)`; nothing sends text any more.
 2. `robot_mqtt.c` published with `strlen(g_outgoing)`. It now uses the length
    the mailbox returns. The Last Will passes its length explicitly
    (`will_msg_len` = 1).
@@ -215,6 +236,10 @@ layout and checked by the tests.
 | `motor_trim` | 42 | 2 | 95 % |
 | `line_speed` | 40 | 3 | 93 % |
 | `barcode_config` | 62 | 3 | 95 % |
+| Actions (tuning) | 139 | 16 | 88 % |
+| Steering (tuning) | 268 | 58 | 78 % |
+| Barcode packet (tuning, largest) | 405 | 87 | 79 % |
+| IR batch, 4 samples (tuning) | 295-439 | 75 | 75-83 % |
 
 At one telemetry, one debug and one IMU message per second, the rover sends
 about 67 B/s of payload instead of about 1.1 KB/s. Topic names are unchanged, so
@@ -244,23 +269,25 @@ WIFI_DHCP=1 WIFI_MQTT=1`, Pico SDK 2.3.0, arm-none-eabi-gcc 15.2),
 | Controller mode + 5 flags | 4 + 5 = 9 | 1 | -8 B |
 
 With every default message packed, `COMMS_PAYLOAD_MAX` is 32
-(`ROBOT_WIRE_MESSAGE_MAX`). A `DIAGNOSTICS=1` build keeps 512 for its JSON
-streams. `comms.c` fails to compile if a packed message or command could
-ever be larger than its mailbox.
+(`ROBOT_WIRE_MESSAGE_MAX`); a `DIAGNOSTICS=1` build needs 96
+(`ROBOT_WIRE_DIAG_MESSAGE_MAX`, the largest barcode packet), down from 512
+when its streams were JSON. `comms.c` fails to compile if a packed message
+or command could ever be larger than its mailbox.
 
 ## Diagnostic streams: the `DIAGNOSTICS` build switch
 
 `rover/actions`, `rover/steering`, `rover/barcode` and `rover/ir` exist only
-for the dashboard's tuning views. They are JSON text, and `rover/ir` alone was
-most of the Wi-Fi traffic. Their five modules (`robot_action_log`,
-`robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream`, and
-`robot_diagnostics_mqtt`, which publishes all four) only record what the robot did; no control code reads
-anything back from them.
+for the dashboard's tuning views (packed binary, types 8-11 above).
+`rover/ir` alone sends about 25 batches a second. Their five modules
+(`robot_action_log`, `robot_steering_trace`, `robot_barcode_trace`,
+`robot_ir_stream`, and `robot_diagnostics_mqtt`, which publishes all four)
+only record what the robot did; no control code reads anything back from
+them.
 
 | Build | What is linked | MQTT |
 |---|---|---|
 | `make ... DIAGNOSTICS=0` (default) | `robot_diagnostics_off.c`: empty stand-ins with the same functions, so callers are unchanged | Packed binary only |
-| `make ... DIAGNOSTICS=1` | The five real modules | Adds the four JSON streams for tuning |
+| `make ... DIAGNOSTICS=1` | The five real modules | Adds the four packed tuning streams |
 
 The switch is part of the build profile, so changing it rebuilds everything.
 The USB banner prints which one is running. The host tests still compile the
@@ -269,9 +296,9 @@ real modules.
 | Wi-Fi build | `.text` | `.data` | `.bss` |
 |---|---|---|---|
 | Before Change Requirement 1 | 386,417 | 3,264 | 90,064 |
-| Binary MQTT, `DIAGNOSTICS=1` | 384,405 | 3,264 | 89,464 |
-| Binary MQTT, `DIAGNOSTICS=0` | 376,317 | 3,256 | 49,312 |
-| Saving vs before | -10,100 B | -8 B | **-40,752 B (-45 %)** |
+| Binary MQTT, `DIAGNOSTICS=1` (tuning, all packed) | 383,693 | 3,264 | 87,640 |
+| Binary MQTT, `DIAGNOSTICS=0` (default) | 376,645 | 3,256 | 49,312 |
+| Saving vs before, default build | -9,772 B | -8 B | **-40,752 B (-45 %)** |
 
 Most of the RAM was the trace queues: `g_frames` (25.7 KB of barcode frames),
 two `g_queue` rings (4 KB and 7 KB), and the action and IR buffers. The
@@ -297,6 +324,16 @@ count the kernel's memory pool.
   never had a network is never stopped, and GP21 works again afterwards.
 - The IMU report (type 6) has its own golden message, decoded by both
   `test_robot_wire.c` and `test_rover_wire.cjs`.
+- Diagnostic streams: `test_robot_barcode_trace.c` and `test_robot_ir_stream.c`
+  write every packed message they publish as hex; `test_barcode_wire.cjs` and
+  `test_ir_stream_wire.cjs` decode those with `rover-wire.js` and feed the
+  dashboard models (both orientations of "F", a rejected scan, replay).
+  The action and steering tests check the packed fields and lengths.
+- Manual barcode reading: `test_buddy3_ir_junction.c` drives the real IR code
+  over a Code 39 "F" three ways. Line following and a manual forward drive
+  each read it once, and with neither nothing is read. The controller test
+  checks a held W key keeps the reader running and that turning, reversing
+  or stopping ends it.
 - The dashboard was checked in the browser by feeding it the golden messages:
   every tile showed the expected value. Its commands were captured and
   matched the table above; the version-mismatch and offline badges worked.
@@ -305,7 +342,10 @@ Run them with:
 
 ```sh
 CC=gcc sh tests/run_barcode_tests.sh
+CC=gcc sh tests/run_ir_diagnostics_tests.sh
 ```
+
+Both scripts pass end to end.
 
 ## Still to do
 
@@ -318,6 +358,4 @@ CC=gcc sh tests/run_barcode_tests.sh
 - Each buddy's own internal structs (Buddy 2 motion status and move
   requests, Buddy 3 status flags and line-follow state, Buddy 4 IMU values,
   Buddy 5 scan and avoidance state). Each buddy agreed to do their own.
-- The four diagnostic streams are still JSON in `DIAGNOSTICS=1` builds. They
-  are tuning tools, left out of the default build.
 - Open team decision: shorten the topic names.
