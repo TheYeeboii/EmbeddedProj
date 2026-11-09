@@ -19,6 +19,11 @@
 typedef uint8_t
     comms_payload_check_t[(COMMS_PAYLOAD_MAX >= ROBOT_WIRE_MESSAGE_MAX) ? 1
                                                                         : -1];
+#if !defined(ROBOT_DIAGNOSTICS) || (0 != ROBOT_DIAGNOSTICS)
+typedef uint8_t
+    comms_diag_check_t[(COMMS_PAYLOAD_MAX >= ROBOT_WIRE_DIAG_MESSAGE_MAX) ? 1
+                                                                          : -1];
+#endif
 typedef uint8_t
     comms_command_check_t[(COMMS_COMMAND_MAX >= ROBOT_WIRE_COMMAND_MAX) ? 1
                                                                         : -1];
@@ -36,8 +41,7 @@ static ID g_inbox_id  = 0;
  * read is atomic, so readers need no lock. */
 static volatile uint8_t g_link_state = COMMS_LINK_OFFLINE;
 
-static uint32_t comms_strlen (const char * p_text, uint32_t limit);
-static void     comms_update_link_faults (uint8_t state);
+static void comms_update_link_faults (uint8_t state);
 
 int32_t comms_init (void)
 {
@@ -102,21 +106,6 @@ bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length)
         b_queued =
             (E_OK == tk_snd_mbf(g_outbox_id, message,
                                 (INT) (length + COMMS_TOPIC_BYTES), TMO_POL));
-    }
-
-    return b_queued;
-}
-
-bool comms_publish_text (uint32_t topic, const char * p_text)
-{
-    bool b_queued = false;
-
-    if (NULL != p_text)
-    {
-        /* Characters are stored as bytes; the cast only changes the pointer
-         * type, not the data. */
-        b_queued = comms_publish(topic, (const uint8_t *) p_text,
-                                 comms_strlen(p_text, COMMS_PAYLOAD_MAX));
     }
 
     return b_queued;
@@ -198,19 +187,6 @@ void comms_set_link_state (uint8_t state)
         g_link_state = state;
         comms_update_link_faults(state);
     }
-}
-
-/* Count characters before the NUL, at most "limit". */
-static uint32_t comms_strlen (const char * p_text, uint32_t limit)
-{
-    uint32_t length = 0u;
-
-    while ((length < limit) && ('\0' != p_text[length]))
-    {
-        length++;
-    }
-
-    return length;
 }
 
 /* Wi-Fi loss: not joined.  MQTT loss: no broker (also true without Wi-Fi). */

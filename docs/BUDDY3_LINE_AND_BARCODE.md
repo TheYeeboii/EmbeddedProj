@@ -37,8 +37,20 @@ The reader supports uppercase A–Z and either print orientation. It infers
 narrow/wide widths per frame; no fixed barcode length or exact bit width is
 required. The former `0xA5 + numeric command` decoder has been removed.
 
-Reading is disabled until the minimum resolvable element and sensor offset
-are configured. GP21 starts/stops tracking with the reader. Valid letters and
-rejected frames are logged from the controller task, outside sensor capture.
+The reader is configured at boot (3 mm minimum element, 0 mm left offset;
+`barcode_config` changes them). It decodes in two situations:
+
+- **Line following** (dashboard Start or GP21), while tracking straight.
+- **Manual forward driving** (hold W, or the drive form with both wheels
+  forward), with no line following needed. The controller enables it with
+  `buddy3_set_manual_barcode()` and the IR task restarts the reader at its
+  next sample. Holding W keeps one scan going; turning (A/D), reversing,
+  stopping or starting line following ends it.
+
+Both use the same checks: healthy encoders, forward travel, and less than
+about 10 degrees of heading change across the barcode. Drive straight past
+the barcode so it passes under the side sensor; speed need not be steady
+because widths are measured in encoder distance. Valid letters and rejected
+frames are logged from the controller task, outside sensor capture.
 Letter-to-turn mapping remains disabled until the demo mapping and physical
 qualification are available; `barcode_mode 2` is rejected.

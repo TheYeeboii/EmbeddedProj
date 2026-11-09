@@ -4,7 +4,7 @@
  *
  * micro T-Kernel usage:
  *   - buddy3_init() once from usermain().
- *   - buddy3_update() every BUDDY3_SAMPLE_PERIOD_MS from the line task.
+ *   - buddy3_update() every BUDDY3_BARCODE_PERIOD_MS from the line task.
  *   - The other functions may be called from any task.
  */
 
@@ -15,7 +15,14 @@
 #include <stdint.h>
 #include "robot_types.h"
 
+/* Line following, junctions and the IR stream run every 10 ms. */
 #define BUDDY3_SAMPLE_PERIOD_MS (10u)
+/* The side (barcode) sensor is read five times as often: the reader needs
+ * at least four samples per 3 mm narrow bar (0.75 mm of travel per sample),
+ * which at 10 ms limited driving to about 75 mm/s.  At 2 ms it allows about
+ * 375 mm/s, so a manual W drive can read barcodes.  Needs the kernel tick
+ * (CNF_TIMER_PERIOD) at 1 or 2 ms. */
+#define BUDDY3_BARCODE_PERIOD_MS (2u)
 
 #include "buddy3_barcode.h"
 
@@ -95,8 +102,9 @@ void buddy3_set_calibration (const buddy3_calibration_t * p_calibration);
 void buddy3_get_calibration (buddy3_calibration_t * p_calibration);
 
 /**
- * @brief Read the sensors, feed the barcode reader and, while line following
- *        is on, steer.  Call every BUDDY3_SAMPLE_PERIOD_MS.
+ * @brief Feed the barcode reader from the side sensor and, every
+ *        BUDDY3_SAMPLE_PERIOD_MS, read all sensors and (while line following
+ *        is on) steer.  Call every BUDDY3_BARCODE_PERIOD_MS.
  * @param now_ms Current time in milliseconds.
  */
 void buddy3_update (uint32_t now_ms);
@@ -109,6 +117,20 @@ void buddy3_stop_line_follow (void);
 
 /** @brief Tell whether line following is on. */
 bool buddy3_line_following (void);
+
+/**
+ * @brief Let the barcode reader run while the robot is driven by hand.
+ *
+ * Without line following the reader is normally suspended.  The controller
+ * calls this with true while a manual drive goes straight forward, so a
+ * barcode can be read by driving over it.  The same checks still apply:
+ * forward travel, healthy encoders and a small heading change.  The change
+ * takes effect at the IR task's next sample, which also restarts the reader,
+ * so only the IR task ever resets it.
+ *
+ * @param b_enabled True while a manual forward drive is running.
+ */
+void buddy3_set_manual_barcode (bool b_enabled);
 
 /**
  * @brief Select the steering stage: 0 = original integration, 1 = micro,

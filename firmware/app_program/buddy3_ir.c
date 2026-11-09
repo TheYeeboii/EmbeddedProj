@@ -135,6 +135,9 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS,
 #define BUDDY3_BARCODE_WHITE_ON      (400u)
 #define BUDDY3_BARCODE_MAX_YAW_RAD   (0.1745f)
 #define BUDDY3_BARCODE_STEP_FRACTION (0.25f)
+/* Most encoder travel buddy3_smooth_travel() holds back, in guard steps
+ * (3 mm with the default 3 mm element). */
+#define BUDDY3_BARCODE_BACKLOG_STEPS (4.0f)
 /* A barcode element must span at least four encoder ticks. */
 #define BUDDY3_BARCODE_TICKS_PER_ELEMENT (4.0f)
 #define BUDDY3_BARCODE_ELEMENT_MAX_MM    (1000u)
@@ -178,6 +181,11 @@ static line_follow_configs_t g_steering_configs = {
 
 static ir_processing_state_t g_state;
 static volatile bool         g_b_line_following = false;
+/* Manual-drive barcode reading: the controller task writes the request (one
+ * byte, single writer); only the IR task acts on it and keeps
+ * g_b_manual_scan, so the reader is never reset from another task. */
+static volatile bool g_b_manual_scan_request = false;
+static bool          g_b_manual_scan         = false;
 /* Start uses bounded corner recovery. Stage 1 remains available for the
  * isolated, gentle-tracking test through the serial line_stage command. */
 static uint8_t           g_test_stage = 3u;
@@ -194,12 +202,14 @@ static uint32_t                 g_line_lost_since_ms = 0u;
 static buddy3_barcode_decoder_t g_barcode_decoder;
 static buddy3_barcode_config_t  g_barcode_config = {
     BUDDY3_BARCODE_MIN_ELEMENT_MM};
-static float32_t              g_barcode_offset = BUDDY3_BARCODE_OFFSET_LEFT_MM;
-static bool                   g_b_barcode_calibrated     = false;
-static bool                   g_b_barcode_odometry_valid = false;
-static float32_t              g_barcode_last_left        = 0.0f;
-static float32_t              g_barcode_last_right       = 0.0f;
-static float32_t              g_barcode_yaw              = 0.0f;
+static float32_t g_barcode_offset           = BUDDY3_BARCODE_OFFSET_LEFT_MM;
+static bool      g_b_barcode_calibrated     = false;
+static bool      g_b_barcode_odometry_valid = false;
+static float32_t g_barcode_last_left        = 0.0f;
+static float32_t g_barcode_last_right       = 0.0f;
+static float32_t g_barcode_yaw              = 0.0f;
+/* Encoder travel not yet given to the reader (buddy3_smooth_travel). */
+static float32_t              g_barcode_backlog = 0.0f;
 static buddy3_barcode_event_t g_pending_barcode;
 static uint32_t               g_barcode_dropped    = 0u;
 static bool                   g_b_barcode_black    = false;
@@ -234,8 +244,11 @@ static void      buddy3_search_begin_step (uint8_t step, int8_t direction,
 static void
 buddy3_apply_straight_heading_hold (buddy3_steering_output_t * p_output,
                                     uint8_t                    side);
-static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
-                                   uint32_t now_ms);
+static void      buddy3_apply_manual_scan (uint32_t now_ms);
+static void      buddy3_sample_side (uint32_t now_ms);
+static float32_t buddy3_smooth_travel (float32_t travel);
+static void      buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
+                                        uint32_t now_ms, bool b_line_step);
 static bool
 buddy3_barcode_permitted (const buddy2_encoder_position_t * p_motion,
                           float32_t left_step, float32_t right_step);
@@ -341,7 +354,12 @@ void buddy3_update (uint32_t now_ms)
     int16_t               previous_position = 0;
     UINT                  interrupt_state   = 0u;
 
-    if ((now_ms - g_last_update_ms) >= BUDDY3_SAMPLE_PERIOD_MS)
+    if ((now_ms - g_last_update_ms) < BUDDY3_SAMPLE_PERIOD_MS)
+    {
+        /* Between line steps: only the side sensor, for the barcode. */
+        buddy3_sample_side(now_ms);
+    }
+    else
     {
         g_last_update_ms = now_ms;
         g_trace_phase    = TRACE_LEGACY;
@@ -350,8 +368,10 @@ void buddy3_update (uint32_t now_ms)
         buddy3_read_sensors(&next, now_ms);
 
         /* The outrigger sensor (ADC2) reads the barcodes beside the track. */
+        buddy3_apply_manual_scan(now_ms);
         buddy3_decode_barcode(next.sensors[BUDDY3_SIDE_SENSOR].normalized,
-                              next.sensors[BUDDY3_SIDE_SENSOR].raw, now_ms);
+                              next.sensors[BUDDY3_SIDE_SENSOR].raw, now_ms,
+                              true);
         next.b_barcode_ready = g_b_barcode_ready;
         /* A decoded symbol is an uppercase ASCII letter. */
         next.barcode_command =
@@ -403,6 +423,11 @@ void buddy3_start_line_follow (void)
 void buddy3_stop_line_follow (void)
 {
     buddy3_stop_with_input(NULL);
+}
+
+void buddy3_set_manual_barcode (bool b_enabled)
+{
+    g_b_manual_scan_request = b_enabled;
 }
 
 bool buddy3_line_following (void)
@@ -773,9 +798,73 @@ buddy3_apply_straight_heading_hold (buddy3_steering_output_t * p_output,
     }
 }
 
-/* Sampling remains 10 ms; bit boundaries are measured in encoder distance. */
+/* A manual scan starting or ending restarts the reader, here in the IR task
+ * (before decoding), so a half-read barcode from before is never mixed in. */
+static void buddy3_apply_manual_scan (uint32_t now_ms)
+{
+    if (g_b_manual_scan_request != g_b_manual_scan)
+    {
+        g_b_manual_scan = g_b_manual_scan_request;
+        robot_barcode_trace_cancel(now_ms);
+        buddy3_barcode_reset(&g_barcode_decoder);
+        g_b_barcode_odometry_valid = false;
+    }
+}
+
+/* Read only the side sensor and feed the reader (between line steps). */
+static void buddy3_sample_side (uint32_t now_ms)
+{
+    uint16_t raw = hal_adc_read(IR_ADC_CHANNEL_RIGHT);
+
+    buddy3_apply_manual_scan(now_ms);
+    buddy3_decode_barcode(
+        buddy3_normalize(raw, g_sensor_configs[BUDDY3_SIDE_SENSOR].minimum,
+                         g_sensor_configs[BUDDY3_SIDE_SENSOR].maximum,
+                         g_sensor_configs[BUDDY3_SIDE_SENSOR].line_is_dark),
+        raw, now_ms, false);
+}
+
+/* Spread encoder ticks evenly over the samples.  Each wheel moves in
+ * 0.53 mm ticks, so with 2 ms samples the averaged travel jumps between
+ * 0, 0.26, 0.53 and 0.79 mm even at a steady 0.5 mm per sample, and a single
+ * 0.79 mm sample would trip the reader's 0.75 mm spacing guard.  Travel above
+ * the guard is carried into the next samples instead; the total distance is
+ * unchanged, so bar widths are too.  If the robot really is too fast the
+ * backlog keeps growing, and past BUDDY3_BARCODE_BACKLOG_STEPS guard-sized
+ * steps it is passed on whole, so the guard still stops the scan. */
+static float32_t buddy3_smooth_travel (float32_t travel)
+{
+    float32_t limit =
+        g_barcode_config.min_element_mm * BUDDY3_BARCODE_STEP_FRACTION;
+    float32_t fed = travel;
+
+    if (!(travel >= 0.0f) || !(limit > 0.0f))
+    {
+        /* Reverse, NaN or unconfigured: no smoothing, the reader decides. */
+        g_barcode_backlog = 0.0f;
+    }
+    else
+    {
+        g_barcode_backlog += travel;
+        if (g_barcode_backlog > (limit * BUDDY3_BARCODE_BACKLOG_STEPS))
+        {
+            fed = g_barcode_backlog; /* Really too fast. */
+        }
+        else
+        {
+            fed = (g_barcode_backlog < limit) ? g_barcode_backlog : limit;
+        }
+        g_barcode_backlog -= fed;
+    }
+
+    return fed;
+}
+
+/* Called every BUDDY3_BARCODE_PERIOD_MS (2 ms); bar boundaries are measured
+ * in encoder distance, so the sampling rate only limits the speed.  The IR
+ * stream (rover/ir) keeps one row per 10 ms line step (b_line_step). */
 static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
-                                   uint32_t now_ms)
+                                   uint32_t now_ms, bool b_line_step)
 {
     buddy2_encoder_position_t   motion       = {0};
     buddy2_calibration_t        geometry     = {0};
@@ -798,6 +887,7 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
         g_barcode_last_left        = motion.left_distance_mm;
         g_barcode_last_right       = motion.right_distance_mm;
         g_b_barcode_odometry_valid = true;
+        g_barcode_backlog          = 0.0f;
     }
     left_step            = motion.left_distance_mm - g_barcode_last_left;
     right_step           = motion.right_distance_mm - g_barcode_last_right;
@@ -812,8 +902,8 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
         g_barcode_yaw += (right_step - left_step) / geometry.track_width_mm;
     }
     b_permitted = buddy3_barcode_permitted(&motion, left_step, right_step);
-    travel = buddy3_barcode_travel(left_step, right_step,
-                                   geometry.track_width_mm, g_barcode_offset);
+    travel      = buddy3_smooth_travel(buddy3_barcode_travel(
+        left_step, right_step, geometry.track_width_mm, g_barcode_offset));
 
     /* Hysteresis avoids adding transitions near a noisy threshold. */
     if (sensor_value >= BUDDY3_BARCODE_BLACK_ON)
@@ -843,10 +933,13 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
     {
         unfinished += travel;
     }
-    robot_ir_stream_record(&observation,
-                           g_sensor_configs[BUDDY3_SIDE_SENSOR].minimum,
-                           g_sensor_configs[BUDDY3_SIDE_SENSOR].maximum,
-                           g_sensor_configs[BUDDY3_SIDE_SENSOR].line_is_dark);
+    if (b_line_step)
+    {
+        robot_ir_stream_record(
+            &observation, g_sensor_configs[BUDDY3_SIDE_SENSOR].minimum,
+            g_sensor_configs[BUDDY3_SIDE_SENSOR].maximum,
+            g_sensor_configs[BUDDY3_SIDE_SENSOR].line_is_dark);
+    }
     b_emitted = buddy3_barcode_step(&g_barcode_decoder, &g_barcode_config,
                                     g_b_barcode_black, travel, now_ms,
                                     b_permitted, &event);
@@ -870,21 +963,23 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
     }
 }
 
-/* The reader may only run while tracking straight-ish along the line with
- * healthy encoders, forward travel and a small heading change. */
+/* The reader may only run while tracking straight-ish along the line, or
+ * while driven straight forward by hand, with healthy encoders, forward
+ * travel and a small heading change. */
 static bool
 buddy3_barcode_permitted (const buddy2_encoder_position_t * p_motion,
                           float32_t left_step, float32_t right_step)
 {
-    return (
+    bool b_tracking =
         g_b_line_following && !buddy3_junction_active(&g_junction) &&
-        g_b_barcode_calibrated &&
-        ((B3_TRACK == g_test_last_phase) || (B3_MICRO == g_test_last_phase)) &&
-        !p_motion->left_encoder_fault && !p_motion->right_encoder_fault &&
-        /* Large turns, reverse and recovery invalidate a barcode. */
-        !(left_step < 0.0f) && !(right_step < 0.0f) &&
-        !(g_barcode_yaw > BUDDY3_BARCODE_MAX_YAW_RAD) &&
-        !(g_barcode_yaw < -BUDDY3_BARCODE_MAX_YAW_RAD));
+        ((B3_TRACK == g_test_last_phase) || (B3_MICRO == g_test_last_phase));
+
+    return ((b_tracking || g_b_manual_scan) && g_b_barcode_calibrated &&
+            !p_motion->left_encoder_fault && !p_motion->right_encoder_fault &&
+            /* Large turns, reverse and recovery invalidate a barcode. */
+            !(left_step < 0.0f) && !(right_step < 0.0f) &&
+            !(g_barcode_yaw > BUDDY3_BARCODE_MAX_YAW_RAD) &&
+            !(g_barcode_yaw < -BUDDY3_BARCODE_MAX_YAW_RAD));
 }
 
 /* Why the reader is suspended, as BARCODE_BLOCKED_* bits. */
@@ -895,7 +990,7 @@ buddy3_barcode_blocked (const buddy2_encoder_position_t * p_motion,
 {
     uint8_t blocked = 0u;
 
-    if (!g_b_line_following || !g_b_barcode_calibrated)
+    if ((!g_b_line_following && !g_b_manual_scan) || !g_b_barcode_calibrated)
     {
         blocked |= BARCODE_BLOCKED_STOPPED;
     }
@@ -917,8 +1012,10 @@ buddy3_barcode_blocked (const buddy2_encoder_position_t * p_motion,
     {
         blocked |= BARCODE_BLOCKED_SAMPLE_GAP;
     }
-    if (buddy3_junction_active(&g_junction) ||
-        ((B3_TRACK != g_test_last_phase) && (B3_MICRO != g_test_last_phase)))
+    /* Junction and recovery phases only matter while line following. */
+    if (g_b_line_following &&
+        (buddy3_junction_active(&g_junction) ||
+         ((B3_TRACK != g_test_last_phase) && (B3_MICRO != g_test_last_phase))))
     {
         blocked |= BARCODE_BLOCKED_JUNCTION;
     }
