@@ -225,7 +225,7 @@ static robot_wire_imu_t test_golden_imu (void)
     values.highest_hump_mm    = 0u;
     values.motion_class       = 7u;
     values.turn_rate_x10      = -9000;
-    values.impact_count       = 200u;
+    values.lift_count         = 200u;
 
     return values;
 }

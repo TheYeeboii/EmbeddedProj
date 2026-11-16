@@ -117,7 +117,7 @@
               <span class="imu-status">
                 <span id="imu-interval" class="muted small num"></span>
                 <span id="imu-health" class="badge" data-tone="muted">Waiting</span>
-                <button id="imu-reset" class="btn btn-outline btn-sm" type="button" title="Clear humps, peaks and impacts for a new run (rover on flat ground)"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Reset</button>
+                <button id="imu-reset" class="btn btn-outline btn-sm" type="button" title="Clear humps, peaks and the lift count for a new run (rover on flat ground)"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Reset</button>
               </span>
             </header>
 
@@ -166,8 +166,8 @@
               </article>
 
               <article class="metric">
-                <div class="metric-head"><span>Sudden impacts</span><i data-lucide="triangle-alert" aria-hidden="true"></i></div>
-                <div class="metric-value"><strong id="imu-impacts" class="num">--</strong></div>
+                <div class="metric-head"><span>Lifted / overturned</span><i data-lucide="hand" aria-hidden="true"></i></div>
+                <div class="metric-value"><strong id="imu-lifts" class="num">--</strong></div>
                 <span class="metric-sub">since reset</span>
               </article>
             </div>

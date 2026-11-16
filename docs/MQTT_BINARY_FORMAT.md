@@ -84,7 +84,7 @@ dashboard vM" instead of decoding garbage.
 
 ### rover/telemetry: type 6, Buddy 4's IMU / hump report, 14 bytes (107 bits)
 
-Sent every second, and at once after a hump or impact. It replaced a
+Sent every second, and at once after a hump or a lift. It replaced a
 283-byte JSON report that also carried its own 9-byte packet as hex text.
 
 | Field | Valid range | Before | Bits | Representation |
@@ -99,7 +99,7 @@ Sent every second, and at once after a hump or impact. It replaced a
 | Hump height / highest | 0-255 mm | text | 8 each | Team decision: 8 bits |
 | Motion class | 8 classes | text | 3 | `BUDDY4_MOTION_*` |
 | Turn rate | +/-900.0 deg/s | text tenths | 15 | Signed tenths (+/-180 deg in a 200 ms window) |
-| Impacts | 0-255 | text | 8 | Saturating count |
+| Lifted / overturned | 0-255 | text | 8 | Saturating count of lift stops (this slot carried impacts before the requirement change; same position and width) |
 
 ### Diagnostic streams (`DIAGNOSTICS=1` builds only): types 8-11
 

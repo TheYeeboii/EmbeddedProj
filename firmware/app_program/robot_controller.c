@@ -9,6 +9,8 @@
  *     would overwrite them 10 ms later).
  *   - Barcodes default to observe-only; execute mode acts immediately,
  *     resumes tracking on completion, and stops on rejection/timeout.
+ *   - Lifting or overturning the rover (Buddy 4) stops every motor; this
+ *     ends a demo run.
  *
  * PWM UNITS: the dashboard still sends the old 0..65535 scale.  Since the
  * PWM fix, the motion library uses 0..32767 = 0..100 %, so dashboard values
@@ -59,6 +61,8 @@
 #define ROBOT_BUTTON_DEBOUNCE_STEPS (3u) /* 3 x 20 ms = 60 ms */
 /* Team decision: line following stops once Wi-Fi has been lost this long. */
 #define ROBOT_LINK_LOSS_GRACE_MS (2000u)
+/* Lifted and idle: a wheel faster than this is still driven, so stop it. */
+#define ROBOT_LIFT_WHEEL_MM_S (5.0f)
 
 typedef enum
 {
@@ -131,6 +135,7 @@ static void     robot_run_valued (const robot_wire_command_t * p_command,
                                   uint32_t                     now_ms);
 static void     robot_log_barcode (const buddy3_barcode_event_t * p_event);
 static void     robot_check_link_loss (uint32_t now_ms);
+static void     robot_check_lifted (void);
 
 /* ------------------------------------------------------------------ *
  *  Public API
@@ -220,6 +225,7 @@ void robot_controller_step (uint32_t now_ms)
         tm_printf((UB *) "[safety] drive command timed out - stopped\n");
     }
     robot_check_link_loss(now_ms);
+    robot_check_lifted();
 }
 
 void robot_controller_get_drive (uint32_t * p_left, uint32_t * p_right)
@@ -735,6 +741,39 @@ static void robot_check_link_loss (uint32_t now_ms)
     else
     {
         /* Line following, still within the grace period. */
+    }
+}
+
+/* Lifted or overturned (Buddy 4): stop every motor and stay idle.  Picking
+ * the rover up ends a demo run, so nothing restarts until a new command;
+ * while it stays overturned, any new move is stopped at the next step. */
+static void robot_check_lifted (void)
+{
+    buddy4_imu_state_t    imu    = {0};
+    buddy2_motion_state_t motion = {0};
+
+    buddy4_get_state(&imu);
+    if (0u == imu.lifted)
+    {
+        /* Not lifted: nothing to do. */
+    }
+    else if (ROBOT_MODE_IDLE != robot_ctl_mode())
+    {
+        robot_stop_all();
+        tm_printf((UB *) "[safety] lifted or overturned - motors stopped\n");
+    }
+    else
+    {
+        /* Idle, yet a wheel still turns: the avoidance task (lower
+         * priority) can write its PWM just after robot_stop_all(). */
+        buddy2_get_motion_state(&motion);
+        if ((motion.left_speed_mm_s > ROBOT_LIFT_WHEEL_MM_S) ||
+            (motion.left_speed_mm_s < -ROBOT_LIFT_WHEEL_MM_S) ||
+            (motion.right_speed_mm_s > ROBOT_LIFT_WHEEL_MM_S) ||
+            (motion.right_speed_mm_s < -ROBOT_LIFT_WHEEL_MM_S))
+        {
+            buddy2_stop();
+        }
     }
 }
 

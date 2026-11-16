@@ -134,7 +134,7 @@
     data.highest_hump_mm = r.get(8);
     data.motion = r.get(3);
     data.turn_rate_x10 = r.signed(15);
-    data.impacts = r.get(8);
+    data.lifts = r.get(8);
     return data;
   }
 

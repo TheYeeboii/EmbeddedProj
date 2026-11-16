@@ -226,7 +226,7 @@ uint32_t robot_wire_encode_imu (const robot_wire_imu_t * p_values,
         robot_packed_put(&writer, p_values->motion_class, WIRE_BITS_MOTION);
         robot_packed_put_signed(&writer, p_values->turn_rate_x10,
                                 WIRE_BITS_RATE);
-        robot_packed_put(&writer, p_values->impact_count, WIRE_BITS_COUNT);
+        robot_packed_put(&writer, p_values->lift_count, WIRE_BITS_COUNT);
         length = robot_packed_length(&writer);
     }
 

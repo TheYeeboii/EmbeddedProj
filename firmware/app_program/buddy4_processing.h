@@ -1,6 +1,7 @@
 /**
  * @file    buddy4_processing.h
- * @brief   Buddy 4: portable IMU processing (tilt, humps, motion events).
+ * @brief   Buddy 4: portable IMU processing (tilt, humps, motion events,
+ *          lifted / overturned detection).
  *
  * No kernel or SDK headers, so this module can be compiled and tested on a
  * PC.  buddy4_imu.c feeds it one sample set per IMU task period.
@@ -31,7 +32,7 @@
 #define BUDDY4_MOTION_DECELERATING (4u)
 #define BUDDY4_MOTION_TURNING      (5u)
 #define BUDDY4_MOTION_HUMP         (6u) /* see hump_state for up/down   */
-#define BUDDY4_MOTION_IMPACT       (7u)
+#define BUDDY4_MOTION_LIFTED       (7u) /* lifted or overturned: stop     */
 
 /*
  * Snapshot shared with other tasks (copied whole under DI/EI).  Change
@@ -61,7 +62,8 @@ typedef struct
     uint32_t hump_state : 2;   /* BUDDY4_FLAT..BUDDY4_DESCENDING    */
     uint32_t hump_count : 3;   /* completed humps, saturates at 7   */
     uint32_t motion_class : 3; /* BUDDY4_MOTION_*                   */
-    uint32_t impact_count : 8; /* sudden impacts, saturates at 255  */
+    uint32_t lifted : 1;       /* lifted or overturned: motors stop */
+    uint32_t lift_count : 8;   /* lifted/overturned events, sat. 255 */
 } buddy4_imu_state_t;
 
 typedef struct
@@ -105,7 +107,7 @@ typedef struct
     uint32_t  started_ms;
     uint32_t  window_ms;        /* speed window start                 */
     uint32_t  rate_ms;          /* turn-rate window start             */
-    uint32_t  impact_ms;        /* last impact                        */
+    uint32_t  lift_ms;          /* last upward push (lift)            */
     int16_t   rate_heading_x10; /* heading at the turn-rate window    */
     int8_t    speed_trend;      /* -1 slowing, 0 steady, +1 speeding  */
     uint8_t   history_count;
@@ -113,6 +115,8 @@ typedef struct
     uint8_t   enter_count;
     uint8_t   exit_count;
     uint8_t   rejected_in_row;
+    uint8_t   lift_in_row; /* samples pushed upwards, in a row  */
+    uint8_t   tip_in_row;  /* samples tipped past 45 deg, in a row */
     bool      started;
     bool      filter_ready;
     bool      flat_ready;
@@ -120,6 +124,7 @@ typedef struct
     bool      window_open;
     bool      speed_known;
     bool      rate_ready;
+    bool      lift_seen; /* lift_ms is valid                    */
 } buddy4_processor_t;
 
 /**

@@ -65,7 +65,7 @@ const DEBUG = bytes('21 ff f0 01 00 0f a0 00 7d 20 c5 b4 00 c8 57 1f 1c 1f 00 02
   assert.deepEqual([d.hump_height_mm, d.highest_hump_mm], [255, 0]);
   assert.equal(d.motion, 7);
   assert.equal(d.turn_rate_x10, -9000);
-  assert.equal(d.impacts, 200);
+  assert.equal(d.lifts, 200);
 }
 
 /* One-byte messages, the JSON diagnostic streams, and bad input. */

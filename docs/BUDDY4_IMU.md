@@ -9,7 +9,7 @@ Software tests and both firmware builds pass; this is not a claim of completed p
   independent IMU task, freshness checks and telemetry.
 - `buddy4_processing.c/.h`: portable processing, calibration offsets/scales,
   median-of-three plus time-aware low-pass tilt filtering, hump lifecycle,
-  height estimation, motion classification, sudden-impact detection, compass
+  height estimation, motion classification, lifted / overturned detection, compass
   turn rate, compact serialization. No kernel or SDK dependencies.
 - `app_main.c`: starts the IMU task at priority 9 with a target 50 ms period.
   Buddy 5 (priority 10) no longer performs I2C updates. Motion, line and controller
@@ -24,6 +24,13 @@ highest hump peak were added; the shared snapshot uses bit-fields (Change
 Requirement 1); both files follow Barr-C (braces, one declaration per line,
 module prefixes, named constants). The unused `buddy4_reset_max_pitch()` and the
 unread raw-axis, rejected-count and timestamp fields were removed.
+
+Requirement change (16 Nov 2026): the instructor removed IMU collision
+detection, because it conflicted with obstacle avoidance. Sudden-impact
+detection is gone. The IMU now detects the rover being **lifted or
+overturned**, and the controller then stops every motor at once. Lifting the
+rover signals the end of a demo run. See
+[Lifted or overturned: motor stop](#lifted-or-overturned-motor-stop).
 
 Register reference: [ST LSM303DLHC datasheet](https://www.st.com/resource/en/datasheet/lsm303dlhc.pdf).
 The BDU bit prevents a high/low-byte pair changing halfway through its read.
@@ -158,14 +165,55 @@ without calibration. It is used whenever the two-wheel estimate is not valid
 and the roll changed by at least 1 degree. A jolt or the rover tipping while
 stuck on the hump raises the peak roll and so overstates the height.
 
-## Motion events, impacts and turn rate
+## Lifted or overturned: motor stop
+
+Buddy 4 sets `lifted` (1 bit) when either of these holds:
+
+| Condition | Rule (first estimates, tune on the rover) |
+|---|---|
+| Lifted | The up (Z) axis reads above 1.25 g for 2 samples in a row (100 ms). Picking the rover up pushes it upwards; driving on the floor stays near 1 g. The flag then stays set for 500 ms. |
+| Overturned | Gravity is more than 45 degrees off the up axis (Z below cos 45° times the total acceleration, which must be 0.8 to 1.2 g) for 4 samples in a row (200 ms). It stays set while the rover is tipped. |
+
+Both rules use the raw, bias-corrected sample, not the filtered pitch and
+roll. The tilt filter rejects the very readings a lift produces, and the
+filtered roll wraps at ±180 degrees when the rover lies on its back. A single
+vibration spike does not count, because each rule needs several samples in a
+row. A sampling gap restarts both counts. Upward pushes are ignored while a
+hump is in progress, because climbing the hump also pushes the rover up.
+`lift_count` (8 bits, saturating) counts each time `lifted` turns on. A run
+reset (`imu_reset` or Reset everything) clears it.
+
+The controller (`robot_check_lifted()` in `robot_controller.c`, every 20 ms)
+reads `lifted`. If the rover is not idle, it calls `robot_stop_all()`: line
+following, barcode reading, any motion move, manual drive and obstacle
+avoidance all stop, and the mode becomes idle. It prints
+`[safety] lifted or overturned - motors stopped`. Nothing restarts by itself
+when the rover is put down again, so the run stays ended until a new command.
+While the rover stays overturned, any new move is stopped at the next step.
+The worst-case stop delay after the push starts is about 100 ms of detection,
+plus up to 50 ms for the IMU period and 20 ms for the controller.
+
+Limits to check on the rover:
+
+- A gentle, slow lift may stay under 1.25 g and be missed. Lower
+  `BUDDY4_LIFT_UP_MG` if that happens. If driving vibration or a bump stops
+  the rover, raise it or raise `BUDDY4_LIFT_CONFIRM`. The USB log prints
+  `[imu] lifted or overturned, count=N` each time it fires.
+- A lift that also tilts the rover past 45 degrees is caught by the overturn
+  rule, even if the upward push is missed.
+- If the accelerometer fails, the rover cannot detect a lift. The IMU fault
+  bit is still reported.
+- Buddy 3 still stops line following when all three IR sensors have read
+  black for 3 s. That covers a lift while line following, but more slowly.
+
+## Motion events and turn rate
 
 `motion_class` (3 bits) is one class per sample; when several apply the first
 in this list wins:
 
 | Value | Class | Rule (first estimates, tune on the track) |
 |---:|---|---|
-| 7 | Sudden impact | Acceleration below 0.5 g or above 1.5 g, held 500 ms |
+| 7 | Lifted / overturned | `lifted` is set (see above) |
 | 6 | On a hump | Hump state is not flat (`hump_state` says climbing/top/descending) |
 | 5 | Turning | Compass turn rate at least 25 deg/s |
 | 0 | Unknown | No fresh Buddy 2 odometry |
@@ -174,11 +222,6 @@ in this list wins:
 | 4 | Decelerating | Speed down by more than 60 mm/s |
 | 2 | Cruising | Moving at a steady speed |
 
-- **Impacts:** `impact_count` (8 bits, saturating) counts sudden impacts; one
-  collision gives several wild samples, so samples within 500 ms count once.
-  The IMU only reads the newest of the 100 Hz samples every 50 ms, so a very
-  short knock can be missed. A hard hump edge can also count as an impact.
-  Buddy 4 only reports impacts; deciding to stop belongs to the controller.
 - **Turn rate:** `turn_rate_dps_x10` is the compass heading change over a 200 ms
   window (the 15 Hz compass repeats samples at the 20 Hz poll), shortest way
   round 359 to 0. Positive means the heading number increases; check which way
@@ -192,10 +235,10 @@ in this list wins:
 ## Telemetry and compact representation
 
 The IMU task publishes a separate small JSON object on `rover/telemetry` every
-second, immediately after a completed hump and immediately after an impact. It
+second, immediately after a completed hump and immediately after a lift. It
 carries fault/calibration, roll, hump state/count/sequence/peak, highest peak,
-last and highest height, height validity, `motion`, `turn_rate_x10`, `impacts`,
-sample interval and `imu_packed`. Completed humps and impacts are also printed
+last and highest height, height validity, `motion`, `turn_rate_x10`, `lifts`,
+sample interval and `imu_packed`. Completed humps and lifts are also printed
 on USB.
 If the nonblocking mailbox drops a report, the retained sequence and results
 are repeated in subsequent periodic reports. This is not guaranteed event
@@ -236,11 +279,11 @@ the single-core build.
 
 | Field | Valid range | Bits | Representation |
 |---|---|---:|---|
-| `mag_ok`, `accel_ok`, `height_valid`, `imu_fault`, `calibrated` | 0–1 | 1 each | bit-field |
+| `mag_ok`, `accel_ok`, `height_valid`, `imu_fault`, `calibrated`, `lifted` | 0–1 | 1 each | bit-field |
 | `hump_state` | 0–3 | 2 | bit-field |
 | `hump_count` | 0–7 (saturating) | 3 | bit-field |
 | `motion_class` | 0–7 | 3 | bit-field |
-| `impact_count` | 0–255 (saturating) | 8 | bit-field |
+| `lift_count` | 0–255 (saturating) | 8 | bit-field |
 | `heading_deg_x10` | 0–3599 | 12 | `int16_t` in RAM, 12 bits in the packet |
 | `pitch_deg_x10`, `hump_peak_deg_x10` | -900–900 | 11 | `int16_t` in RAM, 11 bits in the packet |
 | `roll_deg_x10` | -1800–1800 | 12 | `int16_t` in RAM, 12 bits in the packet |
@@ -255,7 +298,7 @@ width in `imu_packed`.
 | Measurement (arm-none-eabi-gcc, Cortex-M0+) | Before | After |
 |---|---:|---|
 | `buddy4_imu_state_t` (copied on every `buddy4_get_state()`) | 60 bytes | 36 bytes |
-| `buddy4_processor_t` (IMU task only) | 168 bytes | 200 bytes (speed/turn windows, flat attitude and peak roll for humps) |
+| `buddy4_processor_t` (IMU task only) | 168 bytes | 204 bytes (speed/turn windows, flat attitude and peak roll for humps, lift counters) |
 | Wi-Fi build `.bss` (whole firmware) | 49 980 bytes | 49 972 bytes |
 | USB build `.text` (whole firmware) | 63 244 bytes | 64 292 bytes (new features) |
 | Buddy 4 packet | 9 bytes | 9 bytes (motion class uses the 3 spare bits) |
@@ -280,6 +323,18 @@ sampling gap no longer brings back an old turn rate.
 
 Both profiles build with `-Wall -Wextra` and no Buddy 4 warnings: USB (`SMP=0`, `CONSOLE=usb_cdc`) and Wi-Fi MQTT. Nothing has been
 flashed or tested on the rover.
+
+The impact checks above describe the code before the requirement change.
+Lifted / overturned detection is covered by `tests/test_buddy4_lift.c`, which
+runs in `sh tests/run_barcode_tests.sh`. It checks that a single upward spike
+and normal vibration do not trigger a stop, that two samples above 1.25 g do,
+and that the flag holds for 500 ms and then clears. It also checks that lying
+on its back or on its side triggers the stop and keeps it, that a 30-degree
+slope does not, and that a run reset clears the count.
+`test_robot_barcode_controller.c` checks that a lift stops line following,
+that the rover stays idle after being put down, and that a new drive while
+overturned is stopped at the next step. The Wi-Fi MQTT build compiles without
+warnings. The thresholds have not been tried on the rover.
 
 Before accepting Buddy 4 on the rover:
 
