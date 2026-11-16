@@ -207,7 +207,7 @@ void buddy4_reset_run (void)
 void buddy4_task (int32_t stacd, void * p_exinf)
 {
     uint32_t reported_hump   = 0u;
-    uint32_t reported_impact = 0u;
+    uint32_t reported_lift   = 0u;
     uint32_t last_report_ms  = 0u;
 
     (void) stacd;
@@ -223,17 +223,17 @@ void buddy4_task (int32_t stacd, void * p_exinf)
         buddy4_report_fault(0u != state.imu_fault);
         if (g_b_stats_cleared)
         {
-            /* Counters went back to 0: not a new hump or impact.  Report
+            /* Counters went back to 0: not a new hump or lift.  Report
              * at once so the dashboard clears. */
             g_b_stats_cleared = false;
             reported_hump     = state.hump_sequence;
-            reported_impact   = state.impact_count;
+            reported_lift     = state.lift_count;
             last_report_ms    = start_ms - BUDDY4_REPORT_MS;
             tm_printf(
-                (UB *) "[imu] run reset: humps, peaks and impacts cleared\n");
+                (UB *) "[imu] run reset: humps, peaks and lifts cleared\n");
         }
         if ((state.hump_sequence != reported_hump) ||
-            (state.impact_count != reported_impact) ||
+            (state.lift_count != reported_lift) ||
             ((start_ms - last_report_ms) >= BUDDY4_REPORT_MS))
         {
             buddy4_report(&state);
@@ -244,13 +244,13 @@ void buddy4_task (int32_t stacd, void * p_exinf)
                     (UINT) state.hump_sequence, (INT) state.hump_peak_deg_x10,
                     (UINT) state.hump_height_mm, (UINT) state.height_valid);
             }
-            if (state.impact_count != reported_impact)
+            if (state.lift_count != reported_lift)
             {
-                tm_printf((UB *) "[imu] sudden impact, count=%u\n",
-                          (UINT) state.impact_count);
+                tm_printf((UB *) "[imu] lifted or overturned, count=%u\n",
+                          (UINT) state.lift_count);
             }
             reported_hump   = state.hump_sequence;
-            reported_impact = state.impact_count;
+            reported_lift   = state.lift_count;
             last_report_ms  = start_ms;
         }
         elapsed_ms = app_now_ms() - start_ms;
@@ -453,7 +453,7 @@ static void buddy4_report (const buddy4_imu_state_t * p_state)
     /* Bit-fields of 2, 3 and 8 bits: the casts cannot lose data. */
     values.hump_state   = (uint8_t) p_state->hump_state;
     values.motion_class = (uint8_t) p_state->motion_class;
-    values.impact_count = (uint8_t) p_state->impact_count;
+    values.lift_count   = (uint8_t) p_state->lift_count;
     /* Only the low 8 bits of the wrapping sequence are sent. */
     values.hump_sequence    = (uint8_t) (p_state->hump_sequence & 0xFFu);
     values.hump_peak_x10    = p_state->hump_peak_deg_x10;

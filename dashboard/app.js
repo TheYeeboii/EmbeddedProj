@@ -19,7 +19,7 @@ const STALE_AFTER_MS = 25000;
 const SERIAL_MAX_LINES = 200;
 const SPARK_POINTS = 40;
 /* Buddy 4 BUDDY4_MOTION_* values (buddy4_processing.h). */
-const MOTION_NAMES = ['Unknown', 'Stationary', 'Cruising', 'Accelerating', 'Decelerating', 'Turning', 'On a hump', 'Sudden impact'];
+const MOTION_NAMES = ['Unknown', 'Stationary', 'Cruising', 'Accelerating', 'Decelerating', 'Turning', 'On a hump', 'Lifted / overturned'];
 const MODE_TONES = { idle: 'muted', drive: 'accent', motion: 'accent', line: 'success' };
 /* Fault-byte bits worth showing while the robot is connected. */
 const FAULT_NAMES = { imu: 'IMU fault', no_echo: 'Ultrasonic not answering', encoder: 'Encoder fault', motor_stall: 'Motor stall' };
@@ -153,7 +153,7 @@ function showTelemetry(data) {
       : (data.highest_hump_mm > 0 ? 'highest' : 'none yet'));
     setText('imu-motion', MOTION_NAMES[data.motion] ?? '--');
     setText('imu-turn-rate', fmt(data.turn_rate_x10 / 10));
-    setText('imu-impacts', fmt(data.impacts));
+    setText('imu-lifts', fmt(data.lifts));
     return;
   }
 

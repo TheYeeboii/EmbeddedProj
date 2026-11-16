@@ -35,8 +35,15 @@ void hal_gpio_input_pullup (uint32_t pin)
 {
     (void) pin;
 }
-void buddy4_reset_run (void)
+static bool g_b_lifted;
+void        buddy4_reset_run (void)
 {
+}
+void buddy4_get_state (buddy4_imu_state_t * p_state)
+{
+    buddy4_imu_state_t empty = {0};
+    *p_state                 = empty;
+    p_state->lifted          = g_b_lifted ? 1u : 0u;
 }
 void buddy2_reset_encoders (void)
 {
@@ -60,6 +67,7 @@ void buddy2_get_motion_state (buddy2_motion_state_t * p_state)
     buddy2_motion_state_t empty = {0};
     *p_state                    = empty;
     p_state->left_encoder_fault = g_b_encoder_fault;
+    p_state->left_speed_mm_s    = g_b_motion ? 100.0f : 0.0f;
 }
 void buddy2_set_motor_pwm (int16_t left, int16_t right)
 {
@@ -176,6 +184,7 @@ static void reset (void)
     g_line_button_count = 0;
     g_b_link_seen       = false;
     g_b_link_lost       = false;
+    g_b_lifted          = false;
     robot_fault_update(ROBOT_FAULT_ALL, 0u);
     g_starts = g_stops = g_lefts = g_rights = g_forwards = 0;
     g_event                                              = 0;
@@ -304,11 +313,44 @@ static void test_link_loss (void)
     assert(g_b_following);
 }
 
+/* Lifting or overturning the rover ends the run: every motor stops and
+ * stays stopped after it is put down again. */
+static void test_lifted_stop (void)
+{
+    reset();
+    command("line_follow", 0);
+    robot_controller_step(10);
+    assert(g_b_following);
+    g_b_lifted = true;
+    robot_controller_step(30);
+    assert(!g_b_following && !g_b_motion &&
+           (ROBOT_MODE_IDLE == robot_ctl_mode()));
+    assert(strstr(g_serial_log, "lifted or overturned"));
+    g_b_lifted = false;
+    robot_controller_step(50);
+    assert(!g_b_following && (ROBOT_MODE_IDLE == robot_ctl_mode()));
+    /* Still overturned: a new drive is stopped at the next step. */
+    g_b_lifted = true;
+    command("preset 0", 60);
+    assert(ROBOT_MODE_DRIVE == robot_ctl_mode());
+    robot_controller_step(70);
+    assert(ROBOT_MODE_IDLE == robot_ctl_mode());
+    /* Idle and lifted: nothing to stop, no repeated log line. */
+    g_serial_log[0] = 0;
+    robot_controller_step(90);
+    assert(0 == g_serial_log[0]);
+    /* Idle and lifted, but a late PWM write left a wheel turning. */
+    g_b_motion = true;
+    robot_controller_step(110);
+    assert(!g_b_motion);
+}
+
 int main (void)
 {
     test_packed_state();
     test_manual_barcode();
     test_link_loss();
+    test_lifted_stop();
     reset();
     command("servo_angle 135", 0);
     assert(135 == g_servo_angle);

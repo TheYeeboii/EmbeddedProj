@@ -37,7 +37,7 @@ the few deliberate deviations.
 | `robot_telemetry.c/.h` | 1 | Builds the messages the dashboard shows |
 | `buddy2_motion.c/.h` | 2 | Motors, encoders, PID, `move_forward` / `turn_left` / ... |
 | `buddy3_ir.c/.h` | 3 | IR line following, line search, barcode decoder |
-| `buddy4_imu.c/.h`, `buddy4_processing.c/.h` | 4 | LSM303 IMU: heading, tilt, filtering, hump detection |
+| `buddy4_imu.c/.h`, `buddy4_processing.c/.h` | 4 | LSM303 IMU: heading, tilt, filtering, hump detection, lifted/overturned motor stop |
 | `buddy5_ultrasonic.c/.h` | 5 | Ultrasonic distance + scanning servo |
 | `buddy5_avoidance.c/.h` | 5 | Obstacle avoidance and return to the line |
 | `robot_hal.c/.h` | - | **The only file that includes Pico SDK `hardware/*.h`** |

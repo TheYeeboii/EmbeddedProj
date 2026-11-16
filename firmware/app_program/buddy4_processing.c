@@ -1,11 +1,13 @@
 /**
  * @file    buddy4_processing.c
- * @brief   Buddy 4: portable IMU processing (tilt, humps, motion events).
+ * @brief   Buddy 4: portable IMU processing (tilt, humps, motion events,
+ *          lifted / overturned detection).
  *
  * Tilt:   median of three, then a time-aware low-pass filter.
  * Humps:  flat -> climbing -> top -> descending -> flat, with debounce.
  * Height: sum of wheel travel x sin(pitch) during the hump.
- * Motion: impact, hump, turning, stationary, accelerating, decelerating
+ * Lifted: the rover is pushed upwards (picked up) or tips past 45 degrees.
+ * Motion: lifted, hump, turning, stationary, accelerating, decelerating
  *         or cruising, from acceleration, compass and wheel odometry.
  * All thresholds below are first estimates; tune them on the track.
  */
@@ -49,11 +51,20 @@
 #define BUDDY4_HUMP_MAX_STEP_MM  (100.0f)
 #define BUDDY4_HUMP_COUNT_MAX    (7u)
 
+/* Lifted or overturned: the controller stops the motors (end of a run).
+ * Lift: picking the rover up pushes it upwards, so the up (Z) axis reads
+ * clearly above 1 g for a short time; driving on the floor keeps it near
+ * 1 g.  Two samples in a row (100 ms) so one vibration spike is ignored.
+ * Overturned: gravity is more than 45 degrees off the up axis for 200 ms;
+ * the track hump leans the rover only about 6 degrees. */
+#define BUDDY4_LIFT_UP_MG     (1250.0f) /* Z above 1.25 g: pushed upwards */
+#define BUDDY4_LIFT_CONFIRM   (2u)
+#define BUDDY4_LIFT_HOLD_MS   (500u) /* the lift stays reported this long */
+#define BUDDY4_TIPPED_COS     (0.7071f) /* cos(45 deg) */
+#define BUDDY4_TIPPED_CONFIRM (4u)
+#define BUDDY4_LIFT_COUNT_MAX (255u)
+
 /* Motion classification. */
-#define BUDDY4_IMPACT_LOW_SQ    (250000.0f)  /* (0.5 g)^2 */
-#define BUDDY4_IMPACT_HIGH_SQ   (2250000.0f) /* (1.5 g)^2 */
-#define BUDDY4_IMPACT_HOLD_MS   (500u)
-#define BUDDY4_IMPACT_COUNT_MAX (255u)
 #define BUDDY4_RATE_WINDOW_MS   (200u) /* compass turn rate */
 /* One encoder tick (10.2 mm at 20 ticks/rev) is 25 mm/s over 400 ms, so a
  * speed change must exceed two ticks to count as speeding up or slowing. */
@@ -75,6 +86,9 @@ static void      buddy4_abort_hump (buddy4_processor_t * p_proc);
 static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
                                   uint32_t dt_ms, bool b_accel_ok,
                                   const int16_t accel[3]);
+static void buddy4_process_lift (buddy4_processor_t * p_proc, uint32_t now_ms,
+                                 bool b_accel_ok, float32_t accel_z,
+                                 float32_t norm_sq);
 static void buddy4_process_mag (buddy4_processor_t * p_proc, uint32_t now_ms,
                                 bool b_mag_ok, const int16_t mag[3]);
 static void buddy4_process_speed (buddy4_processor_t * p_proc, uint32_t now_ms,
@@ -86,8 +100,7 @@ static void buddy4_hump_flat (buddy4_processor_t * p_proc, uint32_t now_ms,
                               float32_t tilt, float32_t rise_mm,
                               bool b_path_valid, bool b_turning);
 static void buddy4_hump_finish (buddy4_processor_t * p_proc);
-static uint8_t buddy4_classify (const buddy4_processor_t * p_proc,
-                                uint32_t                   now_ms);
+static uint8_t buddy4_classify (const buddy4_processor_t * p_proc);
 static void buddy4_put_bits (uint8_t * p_out, uint32_t * p_pos, uint32_t value,
                              uint32_t width);
 static int32_t buddy4_saturate (int32_t value, int32_t low, int32_t high,
@@ -154,8 +167,8 @@ void buddy4_processor_init (buddy4_processor_t *         p_proc,
     p_proc->state.imu_fault  = 1u;
 }
 
-/* Accelerometer: tilt filter and impact detection.  Returns true when a new
- * filtered pitch was produced by this sample. */
+/* Accelerometer: tilt filter and lifted/overturned detection.  Returns true
+ * when a new filtered pitch was produced by this sample. */
 static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
                                   uint32_t dt_ms, bool b_accel_ok,
                                   const int16_t accel[3])
@@ -171,21 +184,7 @@ static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
         (accel_x * accel_x) + (accel_y * accel_y) + (accel_z * accel_z);
     bool b_new = false;
 
-    if (b_accel_ok && isfinite(norm_sq) &&
-        ((norm_sq < BUDDY4_IMPACT_LOW_SQ) || (norm_sq > BUDDY4_IMPACT_HIGH_SQ)))
-    {
-        /* One collision gives several wild samples: count at most one
-         * impact per 500 ms. */
-        if ((0u == p_state->impact_count) ||
-            ((now_ms - p_proc->impact_ms) >= BUDDY4_IMPACT_HOLD_MS))
-        {
-            if (p_state->impact_count < BUDDY4_IMPACT_COUNT_MAX)
-            {
-                p_state->impact_count++;
-            }
-            p_proc->impact_ms = now_ms;
-        }
-    }
+    buddy4_process_lift(p_proc, now_ms, b_accel_ok, accel_z, norm_sq);
 
     /* +/-20% of g is only a plausibility check, not proof of static gravity. */
     if (b_accel_ok && isfinite(norm_sq) && (norm_sq >= BUDDY4_GRAVITY_MIN_SQ) &&
@@ -254,6 +253,64 @@ static bool buddy4_process_accel (buddy4_processor_t * p_proc, uint32_t now_ms,
     }
     p_state->accel_ok = p_proc->filter_ready ? 1u : 0u;
     return b_new;
+}
+
+/* Lifted or overturned, from the raw (bias-corrected) sample: the tilt
+ * filter rejects the very readings a lift gives, and its roll wraps at
+ * +/-180 degrees when the rover lies on its back. */
+static void buddy4_process_lift (buddy4_processor_t * p_proc, uint32_t now_ms,
+                                 bool b_accel_ok, float32_t accel_z,
+                                 float32_t norm_sq)
+{
+    buddy4_imu_state_t * p_state = &p_proc->state;
+    bool                 b_valid = b_accel_ok && isfinite(norm_sq) &&
+                   isfinite(accel_z) && (norm_sq >= BUDDY4_GRAVITY_MIN_SQ);
+    bool b_lifted = false;
+
+    /* A hump climb also pushes the rover up; the hump has priority, also
+     * while its start is still being confirmed (enter_count). */
+    if (b_valid && (accel_z > BUDDY4_LIFT_UP_MG) &&
+        (BUDDY4_FLAT == p_state->hump_state) && (0u == p_proc->enter_count))
+    {
+        if (p_proc->lift_in_row < UINT8_MAX)
+        {
+            p_proc->lift_in_row++;
+        }
+    }
+    else
+    {
+        p_proc->lift_in_row = 0u;
+    }
+    if (p_proc->lift_in_row >= BUDDY4_LIFT_CONFIRM)
+    {
+        p_proc->lift_ms   = now_ms;
+        p_proc->lift_seen = true;
+    }
+
+    /* z / |a| is the cosine of the tilt from upright; only trusted near 1 g
+     * (a falling or shaken rover gives no gravity direction). */
+    if (b_valid && (norm_sq <= BUDDY4_GRAVITY_MAX_SQ) &&
+        (accel_z < (BUDDY4_TIPPED_COS * sqrtf(norm_sq))))
+    {
+        if (p_proc->tip_in_row < UINT8_MAX)
+        {
+            p_proc->tip_in_row++;
+        }
+    }
+    else
+    {
+        p_proc->tip_in_row = 0u;
+    }
+
+    b_lifted = (p_proc->tip_in_row >= BUDDY4_TIPPED_CONFIRM) ||
+               (p_proc->lift_seen &&
+                ((now_ms - p_proc->lift_ms) < BUDDY4_LIFT_HOLD_MS));
+    if (b_lifted && (0u == p_state->lifted) &&
+        (p_state->lift_count < BUDDY4_LIFT_COUNT_MAX))
+    {
+        p_state->lift_count++;
+    }
+    p_state->lifted = b_lifted ? 1u : 0u;
 }
 
 /* Magnetometer: heading and compass turn rate. */
@@ -577,17 +634,15 @@ static void buddy4_hump_finish (buddy4_processor_t * p_proc)
     buddy4_abort_hump(p_proc);
 }
 
-static uint8_t buddy4_classify (const buddy4_processor_t * p_proc,
-                                uint32_t                   now_ms)
+static uint8_t buddy4_classify (const buddy4_processor_t * p_proc)
 {
     const buddy4_imu_state_t * p_state = &p_proc->state;
     int32_t                    rate    = p_state->turn_rate_dps_x10;
     uint8_t                    motion  = BUDDY4_MOTION_CRUISING;
 
-    if ((0u != p_state->impact_count) &&
-        ((now_ms - p_proc->impact_ms) < BUDDY4_IMPACT_HOLD_MS))
+    if (0u != p_state->lifted)
     {
-        motion = BUDDY4_MOTION_IMPACT;
+        motion = BUDDY4_MOTION_LIFTED;
     }
     else if (BUDDY4_FLAT != p_state->hump_state)
     {
@@ -652,6 +707,8 @@ void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
         p_proc->window_open   = false;
         p_proc->speed_known   = false;
         p_proc->rate_ready    = false;
+        p_proc->lift_in_row   = 0u; /* "in a row" needs regular samples */
+        p_proc->tip_in_row    = 0u;
     }
 
     b_new_pitch =
@@ -680,7 +737,7 @@ void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
         p_proc->event_height_valid = p_proc->event_height_valid && b_path_valid;
     }
 
-    p_state->motion_class   = buddy4_classify(p_proc, now_ms) & 0x07u;
+    p_state->motion_class   = buddy4_classify(p_proc) & 0x07u;
     p_proc->sample_distance = distance_mm;
     p_proc->last_ms         = now_ms;
     p_proc->last_pitch      = p_proc->filtered_pitch;

@@ -148,7 +148,7 @@ typedef struct
     uint16_t highest_hump_mm;    /**< 8 bits. */
     uint8_t  motion_class;       /**< 3 bits, BUDDY4_MOTION_*. */
     int16_t  turn_rate_x10;      /**< 15 bits signed, +/-9000. */
-    uint8_t  impact_count;       /**< 8 bits, saturates at 255. */
+    uint8_t  lift_count;         /**< 8 bits, saturates at 255. */
 } robot_wire_imu_t;
 
 /** A decoded dashboard command.  Unused values are 0. */
