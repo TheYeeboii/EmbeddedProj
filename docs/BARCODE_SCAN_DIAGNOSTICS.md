@@ -59,7 +59,7 @@ disabled; an import/replay never sends commands.
 `Disabled / unconfigured` means capture has not been enabled: the firmware
 minimum element defaults to zero. Use the stopped-only Reader setup form in
 the panel instead of needing a serial command. The form requires fresh idle
-telemetry, validates both fields, requests observe-only mode, and waits for
+telemetry, validates both fields, requests read mode (`barcode_mode 1`), and waits for
 the firmware state. Exact active minimum/offset values are confirmed when
 available; older firmware reports enabled with an explicit unconfirmed-values
 notice. Lost/stale state, timeout and reboot do not appear as success.
@@ -108,8 +108,8 @@ before being offered to the nonblocking mailbox. It shares finite MQTT capacity
 with other diagnostics; sequence/timing gaps remain visible rather than hidden.
 
 Packets contain `v:1`, `type:"ir_stream"`, shared diagnostic `boot`, newest-row
-`ts_ms`, queue `lag_ms`, cumulative `dropped`, `period_ms:10`, `white:400`,
-`black:600` and up to four `rows`:
+`ts_ms`, queue `lag_ms`, cumulative `dropped`, `period_ms:10`, `white:140`,
+`black:210` and up to four `rows`:
 
 `[sample_seq, sample_ms, raw, normalized, hysteresis_black, left_0.1mm,
 right_0.1mm, decoder_blocked_flags, raw_minimum, raw_maximum, inverted]`.

@@ -65,6 +65,7 @@ typedef struct
     uint32_t  started_ms;
     uint8_t   count;
     bool      active;
+    bool      resume; /* Resynced window continues at the next sample. */
     bool      previous_black;
     bool      have_sample;
 } buddy3_barcode_decoder_t;

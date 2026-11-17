@@ -19,3 +19,5 @@ run junction tests/test_buddy3_junction.c firmware/app_program/buddy3_junction.c
 run lift tests/test_buddy4_lift.c firmware/app_program/buddy4_processing.c
 run wire tests/test_robot_wire.c firmware/app_program/robot_packed.c firmware/app_program/robot_wire.c
 node tests/test_rover_wire.cjs
+run avoid_line tests/test_buddy5_line_return.c
+run avoid_route tests/test_buddy5_avoidance.c

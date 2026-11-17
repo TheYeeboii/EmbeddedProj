@@ -108,20 +108,10 @@ uint32_t buddy5_measure_cm (uint32_t now_ms)
     return buddy5_ping_cm(now_ms, true, NULL);
 }
 
-/**
- * @brief Measure a temporary avoidance-scan distance without changing
- * telemetry.
- * @return Measured distance in centimetres, or BUDDY5_NO_ECHO.
- */
-uint32_t buddy5_sample_cm (void)
+uint32_t buddy5_sample_with_result_cm (buddy5_ping_result_t * p_result)
 {
     /* Side-scan values belong to the avoidance task, not the dashboard's
      * forward-distance field, so deliberately leave g_last unchanged. */
-    return buddy5_ping_cm(0u, false, NULL);
-}
-
-uint32_t buddy5_sample_with_result_cm (buddy5_ping_result_t * p_result)
-{
     return buddy5_ping_cm(0u, false, p_result);
 }
 
@@ -221,6 +211,7 @@ static uint32_t buddy5_ping_cm (uint32_t now_ms, bool store_for_telemetry,
     uint32_t             pulse_us        = 0u;
     uint64_t             echo_started_us = 0u;
     buddy5_ping_result_t result          = BUDDY5_PING_TIMEOUT_RISE;
+    UINT                 interrupt_state = 0u;
 
     if (!buddy5_wait_for_echo_idle())
     {
@@ -264,9 +255,13 @@ static uint32_t buddy5_ping_cm (uint32_t now_ms, bool store_for_telemetry,
 
     if (store_for_telemetry)
     {
+        /* buddy5_get_last() copies the reading under DI(); update it in one
+         * step too, so a copy never mixes two readings. */
+        DI(interrupt_state);
         g_last.distance_cm     = distance_cm;
         g_last.servo_angle_deg = g_servo_angle;
         g_last.timestamp_ms    = now_ms;
+        EI(interrupt_state);
         buddy5_report_fault(result);
     }
     if (NULL != p_result)

@@ -56,10 +56,10 @@ static bool sent_action (unsigned message, bool b_state, uint32_t action)
 int main (void)
 {
     robot_action_event_t action_event;
-    assert(robot_action_direction_for_pwm(10000, 12000) == ROBOT_ACTION_LEFT);
-    assert(robot_action_direction_for_pwm(12000, 10000) == ROBOT_ACTION_RIGHT);
-    assert(robot_action_direction_for_pwm(0, 256) == ROBOT_ACTION_NONE);
-    assert(robot_action_direction_for_pwm(0, 0) == ROBOT_ACTION_NONE);
+    assert(ROBOT_ACTION_LEFT == robot_action_direction_for_pwm(10000, 12000));
+    assert(ROBOT_ACTION_RIGHT == robot_action_direction_for_pwm(12000, 10000));
+    assert(ROBOT_ACTION_NONE == robot_action_direction_for_pwm(0, 256));
+    assert(ROBOT_ACTION_NONE == robot_action_direction_for_pwm(0, 0));
     robot_action_record(ROBOT_ACTION_NONE, ROBOT_ACTION_STOP, 0, 0, 1);
     assert(!robot_action_peek(&action_event));
     robot_action_record(ROBOT_ACTION_LEFT, ROBOT_ACTION_PWM, 0, 12000, 10);
@@ -95,8 +95,8 @@ int main (void)
     assert(6 == g_sent_count);
     for (unsigned index = 0; index < 50; ++index)
     {
-        robot_action_record((index % 2) == 0 ? ROBOT_ACTION_LEFT
-                                             : ROBOT_ACTION_NONE,
+        robot_action_record((0u == (index % 2u)) ? ROBOT_ACTION_LEFT
+                                                 : ROBOT_ACTION_NONE,
                             ROBOT_ACTION_PWM, 0, 0, 2000 + index);
     }
     assert(32 == g_count && 18 == g_dropped);

@@ -1,7 +1,7 @@
 (function(root) {
   'use strict';
   const types = ['barcode_start','barcode_edges','barcode_samples','barcode_progress','barcode_end','barcode_state'];
-  const states = ['Disabled / unconfigured','Waiting for leading quiet zone','Capturing','Checking trailing quiet zone','Accepted','Rejected / interrupted','Suspended by motion or tracking state'];
+  const states = ['Disabled / unconfigured','Waiting for a barcode','Capturing','Decoding the frame','Accepted','Rejected / interrupted','Suspended by motion or tracking state'];
   const reasons = ['none','valid','invalid format','interrupted','reverse motion','sample spacing too large','stalled','capture limit'];
   const formats = ['ok','element count','element widths','framing markers','unsupported symbol','quiet zone'];
   const patterns = [0x109,0x049,0x148,0x019,0x118,0x058,0x00d,0x10c,0x04c,0x01c,0x103,0x043,0x142,0x013,0x112,0x052,0x007,0x106,0x046,0x016,0x181,0x0c1,0x1c0,0x091,0x190,0x0d0];

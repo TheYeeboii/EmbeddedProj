@@ -8,20 +8,21 @@
 
 /* A sample may move at most a quarter of the smallest element. */
 #define SAMPLE_GAP_FRACTION 0.25f
-/* The leading quiet zone must be ten minimum elements of white. */
-#define QUIET_ELEMENTS 10.0f
-#define STALL_MS       1500u
-#define FRAME_MAX_MS   30000u
+/* Elements in one character, and how far a resync slides the window: one
+ * bar and one gap, so the window still starts on a black bar. */
+#define CHAR_ELEMENTS 9u
+#define RESYNC_SHIFT  2u
+#define STALL_MS      1500u
+#define FRAME_MAX_MS  30000u
 /* Lead-in and frame lengths beyond this cannot affect recognition. */
 #define MAX_TRACK_MM 10000.0f
-/* Trailing quiet used for the first decode, before the real one is known. */
+/* No quiet zones are required: decode the moment the closing '*' ends. */
 #define UNBOUNDED_QUIET_MM 100000.0f
 
 static bool barcode_abort (buddy3_barcode_decoder_t *  p_state,
                            buddy3_barcode_event_t *    p_event,
                            buddy3_barcode_event_kind_t kind);
-static void barcode_wait_for_start (buddy3_barcode_decoder_t *      p_state,
-                                    const buddy3_barcode_config_t * p_cfg,
+static void barcode_wait_for_start (buddy3_barcode_decoder_t * p_state,
                                     bool black, float32_t travel_mm,
                                     float32_t edge, uint32_t now);
 static bool barcode_collect (buddy3_barcode_decoder_t *      p_state,
@@ -31,6 +32,9 @@ static bool barcode_collect (buddy3_barcode_decoder_t *      p_state,
 static bool barcode_finish (buddy3_barcode_decoder_t *      p_state,
                             const buddy3_barcode_config_t * p_cfg,
                             buddy3_barcode_event_t *        p_event);
+static void barcode_resync (buddy3_barcode_decoder_t * p_state,
+                            buddy3_barcode_event_t *   p_event,
+                            code39_status_t status, uint32_t now);
 
 void buddy3_barcode_reset (buddy3_barcode_decoder_t * p_state)
 {
@@ -100,6 +104,12 @@ bool buddy3_barcode_step (buddy3_barcode_decoder_t *      p_state,
     }
     else
     {
+        if (p_state->resume)
+        {
+            /* Continue the window a resync slid along last sample. */
+            p_state->resume = false;
+            p_state->active = true;
+        }
         p_state->last_progress_ms = now;
         p_state->position += travel_mm;
         if (travel_mm > p_state->max_sample_gap)
@@ -110,7 +120,7 @@ bool buddy3_barcode_step (buddy3_barcode_decoder_t *      p_state,
         edge = p_state->position - (travel_mm * 0.5f);
         if (!p_state->active)
         {
-            barcode_wait_for_start(p_state, p_cfg, black, travel_mm, edge, now);
+            barcode_wait_for_start(p_state, black, travel_mm, edge, now);
         }
         else
         {
@@ -154,26 +164,22 @@ static bool barcode_abort (buddy3_barcode_decoder_t *  p_state,
     return b_was_active;
 }
 
-/* Measure the white lead-in and start a frame on the first black after a
- * long enough quiet zone. */
-static void barcode_wait_for_start (buddy3_barcode_decoder_t *      p_state,
-                                    const buddy3_barcode_config_t * p_cfg,
+/* Measure the white lead-in (diagnostics only) and start a frame on the
+ * first black: no quiet zone is needed. */
+static void barcode_wait_for_start (buddy3_barcode_decoder_t * p_state,
                                     bool black, float32_t travel_mm,
                                     float32_t edge, uint32_t now)
 {
     if (black && !p_state->previous_black)
     {
         p_state->leading_quiet = p_state->white_distance + (travel_mm * 0.5f);
-        if (p_state->leading_quiet >= (QUIET_ELEMENTS * p_cfg->min_element_mm))
-        {
-            p_state->active = true;
-            p_state->count  = 0u;
-            /* Local coordinates avoid growing floats. */
-            p_state->position -= edge;
-            p_state->edge_position  = 0.0f;
-            p_state->started_ms     = now;
-            p_state->max_sample_gap = travel_mm;
-        }
+        p_state->active        = true;
+        p_state->count         = 0u;
+        /* Local coordinates avoid growing floats. */
+        p_state->position -= edge;
+        p_state->edge_position  = 0.0f;
+        p_state->started_ms     = now;
+        p_state->max_sample_gap = travel_mm;
     }
 
     if (black)
@@ -196,8 +202,9 @@ static void barcode_wait_for_start (buddy3_barcode_decoder_t *      p_state,
     p_state->previous_black = black;
 }
 
-/* Record element edges of an active frame and decode once all 29 elements
- * are known.  Returns true when an event was produced. */
+/* Record element edges of an active frame.  The window must open with a
+ * '*' (either way round); otherwise it slides along.  All 29 elements
+ * decode at once.  Returns true when an event was produced. */
 static bool barcode_collect (buddy3_barcode_decoder_t *      p_state,
                              const buddy3_barcode_config_t * p_cfg, bool black,
                              float32_t edge, uint32_t now,
@@ -205,59 +212,73 @@ static bool barcode_collect (buddy3_barcode_decoder_t *      p_state,
 {
     bool b_event = false;
 
-    if ((black != p_state->previous_black) &&
-        (CODE39_FRAME_ELEMENTS == p_state->count))
+    if (black != p_state->previous_black)
     {
-        /* New black before a sufficient trailing quiet zone. */
-        p_event->kind          = B3BC_FORMAT;
-        p_event->format_status = CODE39_BAD_QUIET;
-        buddy3_barcode_reset(p_state);
+        p_state->widths[p_state->count]  = edge - p_state->edge_position;
+        p_state->edge_ms[p_state->count] = now;
+        ++p_state->count;
+        p_state->edge_position  = edge;
+        p_state->previous_black = black;
+    }
+
+    if ((p_state->count >= CHAR_ELEMENTS) && !code39_is_star(p_state->widths))
+    {
+        barcode_resync(p_state, p_event, CODE39_BAD_FRAME, now);
         b_event = true;
+    }
+    else if (CODE39_FRAME_ELEMENTS == p_state->count)
+    {
+        b_event = barcode_finish(p_state, p_cfg, p_event);
+    }
+    else if (p_state->position > MAX_TRACK_MM)
+    {
+        /* Bound a missing edge even while the wheels keep moving. */
+        b_event = barcode_abort(p_state, p_event, B3BC_TIMEOUT);
     }
     else
     {
-        if (black != p_state->previous_black)
-        {
-            p_state->widths[p_state->count]  = edge - p_state->edge_position;
-            p_state->edge_ms[p_state->count] = now;
-            ++p_state->count;
-            p_state->edge_position  = edge;
-            p_state->previous_black = black;
-        }
-
-        if (CODE39_FRAME_ELEMENTS == p_state->count)
-        {
-            b_event = barcode_finish(p_state, p_cfg, p_event);
-        }
-        else if (p_state->position > MAX_TRACK_MM)
-        {
-            /* Bound a missing edge even while the wheels keep moving. */
-            b_event = barcode_abort(p_state, p_event, B3BC_TIMEOUT);
-        }
-        else
-        {
-            /* Frame still in progress. */
-        }
+        /* Frame still in progress. */
     }
 
     return b_event;
 }
 
-/* Decode a complete frame.  The geometry is checked first with an
- * unbounded trailing quiet zone; the real quiet zone is then checked so a
- * frame waits while the sensor is still crossing white.  Returns true when
- * an event was produced. */
+/* Report the rejected window, then slide it one bar and gap along and carry
+ * on from the next sample (the trace sees a new frame starting there). */
+static void barcode_resync (buddy3_barcode_decoder_t * p_state,
+                            buddy3_barcode_event_t *   p_event,
+                            code39_status_t status, uint32_t now)
+{
+    uint32_t index = 0u;
+
+    p_event->kind          = B3BC_FORMAT;
+    p_event->format_status = status;
+
+    for (index = RESYNC_SHIFT; index < p_state->count; ++index)
+    {
+        p_state->widths[index - RESYNC_SHIFT]  = p_state->widths[index];
+        p_state->edge_ms[index - RESYNC_SHIFT] = p_state->edge_ms[index];
+    }
+    /* A resync only runs with at least nine elements. */
+    p_state->count         = (uint8_t) (p_state->count - RESYNC_SHIFT);
+    p_state->leading_quiet = 0.0f;
+    p_state->started_ms    = now;
+    p_state->active        = false;
+    p_state->resume        = true;
+}
+
+/* Decode a complete frame the moment its last bar ends: no trailing white
+ * is needed.  A bad frame slides the window along instead of starting over.
+ * Always produces an event. */
 static bool barcode_finish (buddy3_barcode_decoder_t *      p_state,
                             const buddy3_barcode_config_t * p_cfg,
                             buddy3_barcode_event_t *        p_event)
 {
-    code39_result_t result     = {0};
-    code39_status_t status     = CODE39_OK;
-    bool            b_event    = true;
-    bool            b_crossing = false;
+    code39_result_t result = {0};
+    code39_status_t status = CODE39_OK;
 
-    status = code39_decode(p_state->widths, p_state->count,
-                           p_state->leading_quiet, UNBOUNDED_QUIET_MM, &result);
+    status = code39_decode(p_state->widths, p_state->count, UNBOUNDED_QUIET_MM,
+                           UNBOUNDED_QUIET_MM, &result);
     if ((CODE39_OK == status) &&
         ((result.narrow_width < p_cfg->min_element_mm) ||
          (p_state->max_sample_gap >
@@ -265,37 +286,22 @@ static bool barcode_finish (buddy3_barcode_decoder_t *      p_state,
     {
         status = CODE39_BAD_WIDTH;
     }
+
     if (CODE39_OK == status)
     {
-        status = code39_decode(
-            p_state->widths, p_state->count, p_state->leading_quiet,
-            p_state->position - p_state->edge_position, &result);
-        /* Only the trailing quiet zone can fail here: not enough white yet. */
-        b_crossing = (CODE39_BAD_QUIET == status);
-    }
-
-    if (b_crossing)
-    {
-        b_event = false; /* Still crossing white. */
-    }
-    else
-    {
-        p_event->format_status = status;
-        if (CODE39_OK == status)
-        {
-            p_event->kind    = B3BC_VALID;
-            p_event->decoded = result;
-        }
-        else
-        {
-            p_event->kind = B3BC_FORMAT;
-        }
+        p_event->kind           = B3BC_VALID;
+        p_event->format_status  = status;
+        p_event->decoded        = result;
         p_state->active         = false;
         p_state->white_distance = p_state->position - p_state->edge_position;
         p_state->position       = 0.0f;
     }
+    else
+    {
+        barcode_resync(p_state, p_event, status, p_event->ts_ms);
+    }
 
-    return b_event;
+    return true;
 }
 
 /*** end of file ***/

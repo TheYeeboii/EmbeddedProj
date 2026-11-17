@@ -36,7 +36,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
  await page.evaluate(()=>{
   const last=irStreamView.history.last,row=last.row;
   const rows=Array.from({length:4},(_,i)=>[row[0]+i+1,row[1]+(i+1)*10,2000,0,0,0,0,17,2000,2500,0]);
-  window.mockHandlers.message('rover/ir',JSON.stringify({v:1,type:'ir_stream',boot:last.boot,ts_ms:rows.at(-1)[1],lag_ms:0,dropped:0,period_ms:10,white:400,black:600,rows}));
+  window.mockHandlers.message('rover/ir',JSON.stringify({v:1,type:'ir_stream',boot:last.boot,ts_ms:rows.at(-1)[1],lag_ms:0,dropped:0,period_ms:10,white:140,black:210,rows}));
  });
  assert.equal(await page.evaluate(()=>irStreamView.history.records.length),12);
  assert.equal(await page.evaluate(()=>irStreamView.frozen.length),8);
@@ -57,7 +57,8 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.locator('#barcode-visual').screenshot({path:'/private/tmp/continuous-ir-mobile.png'});
  await page.evaluate(()=>window.mockHandlers.close());
- assert.match(await page.locator('[data-ir="live"]').textContent(),/unavailable/);
+ /* A pause or disconnect keeps the last reading on screen. */
+ assert.match(await page.locator('[data-ir="live"]').textContent(),/observed/);
  assert.deepEqual(errors,[]);await browser.close();
  console.log('PASS: actual firmware -> continuous black/white without barcode frames or motion; independent tabs/buffers, partial black, pause/replay, keyboard safety, disconnect and desktop/mobile layout');
 })().catch(e=>{console.error(e);process.exit(1);});

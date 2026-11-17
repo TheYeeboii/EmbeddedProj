@@ -14,9 +14,8 @@
 #include <stdint.h>
 #include "robot_types.h"
 
-#define BUDDY4_PERIOD_MS   (50u)
-#define BUDDY4_STALE_MS    (250u)
-#define BUDDY4_PACKET_SIZE (9u)
+#define BUDDY4_PERIOD_MS (50u)
+#define BUDDY4_STALE_MS  (250u)
 
 /* Terrain (hump) states: 2 bits. */
 #define BUDDY4_FLAT       (0u)
@@ -107,7 +106,8 @@ typedef struct
     uint32_t  started_ms;
     uint32_t  window_ms;        /* speed window start                 */
     uint32_t  rate_ms;          /* turn-rate window start             */
-    uint32_t  lift_ms;          /* last upward push (lift)            */
+    uint32_t  lift_ms;          /* pick-up push ended (landing guard) */
+    uint32_t  land_ms;          /* last landing (re-lift guard)       */
     int16_t   rate_heading_x10; /* heading at the turn-rate window    */
     int8_t    speed_trend;      /* -1 slowing, 0 steady, +1 speeding  */
     uint8_t   history_count;
@@ -115,8 +115,9 @@ typedef struct
     uint8_t   enter_count;
     uint8_t   exit_count;
     uint8_t   rejected_in_row;
-    uint8_t   lift_in_row; /* samples pushed upwards, in a row  */
-    uint8_t   tip_in_row;  /* samples tipped past 45 deg, in a row */
+    uint8_t   lift_in_row;  /* samples pushed upwards, in a row  */
+    uint8_t   tip_in_row;   /* samples tipped past 45 deg, in a row */
+    uint8_t   floor_in_row; /* IR floor samples while lifted      */
     bool      started;
     bool      filter_ready;
     bool      flat_ready;
@@ -124,7 +125,11 @@ typedef struct
     bool      window_open;
     bool      speed_known;
     bool      rate_ready;
-    bool      lift_seen; /* lift_ms is valid                    */
+    bool      airborne;      /* picked up and not yet put down      */
+    bool      push_ended;    /* the pick-up push has died away      */
+    bool      landed;        /* land_ms is valid                    */
+    bool      in_air_seen;   /* all IR black since this lift      */
+    bool      ir_sees_floor; /* any IR sensor sees white (floor)  */
 } buddy4_processor_t;
 
 /**
@@ -135,6 +140,22 @@ typedef struct
  */
 void buddy4_processor_init (buddy4_processor_t *         p_proc,
                             const buddy4_calibration_t * p_cal);
+
+/**
+ * @brief Latest IR evidence for the lift latch: true when any of the three
+ *        IR sensors sees white floor (in the air all of them read black).
+ * @param p_proc       Processor to update.
+ * @param b_sees_floor Any IR sensor sees the floor.
+ */
+void buddy4_processor_set_floor (buddy4_processor_t * p_proc,
+                                 bool                 b_sees_floor);
+
+/**
+ * @brief Treat the rover as put down (e.g. set down on a black area).
+ *        Tipped past 45 degrees still reads as lifted at the next sample.
+ * @param p_proc Processor to update.
+ */
+void buddy4_processor_put_down (buddy4_processor_t * p_proc);
 
 /**
  * @brief Process one sample set.
@@ -154,16 +175,6 @@ void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
                      const int16_t accel[3], float32_t distance_mm,
                      float32_t pivot_mm, bool b_odometry_fresh,
                      bool b_forward_valid);
-
-/**
- * @brief Pack the state into the explicit least-significant-bit-first wire
- *        format.  See docs/BUDDY4_IMU.md for the bit layout.
- * @param p_state State to pack.
- * @param out     Receives BUDDY4_PACKET_SIZE bytes.
- * @return False when a field had to be saturated.
- */
-bool buddy4_pack (const buddy4_imu_state_t * p_state,
-                  uint8_t                    out[BUDDY4_PACKET_SIZE]);
 
 #endif /* BUDDY4_PROCESSING_H */
 

@@ -64,24 +64,22 @@ void buddy5_set_servo_angle (uint8_t angle_deg);
 uint32_t buddy5_measure_cm (uint32_t now_ms);
 
 /**
- * @brief Take a temporary left/right scan measurement.
+ * @brief Take a temporary scan measurement (width sweep, side monitor).
+ * @param p_result Receives how the ping ended; NULL is ignored.
  * @return Distance in centimetres, or BUDDY5_NO_ECHO on timeout.
  *
  * This blocks for at most about 40 ms but deliberately does NOT update the
- * telemetry reading.  The avoidance task uses the returned value only for
- * left/right and opposite-side decisions.
+ * telemetry reading, which stays the forward distance.
  */
-uint32_t buddy5_sample_cm (void);
-
-/** Take one non-telemetry side-scan ping and identify a failure, if any. */
 uint32_t buddy5_sample_with_result_cm (buddy5_ping_result_t * p_result);
 
 /**
  * @brief Copy the latest forward/telemetry reading.
  * @param[out] p_reading Destination structure; NULL is ignored safely.
  *
- * The copy is protected from an interrupt-time update.  Side-scan samples do
- * not change this value, so telemetry remains the front-facing distance.
+ * The reading is written and copied under DI(), so a copy never mixes two
+ * readings.  Side-scan samples do not change this value, so telemetry
+ * remains the front-facing distance.
  */
 void buddy5_get_last (buddy5_reading_t * p_reading);
 

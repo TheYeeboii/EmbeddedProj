@@ -12,7 +12,7 @@
   }
   function valid(d) {
     return d&&d.v===1&&d.type==='ir_stream'&&u32(d.boot)&&u32(d.ts_ms)&&u32(d.lag_ms)&&u32(d.dropped)&&
-      d.period_ms===10&&d.white===400&&d.black===600&&Array.isArray(d.rows)&&d.rows.length>0&&d.rows.length<=4&&
+      d.period_ms===10&&d.white===140&&d.black===210&&Array.isArray(d.rows)&&d.rows.length>0&&d.rows.length<=4&&
       d.rows.every((r,i)=>validRow(r)&&(!i||((r[0]-d.rows[i-1][0])>>>0)===1))&&d.ts_ms===d.rows[d.rows.length-1][1];
   }
   class IRStreamHistory {
@@ -54,7 +54,7 @@
       const check=new IRStreamHistory();
       for(const r of file.records) {
         if(!r||!u32(r.boot)||!u32(r.dropped)||!validRow(r.row)||!gaps.includes(r.gap))throw new Error('Invalid IR observation');
-        if(!check.accept({v:1,type:'ir_stream',boot:r.boot,ts_ms:r.row[1],lag_ms:0,dropped:r.dropped,period_ms:10,white:400,black:600,rows:[r.row]}))
+        if(!check.accept({v:1,type:'ir_stream',boot:r.boot,ts_ms:r.row[1],lag_ms:0,dropped:r.dropped,period_ms:10,white:140,black:210,rows:[r.row]}))
           throw new Error('IR observations are duplicated or out of order');
         if(check.records.length>1&&check.last.gap&&r.gap!==check.last.gap)throw new Error('IR recording conceals a data gap');
       }

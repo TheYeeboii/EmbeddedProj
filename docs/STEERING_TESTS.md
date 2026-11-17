@@ -9,41 +9,39 @@ Stages 1..3 now include straight cross-junction traversal; see
 
 ## Build and flash
 
-From firmware/build_make on this Mac:
-
-```sh
-make CONSOLE=usb_cdc PICO_SDK_PATH=/Users/noahwongnamsuen/.pico-sdk/sdk/2.3.1 -j4
-```
-
-Flash firmware/build_make/mtk3pico_smp0_usb_cdc.uf2.
-This test build has USB serial and no Wi-Fi requirement. It replaces the
-existing firmware on the Pico when flashed. Use your own space-free SDK path
-on other computers (this Makefile does not handle spaces in SDK paths).
+Build and flash the Wi-Fi firmware as in the [README](../README.md): the stage
+and speed commands below come from the dashboard. A USB-only build
+(`make CONSOLE=usb_cdc PICO_SDK_PATH=... -j4`, `mtk3pico_smp0_usb_cdc.uf2`)
+still runs stage 3 from GP21 but cannot take commands. Use a space-free SDK
+path (this Makefile does not handle spaces in SDK paths).
 
 ## Controls
 
 For normal stage-3 operation, no serial commands are required: after flashing,
-press GP21. The boot defaults are stage 3, 35% base PWM and 27 percentage-point curve
+press GP21. The boot defaults are stage 3, 60% base PWM and 27 percentage-point curve
 power. Press GP21 again to stop; a new press after stopping starts a
 fresh run. There is no fixed run-duration cutoff; GP21/stop ends a run.
 
-In the USB serial monitor, send each command with Enter:
+The firmware takes commands only from the dashboard (packed binary MQTT,
+[MQTT_BINARY_FORMAT.md](MQTT_BINARY_FORMAT.md)); the USB console is output
+only. The line speed boxes, Start and Stop are on the dashboard. The stage
+has no button: open the dashboard's browser console (F12) and type
 
-```text
-line_stage 1
-line_speed 35 27
-line_follow
-stop
+```js
+sendCommand('line_stage', { stage: 1 })
+sendCommand('line_speed', { base: 35, turn: 27 })
+sendCommand('line_follow')
+sendCommand('stop')
 ```
 
 line_stage stops all motion before selecting a stage. line_follow explicitly
 starts a new run. Runs continue until stopped or a fault occurs. stop or
-line_stop stops it; GP21 toggles line following.
-JSON equivalent: {"cmd":"line_stage","stage":2}.
+line_stop stops it; GP21 toggles line following. The dashboard's Start button
+sends its line speed boxes first, so set the speed there or start from the
+console.
 
-Stages 1..3 default to observing barcodes without movement. The separate
-barcode_mode 2 command enables immediate actions only after reader calibration;
-see BARCODE_DISTANCE.md and BARCODE_ACTIONS.md.
+While line following in stages 1..3, barcode letters are read; A and C turn
+at the next junction (see BARCODE_DISTANCE.md and BARCODE_ACTIONS.md).
 Existing ultrasonic avoidance remains enabled: use clear
 space, keep hands away from the ultrasonic beam, and distinguish [avoid] logs
 from [steer] logs. On-board safety is not proof that a test is physically safe.
@@ -55,7 +53,7 @@ until the isolated stages have been checked.
 
 ## 1. Verify mapping with wheels lifted
 
-Send line_stage 1, line_speed 35 27, then line_follow.
+Select stage 1 and line speed 35 / 27, then start (see Controls).
 Use black tape under one FRONT sensor at a time; covering a reflective sensor
 with a hand is not necessarily equivalent to a black track.
 
@@ -69,7 +67,7 @@ with a hand is not necessarily equivalent to a black track.
   command straight and commit after 30 ms. Mirror for right.
 - Both-black from startup: try straight crossing; without encoder movement,
   expect a latched stop after 2.5 seconds.
-- After a latched stop, removing tape cannot restart it; send line_follow.
+- After a latched stop, removing tape cannot restart it; start again.
 
 Do not proceed if physical wheel behaviour disagrees with [steer] L/R:
 check motor mapping. If the printed sensor side is wrong, check ADC mapping.
@@ -96,7 +94,7 @@ Record thin/thick line width, sensor gap, base/correction and observed result.
 
 ## 3. Tight-turn escalation, without recovery
 
-Send stop, line_stage 2, line_speed 35 27, line_follow.
+Stop, select stage 2 and line speed 35 / 27, then start.
 First check with wheels lifted: hold left black for 300 ms.
 Expect micro then corner, with left wheel stopped and right at base.
 Mirror for right. A continuously held corner keeps turning while that sensor
@@ -109,7 +107,7 @@ This is a sustained-correction heuristic, not proof of a 90-degree corner.
 
 ## 4. Bounded recovery
 
-Send stop, line_stage 3, line_speed 35 27, line_follow.
+Stop, select stage 3 and line speed 35 / 27, then start.
 After a sustained correction enters corner mode and loses black, it continues
 a one-wheel turn toward that remembered side for at most 1200 ms.
 It must see black again and then both-white for 100 ms before returning to
@@ -134,7 +132,7 @@ BARCODE_DISTANCE.md and BARCODE_ACTIONS.md. Stage 0 selects legacy steering.
 
 A barcode strip along a straight can be used in stage 1 to check that steering
 does not unexpectedly spin the rover, but barcode correctness is a separate
-test. Only re-enable route actions after the steering tests pass.
+test. Try the A/C barcode junction turns only after the steering tests pass.
 
 ## Repeatable host check
 

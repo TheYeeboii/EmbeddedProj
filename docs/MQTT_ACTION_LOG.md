@@ -29,15 +29,17 @@ following, corner/recovery, junction heading correction, manual/dashboard drive,
 barcode moves and obstacle avoidance. A fault/completion stop ends the active
 turn as well.
 
-The fast path only writes a bounded 32-event RAM queue. JSON and network
-mailboxes are handled by the controller task, at most two events per loop
+The fast path only writes a bounded 32-event RAM queue. Packing and the network
+mailbox are handled by the controller task, at most two events per loop
 (about 20 ms without pending commands). No formatting, network calls or blocking
 publication is added to the motor-control critical section.
 
-Topic: rover/actions (non-retained). Event example:
+Topic: rover/actions (non-retained), `DIAGNOSTICS=1` builds only. Each event is
+a 16-byte packed message (type 8, [MQTT_BINARY_FORMAT.md](MQTT_BINARY_FORMAT.md));
+the dashboard decodes it into:
 
 ```json
-{"type":"action","robot_id":"buddy1","seq":1,"ts_ms":4200,"action":"turn_left","direction":"left","source":"pwm","left_pwm":2621,"right_pwm":20316,"dropped":0}
+{"type":"action","seq":1,"ts_ms":4200,"action":"turn_left","direction":"left","source":"pwm","left_pwm":2621,"right_pwm":20316,"dropped":0}
 ```
 
 source is pwm, motion or stop. Requested PWM values use the Buddy 2 API range;
@@ -59,8 +61,9 @@ in the dashboard. This is a live diagnostic stream, not a persistent audit log.
 
 ## Use
 
-1. Rebuild/reflash with your real Wi-Fi configuration and WIFI_MQTT=1.
-   A USB-only UF2 cannot publish to MQTT.
+1. Rebuild/reflash with your real Wi-Fi configuration, WIFI_MQTT=1 and
+   DIAGNOSTICS=1. A USB-only UF2 cannot publish to MQTT, and the default
+   DIAGNOSTICS=0 build leaves this stream out.
 2. Restart/reload the dashboard so action-log.js and the updated app.js load.
 3. Connect to the existing broker. No extra topic configuration is needed:
    the dashboard subscribes to rover/actions automatically.
@@ -76,15 +79,12 @@ robot marks the badge unavailable instead of presenting an old turn as current.
 ## Checks
 
 ```sh
-cc -std=c11 -Wall -Wextra -Werror -I tests/stubs -I firmware/app_program -I firmware/config tests/test_robot_action_log.c -o /tmp/test_robot_action_log
-/tmp/test_robot_action_log
-cc -std=c11 -Wall -Wextra -Werror -I tests/stubs -I firmware/app_program tests/test_buddy2_action_log.c -o /tmp/test_buddy2_action_log
-/tmp/test_buddy2_action_log
-node tests/test_dashboard_actions.cjs
+CC=gcc sh tests/run_ir_diagnostics_tests.sh
 ```
 
-The first check includes the actual queue and publisher and mocks MQTT mailbox
-acceptance. The second runs the real Buddy 2 motion code against fake HAL/kernel
-calls, checking trim, completion and encoder-fault events. The JS check exercises
-the real dashboard renderer against a small DOM fixture, including pause, clear,
+Three of its checks cover this log. `test_robot_action_log.c` runs the actual
+queue and publisher and mocks MQTT mailbox acceptance. `test_buddy2_action_log.c`
+runs the real Buddy 2 motion code against fake HAL/kernel calls, checking trim,
+completion and encoder-fault events. `test_dashboard_actions.cjs` exercises the
+real dashboard renderer against a small DOM fixture, including pause, clear,
 state snapshots, lost messages, reboot and malformed payloads.

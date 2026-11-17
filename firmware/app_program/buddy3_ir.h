@@ -28,8 +28,9 @@
 
 /* TODO: Give the structures below names that start with buddy3_. */
 
-/** Compatibility interface for existing callers; the internal settings are
- *  split into ir_calibration_params_t and line_follow_configs_t. */
+/** Snapshot of the sensor calibration and steering settings
+ *  (buddy3_get_calibration()); the module keeps them split into
+ *  ir_calibration_params_t and line_follow_configs_t. */
 typedef struct
 {
     /* Raw endpoints mapped to 0 and 1000 before inversion. */
@@ -90,10 +91,13 @@ typedef struct
 void buddy3_init (void);
 
 /**
- * @brief Replace the sensor calibration and steering settings.
- * @param p_calibration New settings; NULL is ignored.
+ * @brief Set the line-following speed.  The sensor calibration is not
+ *        changed.
+ * @param base_pwm          Straight-ahead power, 0..BUDDY2_PWM_MAX.
+ * @param proportional_gain Steering gain; times 1000 it is the extra power
+ *                          (PWM) on the outer wheel in a curve.
  */
-void buddy3_set_calibration (const buddy3_calibration_t * p_calibration);
+void buddy3_set_line_speed (int16_t base_pwm, float32_t proportional_gain);
 
 /**
  * @brief Copy the sensor calibration and steering settings.
@@ -162,6 +166,59 @@ void buddy3_clear_line_seen_event (void);
  * @return True if either front sensor has seen black since the last clear.
  */
 bool buddy3_take_line_seen_event (void);
+
+/**
+ * @brief Take the side (barcode) sensor's present reading as white.  The IR
+ *        task averages its next samples and makes them the sensor's white
+ *        level, so the surface under it reads 0.  Ignored when that reading
+ *        is too close to black to be paper.  Runs at power-up as well.
+ */
+void buddy3_zero_barcode_white (void);
+
+/* Sensors buddy3_set_ir_levels() can set (dashboard numbering). */
+#define BUDDY3_LEVELS_BARCODE (0u)
+#define BUDDY3_LEVELS_LEFT    (1u)
+#define BUDDY3_LEVELS_RIGHT   (2u)
+
+/**
+ * @brief Set one IR sensor's white and black raw levels by hand.  The IR
+ *        task applies them at its next line step (the barcode sensor's not
+ *        in the middle of reading a barcode).  For the barcode sensor this
+ *        also replaces any pending white zero.
+ * @param sensor BUDDY3_LEVELS_BARCODE, _LEFT or _RIGHT.
+ * @param white  Raw reading of white paper, 0..4095.
+ * @param black  Raw reading of black, up to 4095 and at least
+ *               BUDDY3_LEVEL_MIN_SPAN above white.
+ * @return True when the levels were accepted.
+ */
+bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black);
+
+/* Least raw difference between the white and black levels. */
+#define BUDDY3_LEVEL_MIN_SPAN (200u)
+/* Largest 12-bit ADC reading. */
+#define BUDDY3_RAW_MAX (4095u)
+
+/* Turns a barcode letter can request at the next junction. */
+#define BUDDY3_TURN_NONE  (0u)
+#define BUDDY3_TURN_LEFT  (1u)
+#define BUDDY3_TURN_RIGHT (2u)
+
+/**
+ * @brief Request a turn at the next junction while line following.  When the
+ *        junction is confirmed, line following stops on it instead of
+ *        crossing straight, and buddy3_take_junction_turn() reports the turn.
+ *        A later call replaces the request; starting line following clears
+ *        it.
+ * @param turn BUDDY3_TURN_NONE, _LEFT or _RIGHT; other values are ignored.
+ */
+void buddy3_set_junction_turn (uint8_t turn);
+
+/**
+ * @brief Take the turn reached at a junction.
+ * @param p_turn Receives BUDDY3_TURN_LEFT or BUDDY3_TURN_RIGHT.
+ * @return True when line following stopped on a junction for a turn.
+ */
+bool buddy3_take_junction_turn (uint8_t * p_turn);
 
 /**
  * @brief Take the oldest unread barcode event.

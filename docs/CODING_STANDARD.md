@@ -19,6 +19,18 @@ CLANG_FORMAT=clang-format tools/barr_c_format.sh   # format everything
 python3 tools/barr_c_check.py                      # list what is left
 ```
 
+A Windows laptop usually has no clang-format on `PATH`, but the VS Code C/C++
+extension ships one:
+
+```sh
+CLANG_FORMAT="$(ls -d ~/.vscode/extensions/ms-vscode.cpptools-*-win32-x64 | tail -1)/LLVM/bin/clang-format.exe" tools/barr_c_format.sh
+```
+
+The checker's naming (7.1) and comma (8.1.a) findings are mostly false
+positives: continuation lines of parameter lists, macro names in
+initialisers, and public struct members (a deviation below). The other rules
+are worth reading one by one.
+
 ## What the code follows
 
 - Layout (1.2, 1.3, 3.1-3.6): 80 columns, Allman braces on every block, one
@@ -30,7 +42,8 @@ python3 tools/barr_c_check.py                      # list what is left
   `else if` chain ends with `else` (8.2.d); infinite loops are `for (;;)`.
 - Functions under 100 lines (6.2.a): the large state machines were split into
   named helpers (`buddy3_update`, `buddy5_avoidance_task`,
-  `robot_controller_handle_command`, `buddy2_update`, the hump detector).
+  `robot_controller_handle_command`, `buddy2_update`, `telemetry_task`, the
+  hump detector).
 - Single exit point (6.2.c) in our functions.
 - Naming (6.1, 7.1): file-scope data `g_`, pointers `p_`/`pp_`, booleans `b_`,
   no names shorter than 3 characters, tasks end in `_task`, interrupt and
@@ -71,11 +84,10 @@ python3 tools/barr_c_check.py                      # list what is left
 
 ## Known test status
 
-- `tests/test_buddy3_ir_junction.c` fails at line 102 because it expects the
-  barcode reader to start unconfigured, but `BUDDY3_BARCODE_MIN_ELEMENT_MM`
-  now defaults to 3 mm (decode by default). It passes completely when built
-  with `-DBUDDY3_BARCODE_MIN_ELEMENT_MM=0.0f`. The test expectation needs
-  updating to the new default.
-- `tests/test_buddy5_avoidance.c` is not part of the test scripts and already
-  failed before the standards work (its expected arc PWM values are out of
-  date).
+- Both test scripts pass completely: `CC=gcc sh tests/run_barcode_tests.sh`
+  and `CC=gcc sh tests/run_ir_diagnostics_tests.sh` (Git Bash on Windows, or
+  any POSIX shell).
+- `tests/test_buddy5_avoidance.c` is not part of the scripts and fails: it
+  drives the whole avoidance route as it was before the obstacle width sweep.
+  `tests/test_buddy5_line_return.c` covers the return to the line; the full
+  route still needs a new test.

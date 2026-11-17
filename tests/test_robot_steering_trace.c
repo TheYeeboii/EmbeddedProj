@@ -46,6 +46,11 @@ int main (void)
 {
     robot_steering_event_t event = {0}, out;
     robot_diagnostics_init(123);
+    /* Lag: a record stamped just after "now" was read is 0 ms old (it must
+     * not wrap to 65535 and blank the live view); the tick wrap still works. */
+    assert(10u == diag_lag(100u, 90u) && 0u == diag_lag(100u, 100u));
+    assert(0u == diag_lag(100u, 101u) && 0u == diag_lag(100u, 102u));
+    assert(10u == diag_lag(5u, UINT32_MAX - 4u));
     robot_steering_owner(TRACE_MANUAL);
     event.requested[1] = 2000;
     event.applied[1]   = 800;

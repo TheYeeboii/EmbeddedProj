@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict');
 const {IRStreamHistory,valid,viewport}=require('../dashboard/ir-stream-model.js');
 const row=(seq,time,black=0,flags=17)=>[seq,time,black?2500:2000,black?1000:0,black,0,0,flags,2000,2500,0];
-const packet=(rows,extra={})=>({v:1,type:'ir_stream',boot:7,ts_ms:rows.at(-1)[1],lag_ms:0,dropped:0,period_ms:10,white:400,black:600,rows,...extra});
+const packet=(rows,extra={})=>({v:1,type:'ir_stream',boot:7,ts_ms:rows.at(-1)[1],lag_ms:0,dropped:0,period_ms:10,white:140,black:210,rows,...extra});
 const h=new IRStreamHistory();
 assert(h.accept(packet([row(1,10),row(2,20,1),row(3,30,1),row(4,40)]),40));
 assert.equal(h.live.row[4],0);

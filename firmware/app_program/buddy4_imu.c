@@ -13,6 +13,7 @@
 
 #include "app_main.h"
 #include "buddy2_motion.h"
+#include "buddy3_ir.h"
 #include "buddy4_imu.h"
 #include "comms.h"
 #include "pin_config.h"
@@ -57,6 +58,7 @@ static buddy4_processor_t   g_processor;
 static buddy4_calibration_t g_pending_cal;
 static bool                 g_b_cal_pending      = false;
 static bool                 g_b_reset_pending    = false;
+static bool                 g_b_put_down_pending = false;
 static bool                 g_b_stats_cleared    = false; /* IMU task only */
 static bool                 g_b_mag_configured   = false;
 static bool                 g_b_accel_configured = false;
@@ -97,6 +99,9 @@ void buddy4_update (uint32_t now_ms)
     bool                  b_accel_read       = false;
     bool                  b_odometry_fresh   = false;
     bool                  b_forward          = false;
+    bool                  b_left_black       = false;
+    bool                  b_right_black      = false;
+    bool                  b_side_black       = false;
     buddy2_motion_state_t motion             = {0};
     UINT                  interrupt_state    = 0u;
 
@@ -122,6 +127,10 @@ void buddy4_update (uint32_t now_ms)
     b_odometry_fresh = ((now_ms - motion.timestamp_ms) <= BUDDY4_STALE_MS);
     b_forward        = b_odometry_fresh && (motion.left_speed_mm_s > 0.0f) &&
                        (motion.right_speed_mm_s > 0.0f);
+    /* Lift latch: lifted off the floor, all three IR sensors read black. */
+    buddy3_get_colors(&b_left_black, &b_right_black, &b_side_black);
+    buddy4_processor_set_floor(
+        &g_processor, !(b_left_black && b_right_black && b_side_black));
     buddy4_process(&g_processor, now_ms, b_mag_read, mag, b_accel_read, accel,
                    (motion.left_distance_mm + motion.right_distance_mm) * 0.5f,
                    (motion.right_distance_mm - motion.left_distance_mm) * 0.5f,
@@ -204,11 +213,25 @@ void buddy4_reset_run (void)
     EI(interrupt_state);
 }
 
+void buddy4_clear_lift (void)
+{
+    UINT interrupt_state = 0u;
+
+    /* Clear the shared copy now so the controller's next check does not
+     * stop the move it was just told to start; the IMU task clears its
+     * own latch at the next update (an overturned rover reads lifted
+     * again then). */
+    DI(interrupt_state);
+    g_b_put_down_pending = true;
+    g_state.lifted       = 0u;
+    EI(interrupt_state);
+}
+
 void buddy4_task (int32_t stacd, void * p_exinf)
 {
-    uint32_t reported_hump   = 0u;
-    uint32_t reported_lift   = 0u;
-    uint32_t last_report_ms  = 0u;
+    uint32_t reported_hump  = 0u;
+    uint32_t reported_lift  = 0u;
+    uint32_t last_report_ms = 0u;
 
     (void) stacd;
     (void) p_exinf;
@@ -249,9 +272,9 @@ void buddy4_task (int32_t stacd, void * p_exinf)
                 tm_printf((UB *) "[imu] lifted or overturned, count=%u\n",
                           (UINT) state.lift_count);
             }
-            reported_hump   = state.hump_sequence;
-            reported_lift   = state.lift_count;
-            last_report_ms  = start_ms;
+            reported_hump  = state.hump_sequence;
+            reported_lift  = state.lift_count;
+            last_report_ms = start_ms;
         }
         elapsed_ms = app_now_ms() - start_ms;
         /* The remaining delay is below BUDDY4_PERIOD_MS, so it fits RELTIM;
@@ -331,15 +354,23 @@ static void buddy4_apply_pending (void)
     buddy4_calibration_t cal             = {0};
     bool                 b_apply_cal     = false;
     bool                 b_apply_reset   = false;
+    bool                 b_put_down      = false;
     UINT                 interrupt_state = 0u;
 
     DI(interrupt_state);
-    b_apply_cal       = g_b_cal_pending;
-    b_apply_reset     = g_b_reset_pending;
-    cal               = g_pending_cal;
-    g_b_cal_pending   = false;
-    g_b_reset_pending = false;
+    b_apply_cal          = g_b_cal_pending;
+    b_apply_reset        = g_b_reset_pending;
+    cal                  = g_pending_cal;
+    g_b_cal_pending      = false;
+    g_b_reset_pending    = false;
+    b_put_down           = g_b_put_down_pending;
+    g_b_put_down_pending = false;
     EI(interrupt_state);
+
+    if (b_put_down)
+    {
+        buddy4_processor_put_down(&g_processor);
+    }
 
     if (b_apply_cal)
     {

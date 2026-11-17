@@ -29,7 +29,7 @@
 /** Motor trim, percent of the commanded PWM.  Lower the FASTER motor until
  *  the robot drives straight.  Change at run time with buddy2_set_trim();
  *  copy the tuned values here so they survive a reboot. */
-#define BUDDY2_TRIM_DEFAULT_LEFT  (100u)
+#define BUDDY2_TRIM_DEFAULT_LEFT  (83u) /* tuned: left motor is faster */
 #define BUDDY2_TRIM_DEFAULT_RIGHT (100u)
 #define BUDDY2_TRIM_MIN           (50u)
 
@@ -38,7 +38,7 @@
  *  *_at_speed() calls use their own percentage instead (obstacle avoidance
  *  uses them so the limit cannot starve its moves).
  *  Change at run time with buddy2_set_speed_limit(). */
-#define BUDDY2_SPEED_DEFAULT (40u)
+#define BUDDY2_SPEED_DEFAULT (60u)
 #define BUDDY2_SPEED_MIN     (20u)
 
 /** How often buddy2_update() must be called. */

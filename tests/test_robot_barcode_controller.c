@@ -16,18 +16,28 @@ static bool     g_b_manual_scan;
 static uint8_t  g_stage = 1;
 static uint8_t  g_event;
 static uint8_t  g_servo_angle = 90;
-static char     g_serial_log[512];
+static char     g_serial_log[4096];
 static unsigned g_starts;
 static unsigned g_stops;
 static unsigned g_lefts;
 static unsigned g_rights;
 static unsigned g_forwards;
+static uint8_t  g_turn_request;
+static uint8_t  g_turn_reached;
 int             tm_printf (const unsigned char * fmt, ...)
 {
+    /* Keep every line since the last clear: one step can print twice. */
     va_list args;
+    size_t  used = strlen(g_serial_log);
+
+    if (used > (sizeof(g_serial_log) - 256u))
+    {
+        used            = 0u;
+        g_serial_log[0] = 0;
+    }
     va_start(args, fmt);
-    int written =
-        vsnprintf(g_serial_log, sizeof(g_serial_log), (const char *) fmt, args);
+    int written = vsnprintf(&g_serial_log[used], sizeof(g_serial_log) - used,
+                            (const char *) fmt, args);
     va_end(args);
     return written;
 }
@@ -38,6 +48,13 @@ void hal_gpio_input_pullup (uint32_t pin)
 static bool g_b_lifted;
 void        buddy4_reset_run (void)
 {
+}
+/* A new start asks Buddy 4 to end a lift latch.  The stub leaves
+ * g_b_lifted alone: an overturned rover reads lifted again at once. */
+static unsigned g_lift_clears;
+void            buddy4_clear_lift (void)
+{
+    ++g_lift_clears;
 }
 void buddy4_get_state (buddy4_imu_state_t * p_state)
 {
@@ -107,7 +124,7 @@ bool buddy2_turn_right (float32_t angle_deg, int16_t pwm)
 }
 bool buddy2_move_forward (float32_t distance_mm, int16_t pwm)
 {
-    assert(300.0f == distance_mm);
+    assert(ROBOT_JUNCTION_AXLE_MM == distance_mm);
     (void) pwm;
     ++g_forwards;
     g_b_motion = g_b_accept_move;
@@ -144,6 +161,39 @@ bool buddy3_take_barcode (buddy3_barcode_event_t * p_event)
     g_event                       = 0;
     return result;
 }
+static unsigned g_zeros;
+static uint8_t  g_level_sensor;
+static uint16_t g_white_level;
+static uint16_t g_black_level;
+bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black)
+{
+    bool b_ok = (sensor <= 2u) && (white < black) &&
+                (((uint32_t) black - white) >= 200u);
+
+    if (b_ok)
+    {
+        g_level_sensor = sensor;
+        g_white_level  = white;
+        g_black_level  = black;
+    }
+    return b_ok;
+}
+void buddy3_zero_barcode_white (void)
+{
+    ++g_zeros;
+}
+void buddy3_set_junction_turn (uint8_t turn)
+{
+    g_turn_request = turn;
+}
+bool buddy3_take_junction_turn (uint8_t * p_turn)
+{
+    bool b_taken = (0u != g_turn_reached);
+
+    *p_turn        = g_turn_reached;
+    g_turn_reached = 0u;
+    return b_taken;
+}
 void buddy3_set_test_stage (uint8_t stage)
 {
     g_stage = stage;
@@ -167,9 +217,12 @@ void buddy3_get_calibration (buddy3_calibration_t * p_cal)
     buddy3_calibration_t calibration = {0};
     *p_cal                           = calibration;
 }
-void buddy3_set_calibration (const buddy3_calibration_t * p_cal)
+static int16_t   g_line_base_pwm;
+static float32_t g_line_gain;
+void             buddy3_set_line_speed (int16_t base_pwm, float32_t gain)
 {
-    (void) p_cal;
+    g_line_base_pwm = base_pwm;
+    g_line_gain     = gain;
 }
 
 static void reset (void)
@@ -188,6 +241,8 @@ static void reset (void)
     robot_fault_update(ROBOT_FAULT_ALL, 0u);
     g_starts = g_stops = g_lefts = g_rights = g_forwards = 0;
     g_event                                              = 0;
+    g_turn_request                                       = 0;
+    g_turn_reached                                       = 0;
     g_b_encoder_fault                                    = false;
     g_servo_angle                                        = 90;
     g_serial_log[0]                                      = 0;
@@ -199,28 +254,31 @@ typedef struct
 {
     const char * p_name;
     uint8_t      opcode;
-    uint8_t      widths[2];
+    uint8_t      widths[4];
     int32_t      offset;
 } test_command_t;
 
 static const test_command_t g_test_commands[] = {
-    {"stop", ROBOT_WIRE_OP_STOP, {0u, 0u}, 0},
+    {"stop", ROBOT_WIRE_OP_STOP, {0u}, 0},
+    {"reset_all", ROBOT_WIRE_OP_RESET_ALL, {0u, 0u}, 0},
     {"preset", ROBOT_WIRE_OP_DRIVE_PRESET, {2u, 0u}, 0},
     {"line_follow", ROBOT_WIRE_OP_LINE_FOLLOW, {0u, 0u}, 0},
     {"line_stop", ROBOT_WIRE_OP_LINE_STOP, {0u, 0u}, 0},
     {"servo_angle", ROBOT_WIRE_OP_SERVO_ANGLE, {8u, 0u}, 0},
-    {"barcode_mode", ROBOT_WIRE_OP_BARCODE_MODE, {1u, 0u}, 0},
+    {"barcode_mode", ROBOT_WIRE_OP_BARCODE_MODE, {1u, 2u, 12u, 12u}, 0},
     {"line_stage", ROBOT_WIRE_OP_LINE_STAGE, {2u, 0u}, 0},
+    {"line_speed", ROBOT_WIRE_OP_LINE_SPEED, {7u, 6u}, 0},
     {"motor_trim", ROBOT_WIRE_OP_MOTOR_TRIM, {6u, 6u}, 50}};
 
 static void command (const char * c, uint32_t now_ms)
 {
     char                  name[24]  = {0};
-    int                   values[2] = {0, 0};
+    int                   values[4] = {0, 0, 0, 0};
     uint8_t               packed[ROBOT_WIRE_COMMAND_MAX];
     robot_packed_writer_t writer;
     size_t                entry = 0u;
-    int  count  = sscanf(c, "%23s %d %d", name, &values[0], &values[1]);
+    int  count  = sscanf(c, "%23s %d %d %d %d", name, &values[0], &values[1],
+                         &values[2], &values[3]);
     bool b_fits = true;
 
     while (0 != strcmp(name, g_test_commands[entry].p_name))
@@ -231,12 +289,13 @@ static void command (const char * c, uint32_t now_ms)
     robot_packed_writer_init(&writer, packed, sizeof(packed));
     robot_packed_put(&writer, g_test_commands[entry].opcode, 4u);
     for (int index = 0;
-         (index < 2) && (0u != g_test_commands[entry].widths[index]); index++)
+         (index < 4) && (0u != g_test_commands[entry].widths[index]); index++)
     {
         int32_t  value = values[index] - g_test_commands[entry].offset;
         uint32_t width = g_test_commands[entry].widths[index];
 
-        assert(count > (index + 1));
+        /* Missing trailing values are sent as 0. */
+        assert((count > (index + 1)) || (index > 0));
         b_fits = b_fits && (value >= 0) && ((uint32_t) value < (1u << width));
         robot_packed_put(&writer, (uint32_t) value, width);
     }
@@ -246,6 +305,24 @@ static void command (const char * c, uint32_t now_ms)
                                         now_ms);
     }
 }
+/* Line speed in percent of full power sets only Buddy 3's steering
+ * settings; an out-of-range value changes nothing; reset_all restores the
+ * boot speed (60 % straight, 27 % extra on curves). */
+static void test_line_speed (void)
+{
+    reset();
+    command("line_speed 40 10", 0);
+    assert(13106 == g_line_base_pwm); /* 40 % of 32767 */
+    assert((g_line_gain > 3.27f) && (g_line_gain < 3.28f));
+    command("line_speed 90 10", 0); /* Above the 80 % limit. */
+    assert(13106 == g_line_base_pwm);
+    command("line_speed 40 61", 0); /* Above the 60 % curve limit. */
+    assert((g_line_gain > 3.27f) && (g_line_gain < 3.28f));
+    command("reset_all", 0);
+    assert(19660 == g_line_base_pwm); /* 60 % */
+    assert((g_line_gain > 8.84f) && (g_line_gain < 8.85f));
+}
+
 /* Change Requirement 1: mode and run flags share one locked byte. */
 static void test_packed_state (void)
 {
@@ -277,8 +354,12 @@ static void test_manual_barcode (void)
     command("preset 1", 1200); /* reverse */
     assert(!g_b_manual_scan);
     command("preset 0", 1500);
-    command("stop", 1600);
+    command("stop", 1600); /* releasing W only pauses the scan */
+    assert(g_b_manual_scan);
+    g_zeros = 0u;
+    command("reset_all", 1650);
     assert(!g_b_manual_scan);
+    assert(1u == g_zeros); /* Reset takes the present surface as white. */
     command("preset 0", 1700);
     command("line_follow", 1800); /* line following reads barcodes itself */
     assert(!g_b_manual_scan && g_b_following);
@@ -330,8 +411,10 @@ static void test_lifted_stop (void)
     robot_controller_step(50);
     assert(!g_b_following && (ROBOT_MODE_IDLE == robot_ctl_mode()));
     /* Still overturned: a new drive is stopped at the next step. */
-    g_b_lifted = true;
+    g_b_lifted    = true;
+    g_lift_clears = 0u;
     command("preset 0", 60);
+    assert(1u == g_lift_clears); /* a new drive ends a lift latch */
     assert(ROBOT_MODE_DRIVE == robot_ctl_mode());
     robot_controller_step(70);
     assert(ROBOT_MODE_IDLE == robot_ctl_mode());
@@ -345,12 +428,108 @@ static void test_lifted_stop (void)
     assert(!g_b_motion);
 }
 
+/* Barcode sensor levels from the dashboard: applied at any time (even
+ * while line following); both 0 leaves them alone; a bad pair is refused. */
+static void test_barcode_levels (void)
+{
+    reset();
+    g_white_level = g_black_level = 0u;
+    command("line_follow", 0);
+    command("barcode_mode 1 0 1300 3900", 10);
+    assert(0u == g_level_sensor && 1300u == g_white_level &&
+           3900u == g_black_level);
+    assert(g_b_following && 1 == g_barcode_mode); /* Run not disturbed. */
+    command("barcode_mode 1", 20);
+    assert(1300u == g_white_level && 3900u == g_black_level);
+    command("barcode_mode 1 2 250 3000", 25); /* Right line sensor. */
+    assert(2u == g_level_sensor && 250u == g_white_level);
+    g_white_level = 1300u;
+    command("barcode_mode 1 0 3000 3100", 30);
+    assert(1300u == g_white_level && strstr(g_serial_log, "rejected"));
+    /* A mode change still needs the rover stopped. */
+    command("barcode_mode 0", 40);
+    assert(1 == g_barcode_mode);
+    command("stop", 50);
+    command("barcode_mode 0", 60);
+    assert(0 == g_barcode_mode);
+}
+
+/* Barcode letters: A turns left and C right at the next junction; any
+ * other letter means straight on, and the latest letter wins. */
+static void test_barcode_turns (void)
+{
+    reset();
+    command("line_follow", 0);
+    g_event = 'A';
+    robot_controller_step(10);
+    assert(BUDDY3_TURN_LEFT == g_turn_request &&
+           strstr(g_serial_log, "A: turn left"));
+    g_event = 'F';
+    robot_controller_step(20);
+    assert(BUDDY3_TURN_NONE == g_turn_request);
+    g_event = 'C';
+    robot_controller_step(30);
+    assert(BUDDY3_TURN_RIGHT == g_turn_request);
+    assert(0u == (g_lefts + g_rights + g_forwards)); /* Nothing until then. */
+
+    /* Buddy 3 stops on the junction and hands over the turn. */
+    g_b_following  = false;
+    g_turn_reached = BUDDY3_TURN_RIGHT;
+    robot_controller_step(40);
+    assert(1u == g_forwards && (ROBOT_MODE_MOTION == robot_ctl_mode()));
+    robot_controller_step(50); /* Still moving: nothing new. */
+    assert(1u == g_forwards && 0u == g_rights);
+    g_b_motion = false; /* Wheels now over the junction. */
+    robot_controller_step(60);
+    assert(1u == g_rights && 0u == g_lefts && 1u == g_starts);
+    g_b_motion = false; /* Turn done: line following again. */
+    robot_controller_step(70);
+    assert(2u == g_starts && g_b_following &&
+           (ROBOT_MODE_LINE == robot_ctl_mode()));
+    robot_controller_step(80);
+    assert(2u == g_starts && 1u == g_rights);
+
+    /* Left turn; an encoder fault after the forward move stops it. */
+    reset();
+    command("line_follow", 0);
+    g_b_following  = false;
+    g_turn_reached = BUDDY3_TURN_LEFT;
+    robot_controller_step(10);
+    g_b_motion        = false;
+    g_b_encoder_fault = true;
+    robot_controller_step(20);
+    assert(0u == g_lefts && (ROBOT_MODE_IDLE == robot_ctl_mode()));
+    assert(strstr(g_serial_log, "encoder fault"));
+
+    /* Letters read outside line following never set a turn. */
+    reset();
+    command("preset 0", 0);
+    g_event = 'A';
+    robot_controller_step(10);
+    assert(BUDDY3_TURN_NONE == g_turn_request);
+
+    /* GP21 stop during the turn ends it. */
+    reset();
+    command("line_follow", 0);
+    g_b_following  = false;
+    g_turn_reached = BUDDY3_TURN_LEFT;
+    robot_controller_step(10);
+    command("stop", 20);
+    g_b_motion = false;
+    robot_controller_step(30);
+    assert(0u == g_lefts && 1u == g_starts &&
+           (ROBOT_MODE_IDLE == robot_ctl_mode()));
+}
+
 int main (void)
 {
+    test_line_speed();
     test_packed_state();
     test_manual_barcode();
     test_link_loss();
     test_lifted_stop();
+    test_barcode_turns();
+    test_barcode_levels();
     reset();
     command("servo_angle 135", 0);
     assert(135 == g_servo_angle);
@@ -378,7 +557,7 @@ int main (void)
         g_event = (uint8_t) letter;
         robot_controller_step(90);
         assert(g_b_following && 1 == g_starts &&
-               g_lefts + g_rights + g_forwards == 0);
+               (0u == (g_lefts + g_rights + g_forwards)));
         assert(strstr(g_serial_log, "Decoded:") &&
                strstr(g_serial_log, "reverse"));
         robot_controller_step(110);
@@ -393,7 +572,7 @@ int main (void)
     command("line_follow", 0);
     g_event = 1;
     robot_controller_step(10);
-    assert(g_b_following && g_lefts + g_rights + g_forwards == 0 &&
+    assert(g_b_following && (0u == (g_lefts + g_rights + g_forwards)) &&
            strstr(g_serial_log, "rejected"));
     reset();
     command("barcode_mode 0", 0);
@@ -402,16 +581,17 @@ int main (void)
     g_event         = 'F';
     robot_controller_step(10);
     assert(!g_event && !strstr(g_serial_log, "Decoded:"));
-    assert(g_b_following && g_lefts + g_rights + g_forwards == 0);
+    assert(g_b_following && (0u == (g_lefts + g_rights + g_forwards)));
     command("stop", 20);
     assert(!g_b_following);
     reset();
     command("line_follow", 0);
     assert(robot_controller_begin_obstacle_avoidance());
     assert(!g_b_following && robot_controller_obstacle_avoidance_active());
-    puts("PASS: read-only letters, rejection logs, mode gate, servo commands, "
-         "GP21 start/stop, avoidance handoff, packed state, manual barcode, "
-         "Wi-Fi-loss stop");
+    puts("PASS: letters move nothing until a junction, rejection logs, mode "
+         "gate, servo commands, GP21 start/stop, avoidance handoff, "
+         "packed state, manual barcode, Wi-Fi-loss stop, A/C junction "
+         "turns, sensor levels, line speed");
     return 0;
 }
 

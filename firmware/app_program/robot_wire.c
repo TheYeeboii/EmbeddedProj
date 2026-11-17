@@ -44,6 +44,8 @@
 #define WIRE_BITS_PRESET    (2u)
 #define WIRE_BITS_DRIVE     (16u)
 #define WIRE_BITS_BC_MODE   (1u)
+#define WIRE_BITS_BC_LEVEL  (12u)
+#define WIRE_BITS_BC_SENSOR (2u)
 #define WIRE_BITS_BC_ELEM   (10u)
 #define WIRE_BITS_BC_OFFSET (10u)
 #define WIRE_BITS_STAGE     (2u)
@@ -74,7 +76,7 @@ static const uint8_t g_command_length[] = {
     2u, /* 9  motor trim: 4 + 6 + 6 bits */
     2u, /* 10 speed limit: 4 + 7 bits */
     2u, /* 11 servo angle: 4 + 8 bits */
-    1u, /* 12 barcode mode: 4 + 1 bits */
+    4u, /* 12 barcode mode: 4 + 1 + 2 + 12 + 12 bits (mode, sensor, levels) */
     3u, /* 13 barcode config: 4 + 10 + 10 bits */
     1u, /* 14 line stage: 4 + 2 bits */
     3u  /* 15 line speed: 4 + 7 + 6 bits */
@@ -237,7 +239,7 @@ bool robot_wire_decode_command (const uint8_t * p_data, uint32_t length,
                                 robot_wire_command_t * p_command)
 {
     robot_packed_reader_t reader  = {NULL, 0u, 0u, false};
-    robot_wire_command_t  decoded = {0u, {0, 0}};
+    robot_wire_command_t  decoded = {0u, {0, 0, 0, 0}};
     uint32_t              opcode  = 0u;
     bool                  b_valid = false;
 
@@ -262,8 +264,8 @@ bool robot_wire_decode_command (const uint8_t * p_data, uint32_t length,
     return b_valid;
 }
 
-/* Read the arguments of p_command->opcode.  The ranges each field allows are
- * checked again by the controller, which reports a rejected value. */
+/* Read the arguments of p_command->opcode.  The range each value allows is
+ * checked by the controller, which reports a rejected value. */
 static void wire_read_arguments (robot_packed_reader_t * p_reader,
                                  robot_wire_command_t *  p_command)
 {
@@ -305,6 +307,14 @@ static void wire_read_arguments (robot_packed_reader_t * p_reader,
         case ROBOT_WIRE_OP_BARCODE_MODE:
             p_command->values[0] =
                 (int32_t) robot_packed_get(p_reader, WIRE_BITS_BC_MODE);
+            /* Which IR sensor (0 barcode, 1 left, 2 right), then its
+             * white and black raw levels; both 0 = unchanged. */
+            p_command->values[1] =
+                (int32_t) robot_packed_get(p_reader, WIRE_BITS_BC_SENSOR);
+            p_command->values[2] =
+                (int32_t) robot_packed_get(p_reader, WIRE_BITS_BC_LEVEL);
+            p_command->values[3] =
+                (int32_t) robot_packed_get(p_reader, WIRE_BITS_BC_LEVEL);
         break;
 
         case ROBOT_WIRE_OP_BARCODE_CONFIG:

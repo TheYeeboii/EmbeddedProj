@@ -4,11 +4,15 @@
  *
  * Takes the old main.c superloop logic and puts it in one place:
  *   - packed commands from the dashboard (MQTT "rover/commands"),
- *   - barcode diagnostics (letters and rejected reads),
+ *   - barcode letters (printed; A and C turn at the next junction) and
+ *     rejected reads,
  *   - the GP21 button (start / stop line following),
- *   - the safety stop for raw "drive" commands that are not refreshed.
+ *   - the safety stops: raw "drive" commands that are not refreshed, lost
+ *     Wi-Fi while line following, and a lifted or overturned rover.
  *
- * Called only from the controller task (app_main.c).
+ * Called from the controller task (app_main.c), except the
+ * robot_controller_*obstacle*() functions, which Buddy 5's avoidance task
+ * calls.
  */
 
 #ifndef ROBOT_CONTROLLER_H

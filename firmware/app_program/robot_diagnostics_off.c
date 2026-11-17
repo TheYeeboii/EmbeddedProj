@@ -10,9 +10,9 @@
  *   robot_ir_stream.c       (rover/ir)
  *   robot_diagnostics_mqtt.c (publishes all four)
  *
- * Those modules only record what the robot did and send it as JSON; no
- * control code reads anything back from them.  So the motor, line and
- * barcode code keeps calling the same functions, and here they do nothing.
+ * Those modules only record what the robot did and send it as packed
+ * binary; no control code reads anything back from them.  So the motor, line
+ * and barcode code keeps calling the same functions, and here they do nothing.
  * The demo build then sends only the packed binary messages (Change
  * Requirement 1) and saves the trace buffers' RAM.  Build with
  * DIAGNOSTICS=1 to get the streams back for tuning.

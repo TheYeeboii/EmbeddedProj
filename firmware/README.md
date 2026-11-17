@@ -4,7 +4,7 @@
 
 ```sh
 make          # single core  (default)
-make DIAGNOSTICS=1   # robot: add the JSON tuning streams (rover/actions, steering, barcode, ir)
+make DIAGNOSTICS=1   # robot: add the binary tuning streams (rover/actions, steering, barcode, ir)
 make SMP=1    # dual-core SMP
 ```
 

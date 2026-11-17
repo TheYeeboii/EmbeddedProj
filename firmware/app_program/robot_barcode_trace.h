@@ -39,7 +39,7 @@ typedef enum
     BARCODE_STATE_SUSPENDED
 } robot_barcode_state_t;
 
-/** One 10 ms reader input, as seen by the trace. */
+/** One reader input (a 2 ms side-sensor sample), as seen by the trace. */
 typedef struct
 {
     uint32_t ts_ms;
@@ -84,7 +84,7 @@ typedef enum
     BC_PACKET_STATE
 } robot_barcode_packet_type_t;
 
-/** One packet ready for JSON formatting. */
+/** One packet ready to be packed (robot_diagnostics_mqtt.c). */
 typedef struct
 {
     uint32_t               scan;

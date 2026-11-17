@@ -155,7 +155,7 @@ typedef struct
 typedef struct
 {
     uint8_t opcode;    /**< ROBOT_WIRE_OP_*. */
-    int32_t values[2]; /**< Arguments in their native units. */
+    int32_t values[4]; /**< Arguments in their native units. */
 } robot_wire_command_t;
 
 /**
@@ -199,8 +199,9 @@ uint32_t robot_wire_encode_imu (const robot_wire_imu_t * p_values,
  * @brief Decode and check one command from the dashboard.
  *
  * Accepted only when the opcode is known, the length is exactly the one that
- * opcode needs, every value is inside its valid range, and the padding bits
- * after the last value are zero.
+ * opcode needs, and the padding bits after the last value are zero.  The
+ * values are returned as sent: the controller checks each one's range and
+ * reports a rejected value.
  *
  * @param p_data    Received bytes.
  * @param length    Number of received bytes.

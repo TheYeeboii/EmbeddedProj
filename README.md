@@ -7,9 +7,11 @@ telemetry over Wi-Fi (MQTT) to a browser dashboard.
 
 ## Repository layout
 
-Steering decisions now appear in the dashboard's **Steering actions** log via
-`rover/actions`. See [MQTT_ACTION_LOG.md](docs/MQTT_ACTION_LOG.md) for the event
-format, Wi-Fi build requirements and verification steps.
+The robot and the dashboard exchange packed binary MQTT messages; the layouts
+are in [MQTT_BINARY_FORMAT.md](docs/MQTT_BINARY_FORMAT.md). Tuning builds
+(`DIAGNOSTICS=1`) add four diagnostic streams for the dashboard's evidence
+views, such as the **Steering actions** log
+([MQTT_ACTION_LOG.md](docs/MQTT_ACTION_LOG.md)).
 
 | Folder | What it is |
 |---|---|
@@ -20,7 +22,8 @@ format, Wi-Fi build requirements and verification steps.
 | other `firmware/` folders | The micro T-Kernel itself (kernel, headers, libraries, drivers). Leave alone. |
 | `dashboard/` | Browser dashboard (runs on the laptop). |
 | `docs/` | Per-buddy design, calibration and test notes. |
-| `tools/` | Mosquitto (MQTT broker) config for the laptop. |
+| `tests/` | Host tests: they run on the laptop, no robot needed. |
+| `tools/` | Mosquitto (MQTT broker) config for the laptop; BARR-C formatter and checker. |
 
 ## Code in `firmware/app_program/`
 
@@ -31,12 +34,18 @@ the few deliberate deviations.
 | File | Buddy | What it does |
 |---|---|---|
 | `app_main.c/.h` | all | `usermain()`: initialises everything and creates the tasks |
-| `robot_controller.c/.h` | all | Vehicle controller: modes, dashboard commands, barcode diagnostics, buttons, safety stop |
+| `robot_controller.c/.h` | all | Vehicle controller: modes, dashboard commands, barcode turns at junctions, GP21 button, safety stops |
 | `comms.c/.h` | 1 | Message buffers between robot tasks and the network |
 | `robot_mqtt.c/.h` | 1 | MQTT client (runs inside the kernel's Wi-Fi task) |
-| `robot_telemetry.c/.h` | 1 | Builds the messages the dashboard shows |
+| `robot_telemetry.c/.h` | 1 | Collects the values the dashboard shows |
+| `robot_wire.c/.h`, `robot_packed.c/.h` | 1 | Binary message layouts and bit packing |
+| `robot_fault.c/.h` | 1 | The shared fault byte |
+| `robot_diagnostics_mqtt.c/.h`, `robot_action_log`, `robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream` | 1 | Diagnostic streams for the dashboard's tuning views (`DIAGNOSTICS=1` builds) |
+| `robot_diagnostics_off.c` | 1 | Empty stand-ins for those five modules in the default `DIAGNOSTICS=0` build |
 | `buddy2_motion.c/.h` | 2 | Motors, encoders, PID, `move_forward` / `turn_left` / ... |
-| `buddy3_ir.c/.h` | 3 | IR line following, line search, barcode decoder |
+| `buddy3_ir.c/.h` | 3 | IR sensors, line following and line search; feeds the barcode reader |
+| `buddy3_steering.c/.h`, `buddy3_junction.c/.h` | 3 | Steering state machine; straight across junctions |
+| `buddy3_barcode.c/.h`, `code39.c/.h` | 3 | Barcode reader: black/white and wheel travel to a Code 39 letter |
 | `buddy4_imu.c/.h`, `buddy4_processing.c/.h` | 4 | LSM303 IMU: heading, tilt, filtering, hump detection, lifted/overturned motor stop |
 | `buddy5_ultrasonic.c/.h` | 5 | Ultrasonic distance + scanning servo |
 | `buddy5_avoidance.c/.h` | 5 | Obstacle avoidance and return to the line |
@@ -44,6 +53,7 @@ the few deliberate deviations.
 | `gpio_irq.c/.h` | - | The single shared GPIO interrupt handler |
 | `pin_config.h` | - | All pin numbers |
 | `robot_types.h` | - | `float32_t` (BARR-C fixed-width float type) |
+| `robot_debug.h` | - | `BUDDY3_DEBUG` console filter |
 | `usb_console_compat.h` | - | USB console helper |
 
 ### RTOS tasks
@@ -53,7 +63,7 @@ the few deliberate deviations.
 | usb (kernel) | 3 | on demand | USB serial console |
 | cyw43 (kernel) | 4 | about every 2 ms | Wi-Fi + lwIP + MQTT (Wi-Fi builds only) |
 | motion | 5 | every 20 ms (cyclic handler) | Buddy 2 motor and encoder control |
-| line | 6 | every 10 ms (cyclic handler) | Buddy 3 line sensors |
+| line | 6 | every 2 ms (cyclic handler) | Buddy 3: barcode sensor every 2 ms; line sensors and steering every 10 ms |
 | controller | 7 | every 20 ms, or on command | commands, barcodes, GP21 button, safety |
 | imu | 9 | every 50 ms | Buddy 4 IMU and hump processing |
 | sensors | 10 | every 100 ms | Buddy 5 ultrasonic and avoidance |
@@ -62,7 +72,14 @@ the few deliberate deviations.
 ### Buttons and testing
 
 - **GP21**: start/stop line following.
-- Distance/turn moves have no dashboard control (the Motion panel was removed on 26 Oct). Buddy 5 uses them for obstacle avoidance. Barcode reading currently reports letters only; see [the staged barcode tests](docs/BARCODE_ACTIONS.md).
+- Barcodes are read while line following, or while driving straight forward
+  with W. While line following, **A** turns left and **C** turns right at the
+  next junction; any other letter goes straight on
+  ([BARCODE_ACTIONS.md](docs/BARCODE_ACTIONS.md)).
+- Distance/turn moves have no dashboard control; obstacle avoidance and the
+  barcode junction turns use them.
+- Host tests (no robot needed): `CC=gcc sh tests/run_barcode_tests.sh` and
+  `CC=gcc sh tests/run_ir_diagnostics_tests.sh`.
 
 ## Getting started (Windows laptop)
 
@@ -129,6 +146,26 @@ It is done when the prompt comes back with no `Error`. The result is
 (Without Wi-Fi, for bench tests: `make CONSOLE=usb_cdc PICO_SDK_PATH=~/pico/pico-sdk -j8`,
 which gives `mtk3pico_smp0_usb_cdc.uf2`.)
 
+Add `DIAGNOSTICS=1` to get the dashboard's tuning streams (`rover/actions`,
+`rover/steering`, `rover/barcode`, `rover/ir`); the default build sends only
+the main messages.
+
+**Windows without WSL**, in Git Bash, with the toolchain the Raspberry Pi
+Pico VS Code extension installs and MSYS2's `mingw32-make`:
+
+```sh
+export PATH="$HOME/.pico-sdk/toolchain/15_2_Rel1/bin:/c/msys64/ucrt64/bin:$PATH"
+export TMP="$(cygpath -m "$LOCALAPPDATA/Temp")" TEMP="$(cygpath -m "$LOCALAPPDATA/Temp")"
+cd firmware/build_make
+mingw32-make CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 WIFI_MQTT=1 PICO_SDK_PATH="C:/Users/<you>/.pico-sdk/sdk/2.3.1" -j8
+~/.pico-sdk/picotool/2.3.1/picotool/picotool.exe uf2 convert mtk3pico_smp0_usb_cdc_wifi_mqtt.elf mtk3pico_smp0_usb_cdc_wifi_mqtt.uf2 --family rp2040
+```
+
+The make step ends with `Error 193`: the template's `tools/elf2uf2` is a Linux
+program. The `.elf` is complete by then, and the `picotool` line makes the
+`.uf2`. Setting `TMP`/`TEMP` stops gcc trying to write its temporary files to
+`C:\Windows`.
+
 ### 3. Flash the Pico
 
 Hold **BOOTSEL**, plug the Pico into USB, and drag the `.uf2` file onto the
@@ -164,13 +201,17 @@ Hold **BOOTSEL**, plug the Pico into USB, and drag the `.uf2` file onto the
 
 ### MQTT topics
 
+Every payload is packed binary; byte 0 tells the dashboard which message it is
+([MQTT_BINARY_FORMAT.md](docs/MQTT_BINARY_FORMAT.md)).
+
 | Topic | Direction | Content |
 |---|---|---|
-| `rover/commands` | dashboard → robot | Commands, e.g. `{"cmd":"stop"}`, `{"cmd":"drive","left":30000,"right":30000}`, `line_follow`, `line_stop`, `motor_trim`, `speed_limit`, `line_speed` |
-| `rover/telemetry` | robot → dashboard | Mode, IR, ultrasonic, heading, tilt, encoders, motor settings; IMU/hump report |
-| `rover/debug` | robot → dashboard | Line-sensor detail, barcode state, avoidance scan and status |
-| `rover/heartbeat` | robot → dashboard | Periodic "online" message |
-| `rover/status` | robot → dashboard | Retained "offline" Last Will |
+| `rover/commands` | dashboard → robot | 1-5 byte commands: stop, drive, line follow / stop, trim, speed limit, line speed, servo, barcode settings, reset |
+| `rover/telemetry` | robot → dashboard | Every 1 s: mode, faults, IR, ultrasonic, heading, tilt, encoders, motor settings (28 B); Buddy 4's IMU/hump report (14 B) |
+| `rover/debug` | robot → dashboard | Every 1 s: line-sensor detail, barcode letter, avoidance scan and status (25 B) |
+| `rover/heartbeat` | robot → dashboard | 1 byte every 10 s |
+| `rover/status` | robot → dashboard | Retained 1 byte: online, or the "offline" Last Will |
+| `rover/actions`, `rover/steering`, `rover/barcode`, `rover/ir` | robot → dashboard | Diagnostic streams, `DIAGNOSTICS=1` builds only |
 
 A raw drive command stops the motors if it is not refreshed within one second.
 
@@ -196,6 +237,7 @@ A raw drive command stops the motors if it is not refreshed within one second.
 | File | Change | Why |
 |---|---|---|
 | `firmware/config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (left motor, M1). We use the SDK for ADC/I2C instead |
+| `firmware/config/config.h` | `CNF_TIMER_PERIOD 1` (was 10) | 1 ms kernel tick, so the barcode sensor can be read every 2 ms |
 | `firmware/build_make/pico_rp2040.mk` | `include robot.mk`, `WIFI_MQTT` option | Pico SDK libraries; MQTT build profile |
 | `firmware/build_make/makefile` | links `$(LIBS_ROBOT)` (`-lm`) | maths functions for the IMU |
 | `firmware/lib/libnet/lwip/include/lwipopts.h` | TCP on for MQTT, bigger MQTT buffer | MQTT needs TCP |

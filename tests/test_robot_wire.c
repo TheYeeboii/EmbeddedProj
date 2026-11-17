@@ -261,7 +261,7 @@ static void test_imu_layout (void)
 static bool test_decode (const uint8_t * p_data, uint32_t length,
                          robot_wire_command_t * p_command)
 {
-    robot_wire_command_t unused = {0u, {0, 0}};
+    robot_wire_command_t unused = {0u, {0, 0, 0, 0}};
 
     return robot_wire_decode_command(p_data, length,
                                      (NULL == p_command) ? &unused : p_command);
@@ -277,7 +277,14 @@ static void test_valid_commands (void)
     static const uint8_t config[] = {0xDFu, 0xA2u, 0x0Cu};
     /* 1111 1010000 111100 + 7 padding bits: opcode 15, base 80, turn 60. */
     static const uint8_t speed[] = {0xFAu, 0x1Eu, 0x00u};
-    robot_wire_command_t command = {0u, {0, 0}};
+    /* 1100 1 00 010100010100 111100111100 + 1 padding bit: opcode 12,
+     * mode 1, sensor 0 (barcode), white 1300, black 3900. */
+    static const uint8_t levels[] = {0xC8u, 0xA2u, 0x9Eu, 0x78u};
+    /* Sensor 1 (left line), white 200, black 1300. */
+    static const uint8_t left[] = {0xCAu, 0x19u, 0x0Au, 0x28u};
+    /* Mode 1 only: both levels 0 (unchanged). */
+    static const uint8_t mode[]  = {0xC8u, 0x00u, 0x00u, 0x00u};
+    robot_wire_command_t command = {0u, {0, 0, 0, 0}};
 
     assert(test_decode(stop, sizeof(stop), &command));
     assert(ROBOT_WIRE_OP_STOP == command.opcode);
@@ -293,6 +300,17 @@ static void test_valid_commands (void)
     assert(test_decode(speed, sizeof(speed), &command));
     assert((ROBOT_WIRE_OP_LINE_SPEED == command.opcode) &&
            (80 == command.values[0]) && (60 == command.values[1]));
+    assert(test_decode(levels, sizeof(levels), &command));
+    assert((ROBOT_WIRE_OP_BARCODE_MODE == command.opcode) &&
+           (1 == command.values[0]) && (0 == command.values[1]) &&
+           (1300 == command.values[2]) && (3900 == command.values[3]));
+    assert(test_decode(left, sizeof(left), &command));
+    assert((1 == command.values[1]) && (200 == command.values[2]) &&
+           (1300 == command.values[3]));
+    assert(test_decode(mode, sizeof(mode), &command));
+    assert((1 == command.values[0]) && (0 == command.values[2]) &&
+           (0 == command.values[3]));
+    assert(!test_decode(mode, 1u, NULL)); /* The old 1-byte form. */
 }
 
 static void test_rejected_commands (void)

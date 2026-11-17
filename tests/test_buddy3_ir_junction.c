@@ -1,7 +1,10 @@
 #include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include "../firmware/app_program/buddy3_ir.c"
+#include "data/barcode_a_passes.h"
 
 static uint16_t              g_adc[3];
 static buddy2_motion_state_t g_fake_motion;
@@ -118,6 +121,12 @@ static float32_t g_tick_mm = 0.0f;
 static float32_t g_jitter = 0.0f;
 /* Narrow element and gap width of the scanned barcode (wide = 3x). */
 static float32_t g_narrow_mm = 4.0f;
+/* Stop for this long once the sensor reaches 100 mm (inside the barcode),
+ * as when W is released and pressed again; 0 = drive straight through. */
+static uint32_t g_pause_ms = 0u;
+/* Side sensor raw levels for black and white; 0 = calibration max/min. */
+static uint16_t g_black_raw = 0u;
+static uint16_t g_white_raw = 0u;
 
 static float32_t encoder_mm (float32_t pos, float32_t phase)
 {
@@ -169,6 +178,8 @@ static unsigned scan_barcode (unsigned how, uint32_t step_ms, float32_t step_mm)
     {
         buddy3_start_line_follow();
     }
+    uint32_t paused_ms = 0u;
+
     for (unsigned index = 1; ((float32_t) index * step_mm) < 350.0f; ++index)
     {
         float32_t pos =
@@ -184,18 +195,39 @@ static unsigned scan_barcode (unsigned how, uint32_t step_ms, float32_t step_mm)
         }
         g_adc[0] = g_sensor_configs[0].minimum;
         g_adc[1] = g_sensor_configs[1].minimum;
-        g_adc[2] =
-            b_black ? g_sensor_configs[2].maximum : g_sensor_configs[2].minimum;
+        g_adc[2] = b_black
+                       ? ((0u != g_black_raw) ? g_black_raw
+                                              : g_sensor_configs[2].maximum)
+                       : ((0u != g_white_raw) ? g_white_raw
+                                              : g_sensor_configs[2].minimum);
         g_fake_motion.left_distance_mm  = encoder_mm(pos, 0.0f);
         g_fake_motion.right_distance_mm = encoder_mm(pos, 0.4f);
-        buddy3_update(index * step_ms);
+        buddy3_update((index * step_ms) + paused_ms);
+        if ((0u == paused_ms) && (0u != g_pause_ms) && (pos >= 100.0f))
+        {
+            /* Robot stopped: same position, time moves on. */
+            for (; paused_ms < g_pause_ms; paused_ms += step_ms)
+            {
+                buddy3_update((index * step_ms) + paused_ms + step_ms);
+            }
+        }
         buddy3_barcode_event_t event = {0};
 
         if (buddy3_take_barcode(&event))
         {
-            assert(B3BC_VALID == event.kind && event.decoded.symbol == 'F');
-            assert(!event.decoded.reversed && !event.dropped);
-            ++reads;
+            /* A rejected attempt (e.g. stalled) is not a read; a valid one
+             * must be exactly "F" forwards. */
+            if (getenv("SCAN_DEBUG"))
+            {
+                printf("event kind %d status %d\n", (int) event.kind,
+                       (int) event.format_status);
+            }
+            if (B3BC_VALID == event.kind)
+            {
+                assert('F' == event.decoded.symbol);
+                assert(!event.decoded.reversed && !event.dropped);
+                ++reads;
+            }
         }
     }
     assert((SCAN_LINE_FOLLOW == how) == buddy3_line_following());
@@ -227,11 +259,177 @@ static void test_barcode_handoff (void)
     g_narrow_mm = 3.0f;
     g_jitter    = 0.2f;
     assert(1u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 0.52f));
+    /* W released mid-barcode for 0.5 s, then pressed again: still reads.
+     * A pause longer than the reader's 1.5 s stall limit abandons it. */
+    g_pause_ms = 500u;
+    assert(1u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 0.52f));
+    g_pause_ms = 2000u;
+    assert(0u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 0.52f));
+    g_pause_ms = 0u;
     /* Really too fast (1.2 mm per sample) is still refused. */
     assert(0u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 1.2f));
-    g_tick_mm   = 0.0f;
-    g_narrow_mm = 4.0f;
-    g_jitter    = 0.0f;
+    /* Faint bars (raw 1050 on white 500) are only 15 % of the default
+     * 200..3800 range: too small a jump, so nothing is read... */
+    g_black_raw = 1050u;
+    g_white_raw = 500u;
+    assert(0u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 0.52f));
+    /* ...until the dashboard levels are set to them (white 500, black 1100). */
+    g_sensor_configs[2].minimum = 500u;
+    g_sensor_configs[2].maximum = 1100u;
+    assert(1u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 0.52f));
+    g_sensor_configs[2].minimum = 200u;
+    g_sensor_configs[2].maximum = 3800u;
+    g_black_raw                 = 0u;
+    g_white_raw                 = 0u;
+    g_tick_mm                   = 0.0f;
+    g_narrow_mm                 = 4.0f;
+    g_jitter                    = 0.0f;
+}
+
+/* White-level zero: the side sensor's present reading becomes white (0),
+ * unless it is too close to black to be paper. */
+static void test_white_zero (void)
+{
+    buddy3_ir_state_t state   = {0};
+    uint16_t          maximum = 0u;
+
+    buddy3_init();
+    maximum  = g_sensor_configs[2].maximum;
+    g_adc[0] = g_sensor_configs[0].minimum;
+    g_adc[1] = g_sensor_configs[1].minimum;
+    g_adc[2] = 1740u; /* A dull white surface, as measured on the robot. */
+    buddy3_update(10u);
+    buddy3_get_state(&state);
+    assert(state.normalized[2] > 0u);
+    buddy3_zero_barcode_white();
+    for (uint32_t step = 2u; step <= 20u; step++)
+    {
+        buddy3_update(step * 10u);
+    }
+    buddy3_get_state(&state);
+    assert(1740u == g_sensor_configs[2].minimum && 0u == state.normalized[2]);
+    assert(maximum == g_sensor_configs[2].maximum);
+    /* On a black bar: no change. */
+    g_adc[2] = (uint16_t) (maximum - 100u);
+    buddy3_zero_barcode_white();
+    for (uint32_t step = 21u; step <= 40u; step++)
+    {
+        buddy3_update(step * 10u);
+    }
+    assert(1740u == g_sensor_configs[2].minimum && !g_b_zero_request);
+    /* Levels set by hand: applied at the next line step, and a manual
+     * setting cancels a pending automatic zero. */
+    assert(!buddy3_set_ir_levels(BUDDY3_LEVELS_BARCODE, 3000u, 3100u));
+    assert(!buddy3_set_ir_levels(BUDDY3_LEVELS_BARCODE, 500u, 4096u));
+    assert(!buddy3_set_ir_levels(3u, 200u, 1300u)); /* No such sensor. */
+    /* Front line sensors: dashboard left/right reach the right entries. */
+    assert(buddy3_set_ir_levels(BUDDY3_LEVELS_LEFT, 250u, 1500u));
+    buddy3_update(480u);
+    assert(250u == g_sensor_configs[BUDDY3_FRONT_LEFT].minimum &&
+           1500u == g_sensor_configs[BUDDY3_FRONT_LEFT].maximum);
+    assert(buddy3_set_ir_levels(BUDDY3_LEVELS_RIGHT, 300u, 2800u));
+    buddy3_update(490u);
+    assert(300u == g_sensor_configs[BUDDY3_FRONT_RIGHT].minimum &&
+           2800u == g_sensor_configs[BUDDY3_FRONT_RIGHT].maximum);
+    g_sensor_configs[BUDDY3_FRONT_LEFT].minimum  = 200u;
+    g_sensor_configs[BUDDY3_FRONT_LEFT].maximum  = 1300u;
+    g_sensor_configs[BUDDY3_FRONT_RIGHT].minimum = 200u;
+    g_sensor_configs[BUDDY3_FRONT_RIGHT].maximum = 3000u;
+    assert(buddy3_set_ir_levels(BUDDY3_LEVELS_BARCODE, 1300u, 3900u));
+    buddy3_zero_barcode_white();
+    g_adc[2] = 1300u;
+    buddy3_update(500u);
+    assert(1300u == g_sensor_configs[2].minimum &&
+           3900u == g_sensor_configs[2].maximum && !g_b_zero_request);
+    buddy3_get_state(&state);
+    assert(0u == state.normalized[2]);
+    g_adc[2] = 2600u; /* Halfway: 500/1000. */
+    buddy3_update(510u);
+    buddy3_get_state(&state);
+    assert(500u == state.normalized[2]);
+    g_sensor_configs[2].minimum = 200u; /* Back to the default for the rest. */
+    g_sensor_configs[2].maximum = maximum;
+}
+
+/* Real passes over a printed *A*: the blurred sensor never reaches white
+ * between two thick bars, so fixed thresholds saw one long black.  The jump
+ * detector must recover the Code 39 narrow/wide pattern (wide > 10 mm). */
+static void replay_pass (const uint16_t (*p_pass)[2], size_t count)
+{
+    /* Start marker read backwards, gap, then the first 8 of reversed A. */
+    static const char expected[]             = "nnWnWnnWnnWnnWnnnn";
+    char              seen[sizeof(expected)] = {0};
+    size_t            runs                   = 0u;
+    bool              b_was                  = false;
+    float32_t         start                  = 0.0f;
+
+    g_sensor_configs[2].minimum = 1274u;
+    g_sensor_configs[2].maximum = 3800u;
+    buddy3_colour_reset();
+    for (size_t index = 0u; index < count; index++)
+    {
+        float32_t position_mm = (float32_t) p_pass[index][0] / 10.0f;
+        bool      b_black     = buddy3_barcode_colour(
+            buddy3_normalize(p_pass[index][1], 1274u, 3800u, false));
+
+        if (b_black != b_was)
+        {
+            if (b_was || (runs > 0u))
+            {
+                if (runs < (sizeof(expected) - 1u))
+                {
+                    seen[runs] = ((position_mm - start) > 10.0f) ? 'W' : 'n';
+                }
+                runs++;
+            }
+            start = position_mm;
+            b_was = b_black;
+        }
+    }
+    /* Each recording holds about a second of samples: at least the start
+     * marker, the gap and the first few elements of the letter. */
+    assert(runs >= 15u);
+    assert(0 == strncmp(seen, expected,
+                        (runs < (sizeof(expected) - 1u))
+                            ? runs
+                            : (sizeof(expected) - 1u)));
+    g_sensor_configs[2].minimum = 200u;
+    g_sensor_configs[2].maximum = 3800u;
+    buddy3_colour_reset();
+}
+
+static void test_real_barcode_passes (void)
+{
+    replay_pass(g_replay_a5, sizeof(g_replay_a5) / sizeof(g_replay_a5[0]));
+    replay_pass(g_replay_a3, sizeof(g_replay_a3) / sizeof(g_replay_a3[0]));
+}
+
+/* A barcode turn request stops line following on the junction and hands
+ * the turn over once; without one the junction is crossed straight. */
+static void test_junction_turn_handoff (void)
+{
+    uint8_t turn = BUDDY3_TURN_NONE;
+
+    reset();
+    buddy3_set_junction_turn(7u); /* Unknown value: ignored. */
+    buddy3_set_junction_turn(BUDDY3_TURN_LEFT);
+    observe(0, 10, 0, 0);
+    assert(!buddy3_take_junction_turn(&turn)); /* Not at a junction yet. */
+    observe(3, 30, 2, 2);
+    assert(buddy3_line_following() && g_left_pwm > 0); /* Debouncing. */
+    observe(3, 60, 5, 5);
+    assert(!buddy3_line_following() && 0 == g_left_pwm && 0 == g_right_pwm);
+    assert(buddy3_take_junction_turn(&turn) && BUDDY3_TURN_LEFT == turn);
+    assert(!buddy3_take_junction_turn(&turn)); /* Taken once. */
+
+    /* Starting line following clears an old request. */
+    buddy3_set_junction_turn(BUDDY3_TURN_RIGHT);
+    reset();
+    observe(0, 10, 0, 0);
+    observe(3, 30, 2, 2);
+    observe(3, 60, 5, 5);
+    assert(buddy3_line_following() && B3J_CROSS == g_junction.phase);
+    assert(!buddy3_take_junction_turn(&turn));
 }
 
 /* Encoder hold, edge overrides, junction crossing and the fault stops. */
@@ -292,12 +490,19 @@ static void test_steering_and_junctions (void)
 
 int main (void)
 {
+    /* The power-up white zero is tested on its own, last: the other tests
+     * start from the default calibration. */
+    g_b_zero_request = false;
     test_raw_stream();
     test_barcode_handoff();
     test_steering_and_junctions();
+    test_junction_turn_handoff();
+    test_white_zero();
+    test_real_barcode_passes();
     puts("PASS: real IR integration reads barcodes line following and by hand "
          "(2 ms side sampling at 237 mm/s), "
-         "overrides prior turn, ignores junction "
+         "overrides prior turn, hands barcode turns over at the junction, "
+         "ignores junction "
          "branches, resumes micro steering, stops on encoder faults/stall, no "
          "15s cutoff");
     return 0;

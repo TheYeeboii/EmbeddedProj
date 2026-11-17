@@ -1,6 +1,6 @@
 /** @file robot_diagnostics_mqtt.h
  *
- * @brief Buddy 1: publishes the four diagnostic streams as JSON.
+ * @brief Buddy 1: publishes the four diagnostic streams as packed binary.
  *
  * Called every controller step (app_main.c).  Built only with
  * DIAGNOSTICS=1; robot_diagnostics_off.c provides empty versions otherwise.

@@ -28,4 +28,11 @@ assert(!ui.pending);assert.match(nodes.status.textContent,/does not report|rebui
 ui.reader(state(1,false,{boot:8}));assert.match(nodes.status.textContent,/restarted/);assert.match(nodes.active.textContent,/disabled/);
 ui.unavailable();assert(nodes.apply.disabled);assert(!ui.submit());
 assert(sent.every(x=>['barcode_config','barcode_mode'].includes(x.cmd)));
-console.log('PASS: stopped-only barcode setup, measurement validation, observe-only commands, active settings, stale/timeout/reboot handling and older firmware fallback');
+// Default firmware (DIAGNOSTICS=0): no barcode_state ever arrives, so the timeout says why.
+{
+  const quiet={};for(const name of ['minimum','offset','apply','status','active'])quiet[name]={value:name==='minimum'?'3':'100',textContent:'',disabled:false,focus(){}};
+  let t=0;const plain=new Configuration({querySelector(selector){return quiet[selector.match(/"(.*?)"/)[1]];},addEventListener(){}},{clock:()=>t,schedule:()=>null,send:()=>true});
+  plain.robot('idle');assert(plain.submit());t=5000;plain.robot('idle');
+  assert(!plain.pending);assert.match(quiet.status.textContent,/DIAGNOSTICS=0/);assert(!quiet.apply.disabled);
+}
+console.log('PASS: stopped-only barcode setup, no-diagnostics timeout, measurement validation, observe-only commands, active settings, stale/timeout/reboot handling and older firmware fallback');

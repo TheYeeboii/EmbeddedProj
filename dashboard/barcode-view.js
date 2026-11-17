@@ -44,7 +44,7 @@
       const state=this.history.state,blocked=this.history.last?.blocked??0;
       const label=state===null?'Reader state unavailable / buffered history':
         state===6?(blocked&32?'Suspended: sampling too coarse — slow down':blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
-          blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21 to start':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
+          blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21, or drive forward with W, to read':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
       this.find('status').textContent='Decoder: '+label;
       this.renderLetter(state,label);
     }
@@ -67,7 +67,7 @@
         pick('headline').textContent=latest?'No letter decoded yet':'No barcode read yet';
         pick('detail').textContent=state===0||state===null?
           'Reader off. Enable it in IR / barcode → Tools → Reader setup.':
-          'Press GP21, then drive slowly over the whole barcode.';
+          'Press GP21 to line follow, or drive forward with W, over the whole barcode.';
       }
       const rejected=latest&&latest.end.reason!==1;
       pick('latest').textContent=rejected?`Latest attempt (scan ${latest.id}, ${ago(this.letterAt)}) rejected: ${reasons[latest.end.reason]}${latest.end.reason===2?` / ${formats[latest.end.format]}`:''}`:
@@ -83,7 +83,7 @@
       this.find('pause').textContent=this.frozen?'Resume live history':'Freeze scans';this.find('pause').setAttribute('aria-pressed',String(!!this.frozen));
       this.find('notice').textContent=`${frames.length}/20 scans · ${this.history.evicted} evicted · ${this.frozen?'Frozen; rover is still running':'Live capture'} · expected letter is your independent reference`;
       if(!f){
-        this.find('outcome').textContent='Waiting for a scan. Configure the distance reader while stopped, then press GP21. Reading remains observe-only.';
+        this.find('outcome').textContent='Waiting for a scan. Press GP21 to line follow, or drive forward with W, over the barcode. While line following, A turns left and C right at the next junction.';
         for(const name of ['strip','reference','signal','elements'])this.find(name).replaceChildren();
         this.find('summary').textContent='Bars and spaces will appear as they are measured. No exact barcode width is assumed.';
         this.find('detail').textContent='Select a measured element to inspect its width and encoder references.';
@@ -94,7 +94,7 @@
       const missingEdges=end?end.count-edges:0,missingSamples=end?end.samples-samples:0;
       const incomplete=!f.meta||f.gap||f.conflict||missingEdges>0||missingSamples>0||(progress?.sample_drops??0)>0;
       this.find('outcome').textContent=end?
-        (end.reason===1?`Firmware decoded ${String.fromCharCode(end.symbol)} (${end.reversed?'reverse':'forward'}) — observe only`:`Rejected: ${reasons[end.reason]}${end.reason===2?` / ${formats[end.format]}`:''}`):
+        (end.reason===1?`Firmware decoded ${String.fromCharCode(end.symbol)} (${end.reversed?'reverse':'forward'})`:`Rejected: ${reasons[end.reason]}${end.reason===2?` / ${formats[end.format]}`:''}`):
         (f.progress?states[f.progress.state]:'Capturing candidate; no validated letter yet');
       if(end?.blocked)this.find('outcome').textContent+=' · '+[[1,'tracking stopped/unconfigured'],[2,'encoder fault'],[4,'excessive heading change'],[8,'reverse wheel travel'],[16,'junction/recovery phase'],[32,'sample spacing too large']].filter(([bit])=>end.blocked&bit).map(([,label])=>label).join(', ');
       if(incomplete)this.find('outcome').textContent+=' · diagnostic evidence incomplete';

@@ -2,5 +2,8 @@
 # .gitattributes that already does this).
 tests/*.c text eol=lf
 tests/*.h text eol=lf
+tests/data/*.h text eol=lf
 docs/templates/*.c text eol=lf
 docs/templates/*.h text eol=lf
+# Shell scripts keep LF so they also run from WSL on a Windows checkout.
+*.sh text eol=lf

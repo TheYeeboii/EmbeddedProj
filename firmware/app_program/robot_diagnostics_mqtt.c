@@ -95,6 +95,7 @@ static void     barcode_put_summary (robot_packed_writer_t *        p_writer,
                                      const robot_barcode_packet_t * p_packet);
 static uint32_t ir_pack (uint8_t *                       p_payload,
                          const robot_ir_stream_batch_t * p_batch, uint32_t now);
+static uint32_t diag_lag (uint32_t now, uint32_t ts_ms);
 static void     diag_writer_start (robot_packed_writer_t * p_writer,
                                    uint8_t * p_payload, uint32_t type);
 
@@ -315,7 +316,7 @@ static uint32_t steering_pack (uint8_t *                      p_payload,
     robot_packed_put(&writer, robot_diagnostics_session(), DIAG_BITS_U32);
     robot_packed_put(&writer, p_event->seq, DIAG_BITS_U32);
     robot_packed_put(&writer, p_event->ts_ms, DIAG_BITS_U32);
-    robot_packed_put(&writer, b_queued ? (now - p_event->ts_ms) : 0u,
+    robot_packed_put(&writer, b_queued ? diag_lag(now, p_event->ts_ms) : 0u,
                      DIAG_BITS_SAT16);
     robot_packed_put(&writer, p_event->dropped, DIAG_BITS_SAT16);
     robot_packed_put(&writer, p_event->owner, DIAG_BITS_OWNER);
@@ -379,7 +380,7 @@ static uint32_t barcode_pack (uint8_t *                      p_payload,
     robot_packed_put(&writer, p_packet->scan, DIAG_BITS_U32);
     robot_packed_put(&writer, p_packet->ts_ms, DIAG_BITS_U32);
     robot_packed_put(&writer, p_packet->dropped, DIAG_BITS_SAT16);
-    robot_packed_put(&writer, now - p_packet->ts_ms, DIAG_BITS_SAT16);
+    robot_packed_put(&writer, diag_lag(now, p_packet->ts_ms), DIAG_BITS_SAT16);
 
     if (BC_PACKET_START == p_packet->type)
     {
@@ -519,7 +520,7 @@ static uint32_t ir_pack (uint8_t *                       p_payload,
 
     diag_writer_start(&writer, p_payload, ROBOT_WIRE_TYPE_IR);
     robot_packed_put(&writer, robot_diagnostics_session(), DIAG_BITS_U32);
-    robot_packed_put(&writer, now - p_last->ts_ms, DIAG_BITS_SAT16);
+    robot_packed_put(&writer, diag_lag(now, p_last->ts_ms), DIAG_BITS_SAT16);
     robot_packed_put(&writer, p_batch->dropped, DIAG_BITS_SAT16);
     robot_packed_put(&writer, p_batch->count, DIAG_BITS_COUNT);
     robot_packed_put(&writer, p_batch->rows[0].seq, DIAG_BITS_U32);
@@ -546,6 +547,16 @@ static uint32_t ir_pack (uint8_t *                       p_payload,
     }
 
     return robot_packed_length(&writer);
+}
+
+/* Age of a record in ms.  "now" is read before the record is peeked, so a
+ * higher-priority task can stamp one just after it: that record is 0 ms
+ * old, not 4 billion. */
+static uint32_t diag_lag (uint32_t now, uint32_t ts_ms)
+{
+    uint32_t lag = now - ts_ms;
+
+    return (lag > (UINT32_MAX / 2u)) ? 0u : lag;
 }
 
 /* Start a diagnostic message: clear the buffer and write its header byte. */
