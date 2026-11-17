@@ -61,7 +61,7 @@ void robot_telemetry_set_avoidance_scan (uint32_t ultra_left_cm,
     EI(interrupt_state);
 
     /* The telemetry module owns the human-readable decision summary as well
-     * as the rover/debug JSON consumed by the dashboard. */
+     * as the rover/debug message consumed by the dashboard. */
     ROBOT_ROUTINE_LOG((UB *) "[avoid telemetry] ultra_left: %u cm | "
                              "ultra_right: %u cm | decision: %s\n",
                       (UINT) ultra_left_cm, (UINT) ultra_right_cm,

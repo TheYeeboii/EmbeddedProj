@@ -57,15 +57,26 @@
  * 1 g.  Two samples in a row (100 ms) so one vibration spike is ignored.
  * Overturned: gravity is more than 45 degrees off the up axis for 200 ms;
  * the track hump leans the rover only about 6 degrees. */
-#define BUDDY4_LIFT_UP_MG     (1250.0f) /* Z above 1.25 g: pushed upwards */
-#define BUDDY4_LIFT_CONFIRM   (2u)
-#define BUDDY4_LIFT_HOLD_MS   (500u) /* the lift stays reported this long */
-#define BUDDY4_TIPPED_COS     (0.7071f) /* cos(45 deg) */
-#define BUDDY4_TIPPED_CONFIRM (4u)
-#define BUDDY4_LIFT_COUNT_MAX (255u)
+#define BUDDY4_LIFT_UP_MG   (1250.0f) /* Z above 1.25 g: pushed upwards */
+#define BUDDY4_LIFT_CONFIRM (2u)
+/* Once picked up the rover stays "lifted" until it is put down: held still
+ * in the air the accelerometer reads 1 g like the floor, so the IR sensors
+ * decide.  In the air all three see nothing (black); back on the floor at
+ * least one sees white.  Landing = in the air (all black) seen since the
+ * lift, the pick-up push over (Z under 1.1 g) for 200 ms, then floor for
+ * two samples (100 ms).  A new start also ends the latch. */
+#define BUDDY4_LIFT_SETTLED_MG (1100.0f)
+#define BUDDY4_LAND_GUARD_MS   (200u)
+#define BUDDY4_LAND_CONFIRM    (2u)
+/* Setting the rover down jolts it upwards too: ignore pushes this long
+ * after a landing so putting it down does not count as a new lift. */
+#define BUDDY4_RELIFT_GUARD_MS (500u)
+#define BUDDY4_TIPPED_COS      (0.7071f) /* cos(45 deg) */
+#define BUDDY4_TIPPED_CONFIRM  (4u)
+#define BUDDY4_LIFT_COUNT_MAX  (255u)
 
 /* Motion classification. */
-#define BUDDY4_RATE_WINDOW_MS   (200u) /* compass turn rate */
+#define BUDDY4_RATE_WINDOW_MS (200u) /* compass turn rate */
 /* One encoder tick (10.2 mm at 20 ticks/rev) is 25 mm/s over 400 ms, so a
  * speed change must exceed two ticks to count as speeding up or slowing. */
 #define BUDDY4_SPEED_WINDOW_MS   (400u)
@@ -73,8 +84,6 @@
 #define BUDDY4_STOPPED_MM_S      (5.0f)
 #define BUDDY4_MAX_SPEED_MM_S    (1000.0f) /* odometry reset guard */
 #define BUDDY4_TURNING_DPS_X10   (250)     /* 25 deg/s */
-
-#define BUDDY4_PACKET_VERSION (2u)
 
 /* Hump heights are reported as uint16_t millimetres. */
 #define BUDDY4_HEIGHT_MAX_MM (65535.0f)
@@ -101,10 +110,6 @@ static void buddy4_hump_flat (buddy4_processor_t * p_proc, uint32_t now_ms,
                               bool b_path_valid, bool b_turning);
 static void buddy4_hump_finish (buddy4_processor_t * p_proc);
 static uint8_t buddy4_classify (const buddy4_processor_t * p_proc);
-static void buddy4_put_bits (uint8_t * p_out, uint32_t * p_pos, uint32_t value,
-                             uint32_t width);
-static int32_t buddy4_saturate (int32_t value, int32_t low, int32_t high,
-                                bool * p_ok);
 
 static float32_t buddy4_median (float32_t first, float32_t second,
                                 float32_t third)
@@ -263,8 +268,8 @@ static void buddy4_process_lift (buddy4_processor_t * p_proc, uint32_t now_ms,
                                  float32_t norm_sq)
 {
     buddy4_imu_state_t * p_state = &p_proc->state;
-    bool                 b_valid = b_accel_ok && isfinite(norm_sq) &&
-                   isfinite(accel_z) && (norm_sq >= BUDDY4_GRAVITY_MIN_SQ);
+    bool b_valid  = b_accel_ok && isfinite(norm_sq) && isfinite(accel_z) &&
+                    (norm_sq >= BUDDY4_GRAVITY_MIN_SQ);
     bool b_lifted = false;
 
     /* A hump climb also pushes the rover up; the hump has priority, also
@@ -281,10 +286,57 @@ static void buddy4_process_lift (buddy4_processor_t * p_proc, uint32_t now_ms,
     {
         p_proc->lift_in_row = 0u;
     }
-    if (p_proc->lift_in_row >= BUDDY4_LIFT_CONFIRM)
+    /* Already lifted: a jolt in the hand or the landing is not a new
+     * pick-up.  Just after a landing the jolt is ignored too. */
+    if ((p_proc->lift_in_row >= BUDDY4_LIFT_CONFIRM) && !p_proc->airborne &&
+        (!p_proc->landed ||
+         ((now_ms - p_proc->land_ms) >= BUDDY4_RELIFT_GUARD_MS)))
     {
-        p_proc->lift_ms   = now_ms;
-        p_proc->lift_seen = true;
+        p_proc->airborne     = true; /* Picked up. */
+        p_proc->push_ended   = false;
+        p_proc->in_air_seen  = false;
+        p_proc->floor_in_row = 0u;
+        p_proc->lift_in_row  = 0u;
+    }
+    else if (p_proc->airborne && b_valid)
+    {
+        if (!p_proc->push_ended)
+        {
+            if (accel_z < BUDDY4_LIFT_SETTLED_MG)
+            {
+                p_proc->push_ended = true;
+                p_proc->lift_ms    = now_ms;
+            }
+        }
+        else if ((now_ms - p_proc->lift_ms) < BUDDY4_LAND_GUARD_MS)
+        {
+            /* Just after the push: not a landing yet. */
+        }
+        else if (p_proc->ir_sees_floor && p_proc->in_air_seen)
+        {
+            if (p_proc->floor_in_row < UINT8_MAX)
+            {
+                p_proc->floor_in_row++;
+            }
+            if (p_proc->floor_in_row >= BUDDY4_LAND_CONFIRM)
+            {
+                p_proc->airborne = false; /* Put down. */
+                p_proc->landed   = true;
+                p_proc->land_ms  = now_ms;
+            }
+        }
+        else
+        {
+            p_proc->floor_in_row = 0u; /* Still held in the air. */
+        }
+        if (!p_proc->ir_sees_floor)
+        {
+            p_proc->in_air_seen = true;
+        }
+    }
+    else
+    {
+        /* On the ground, or an invalid sample: keep the state. */
     }
 
     /* z / |a| is the cosine of the tilt from upright; only trusted near 1 g
@@ -302,9 +354,8 @@ static void buddy4_process_lift (buddy4_processor_t * p_proc, uint32_t now_ms,
         p_proc->tip_in_row = 0u;
     }
 
-    b_lifted = (p_proc->tip_in_row >= BUDDY4_TIPPED_CONFIRM) ||
-               (p_proc->lift_seen &&
-                ((now_ms - p_proc->lift_ms) < BUDDY4_LIFT_HOLD_MS));
+    b_lifted =
+        (p_proc->tip_in_row >= BUDDY4_TIPPED_CONFIRM) || p_proc->airborne;
     if (b_lifted && (0u == p_state->lifted) &&
         (p_state->lift_count < BUDDY4_LIFT_COUNT_MAX))
     {
@@ -678,6 +729,18 @@ static uint8_t buddy4_classify (const buddy4_processor_t * p_proc)
     return motion;
 }
 
+void buddy4_processor_set_floor (buddy4_processor_t * p_proc, bool b_sees_floor)
+{
+    p_proc->ir_sees_floor = b_sees_floor;
+}
+
+void buddy4_processor_put_down (buddy4_processor_t * p_proc)
+{
+    p_proc->airborne    = false;
+    p_proc->push_ended  = false;
+    p_proc->lift_in_row = 0u;
+}
+
 void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
                      bool b_mag_ok, const int16_t mag[3], bool b_accel_ok,
                      const int16_t accel[3], float32_t distance_mm,
@@ -742,91 +805,6 @@ void buddy4_process (buddy4_processor_t * p_proc, uint32_t now_ms,
     p_proc->last_ms         = now_ms;
     p_proc->last_pitch      = p_proc->filtered_pitch;
     p_proc->started         = true;
-}
-
-static void buddy4_put_bits (uint8_t * p_out, uint32_t * p_pos, uint32_t value,
-                             uint32_t width)
-{
-    uint32_t bit = 0u;
-
-    for (bit = 0u; bit < width; bit++)
-    {
-        if (0u != (value & (1u << bit)))
-        {
-            p_out[*p_pos / 8u] |= (uint8_t) (1u << (*p_pos % 8u));
-        }
-        (*p_pos)++;
-    }
-}
-
-static int32_t buddy4_saturate (int32_t value, int32_t low, int32_t high,
-                                bool * p_ok)
-{
-    int32_t result = value;
-
-    if (value < low)
-    {
-        *p_ok  = false;
-        result = low;
-    }
-    else if (value > high)
-    {
-        *p_ok  = false;
-        result = high;
-    }
-    else
-    {
-        result = value;
-    }
-
-    return result;
-}
-
-bool buddy4_pack (const buddy4_imu_state_t * p_state,
-                  uint8_t                    out[BUDDY4_PACKET_SIZE])
-{
-    uint32_t index  = 0u;
-    uint32_t pos    = 0u;
-    bool     b_fits = true;
-
-    for (index = 0u; index < BUDDY4_PACKET_SIZE; index++)
-    {
-        out[index] = 0u;
-    }
-    buddy4_put_bits(out, &pos, BUDDY4_PACKET_VERSION, 4u);
-    buddy4_put_bits(out, &pos, p_state->mag_ok, 1u);
-    buddy4_put_bits(out, &pos, p_state->accel_ok, 1u);
-    buddy4_put_bits(out, &pos, p_state->height_valid, 1u);
-    buddy4_put_bits(out, &pos, p_state->calibrated, 1u);
-    buddy4_put_bits(
-        out, &pos,
-        (uint32_t) buddy4_saturate(p_state->heading_deg_x10, 0, 3599, &b_fits),
-        12u);
-    buddy4_put_bits(
-        out, &pos,
-        (uint32_t) buddy4_saturate(p_state->pitch_deg_x10, -900, 900, &b_fits) &
-            0x7FFu,
-        11u);
-    buddy4_put_bits(out, &pos,
-                    (uint32_t) buddy4_saturate(p_state->roll_deg_x10, -1800,
-                                               1800, &b_fits) &
-                        0xFFFu,
-                    12u);
-    buddy4_put_bits(out, &pos,
-                    (uint32_t) buddy4_saturate(p_state->hump_peak_deg_x10, -900,
-                                               900, &b_fits) &
-                        0x7FFu,
-                    11u);
-    buddy4_put_bits(out, &pos, p_state->hump_state, 2u);
-    buddy4_put_bits(out, &pos, p_state->hump_count, 3u);
-    buddy4_put_bits(
-        out, &pos,
-        (uint32_t) buddy4_saturate(p_state->hump_height_mm, 0, 255, &b_fits),
-        8u);
-    buddy4_put_bits(out, &pos, b_fits ? 0u : 1u, 1u);
-    buddy4_put_bits(out, &pos, p_state->imu_fault, 1u);
-    buddy4_put_bits(out, &pos, p_state->motion_class, 3u);
-    return b_fits;
 }
 
 /*** end of file ***/

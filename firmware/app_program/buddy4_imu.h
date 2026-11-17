@@ -41,6 +41,9 @@ bool buddy4_set_calibration (const buddy4_calibration_t * p_cal);
  *  for a new run, keeping the calibration.  Do it with the rover on flat
  *  ground: the level reference for humps is learned again afterwards. */
 void buddy4_reset_run (void);
+/** The rover is driving again (a new start): end a lift latch whose
+ *  landing gave no jolt.  Clears the shared lifted flag at once. */
+void buddy4_clear_lift (void);
 /** The IMU owner task: 50 ms period, priority set in app_main.c. */
 void buddy4_task (int32_t stacd, void * p_exinf);
 

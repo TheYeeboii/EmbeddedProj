@@ -10,14 +10,16 @@
  *   (usb)          3  kernel            USB serial console           -
  *   (cyw43)        4  2 ms, kernel      Wi-Fi + lwIP + MQTT          1
  *   motion         5  20 ms (cyclic)    buddy2_update(): PID, moves  2
- *   line           6  10 ms (cyclic)    buddy3_update(): IR, barcode 3
+ *   line           6  2 ms (cyclic)     buddy3_update(): IR, barcode 3
  *   controller     7  20 ms             commands, barcodes, buttons  all
  *   imu            9  50 ms target      IMU + hump processing         4
  *   sensors       10  100 ms            ultrasonic + avoidance        5
  *   telemetry     15  1 s               console + MQTT reports       1
  *
  * Lower number = higher priority.  (usb) and (cyw43) are created by the
- * kernel itself; (cyw43) only exists in Wi-Fi builds.
+ * kernel itself; (cyw43) only exists in Wi-Fi builds.  The line task reads
+ * the barcode sensor on every 2 ms wake-up and does its line and junction
+ * step every 10 ms.
  */
 
 #include <tk/tkernel.h>
@@ -209,7 +211,12 @@ static void controller_task (INT stacd, void * p_exinf)
         if (comms_wait_command(command, sizeof(command), &length,
                                APP_CONTROLLER_PERIOD_MS))
         {
-            app_print_hex("[mqtt] command", command, length);
+            /* "if", not "#if": app_print_hex() stays referenced when the
+             * switch is off. */
+            if (APP_CONSOLE_HEX)
+            {
+                app_print_hex("[mqtt] command", command, length);
+            }
             robot_controller_handle_command(command, length, app_now_ms());
         }
         robot_controller_step(app_now_ms());
@@ -326,23 +333,15 @@ static void app_print_status (void)
 }
 
 /**
- * @brief Publish dashboard telemetry and print periodic USB status.
+ * @brief Print the start-up banner on the USB console.
  *
- * Debug JSON, full telemetry, and the MQTT heartbeat have independent rates
- * controlled by the APP_TELEMETRY_* configuration constants.
+ * Waits up to APP_USB_WAIT_MS for the console to enumerate first, so the
+ * banner is not lost.
  */
-static void telemetry_task (INT stacd, void * p_exinf)
+static void app_print_banner (void)
 {
-    static uint8_t buffer[ROBOT_TELEMETRY_BUFFER_SIZE];
-    uint32_t       length    = 0u;
-    uint32_t       tick      = 0u;
-    uint32_t       last_link = 0xFFFFFFFFu;
-    INT            wait_step = 0;
+    INT wait_step = 0;
 
-    (void) stacd;
-    (void) p_exinf;
-
-    /* Give the USB console a moment so the banner is not lost. */
     for (wait_step = 0; (wait_step < (APP_USB_WAIT_MS / APP_USB_POLL_MS)) &&
                         (tm_usb_state() < APP_USB_ENUMERATED);
          wait_step++)
@@ -383,6 +382,25 @@ static void telemetry_task (INT stacd, void * p_exinf)
     }
     tm_printf(
         (UB *) "==========================================================\n");
+}
+
+/**
+ * @brief Publish dashboard telemetry and print periodic USB status.
+ *
+ * Debug messages, full telemetry, and the MQTT heartbeat have independent rates
+ * controlled by the APP_TELEMETRY_* configuration constants.
+ */
+static void telemetry_task (INT stacd, void * p_exinf)
+{
+    static uint8_t buffer[ROBOT_TELEMETRY_BUFFER_SIZE];
+    uint32_t       length    = 0u;
+    uint32_t       tick      = 0u;
+    uint32_t       last_link = 0xFFFFFFFFu;
+
+    (void) stacd;
+    (void) p_exinf;
+
+    app_print_banner();
 
     for (;;)
     {

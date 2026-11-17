@@ -71,9 +71,9 @@ static void replay (bool reverse, bool interrupt)
     boundaries[0] = 7.5f;
     for (unsigned index = 0; index < 29; ++index)
     {
-        widths[index] = (9 == index || 19 == index)               ? 0.5f
-                        : patterns[index / 10][index % 10] == '1' ? 1.5f
-                                                                  : 0.5f;
+        widths[index] = (9 == index || 19 == index)                 ? 0.5f
+                        : ('1' == patterns[index / 10][index % 10]) ? 1.5f
+                                                                    : 0.5f;
     }
     for (unsigned index = 0; index < 29; ++index)
     {
@@ -92,7 +92,7 @@ static void replay (bool reverse, bool interrupt)
         {
             if (pos >= boundaries[index] && pos < boundaries[index + 1])
             {
-                black = index % 2 == 0;
+                black = (0u == (index % 2u));
             }
         }
         bool      before  = decoder.active;
@@ -122,12 +122,12 @@ static void replay (bool reverse, bool interrupt)
             else
             {
                 assert(B3BC_VALID == event.kind &&
-                       event.decoded.symbol == 'F' &&
+                       ('F' == event.decoded.symbol) &&
                        event.decoded.reversed == reverse);
                 accepted = true;
             }
         }
-        if (tick % 2 == 0)
+        if (0u == (tick % 2u))
         {
             robot_barcode_publish(tick * 10);
         }

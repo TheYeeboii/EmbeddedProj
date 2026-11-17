@@ -29,7 +29,6 @@
           this.frozen=IRStreamHistory.read(await file.text());this.cursor=null;this.render();this.find('notice').textContent='Imported continuous IR recording. Live indicator still describes the connected rover.';
         }catch(error){this.find('notice').textContent=error.message;}e.target.value='';
       });
-      this.timer=setInterval(()=>{if(this.history.live&&Date.now()-this.history.receivedAt>500)this.unavailable();},250);
       this.mode('continuous');
     }
     mode(name) {
@@ -45,7 +44,8 @@
       if(!this.frozen&&!this.find('continuous-panel').hidden&&!this.scheduled){this.scheduled=true;requestAnimationFrame(()=>{this.scheduled=false;this.render();});}
       return true;
     }
-    unavailable(){this.history.unavailable();this.live();}
+    /* Keep the last reading: Wi-Fi often pauses the stream for a second. */
+    unavailable(){this.live();}
     live() {
       const sample=this.history.live;
       this.find('live').textContent=sample?(sample.row[4]?'Black observed':'White observed'):'Sensor state unavailable';
@@ -82,10 +82,10 @@
         }
       }
       this.add(signal,'path',{d:raw,class:'barcode-raw-signal'});this.add(signal,'path',{d:normalized,class:'barcode-norm-signal'});
-      for(const threshold of [400,600])this.add(signal,'line',{x1:0,x2:1000,y1:94-threshold/1000*88,y2:94-threshold/1000*88,class:'barcode-threshold'});
+      for(const threshold of [140,210])this.add(signal,'line',{x1:0,x2:1000,y1:94-threshold/1000*88,y2:94-threshold/1000*88,class:'barcode-threshold'});
       const r=view.selected.row;
       this.find('axis').textContent=`${Math.max(0,-view.start)} ms of time history ending at rover ${r[1]} ms · grey = unknown/missing observations · bar widths here represent time, not printed millimetres.`;
-      this.find('detail').textContent=`Boot ${view.selected.boot} · sample ${r[0]} · rover ${r[1]} ms · ${r[4]?'BLACK':'WHITE'}\nRaw ${r[2]}/4095 · normalized ${r[3]}/1000 · thresholds white ≤400 / black ≥600\nWheel positions L ${r[5]/10} mm / R ${r[6]/10} mm · decoder blocked flags ${r[7]} (do not block this view)\nRaw calibration ${r[8]}–${r[9]}, inverted ${r[10]}. ${view.selected.gap?'Gap before sample: '+view.selected.gap+'. ':''}This is sensor evidence, not a decoded barcode.`;
+      this.find('detail').textContent=`Boot ${view.selected.boot} · sample ${r[0]} · rover ${r[1]} ms · ${r[4]?'BLACK':'WHITE'}\nRaw ${r[2]}/4095 · normalized ${r[3]}/1000 · thresholds white ≤140 / black ≥210\nWheel positions L ${r[5]/10} mm / R ${r[6]/10} mm · decoder blocked flags ${r[7]} (do not block this view)\nRaw calibration ${r[8]}–${r[9]}, inverted ${r[10]}. ${view.selected.gap?'Gap before sample: '+view.selected.gap+'. ':''}This is sensor evidence, not a decoded barcode.`;
     }
   }
   root.RoverIRStreamView=IRStreamView;

@@ -2,7 +2,7 @@
 
 ## GP21 steering tests
 
-The default is stage 1: 35% base and 27 percentage-point curve power. It slows
+The default is stage 1: 60% base and 27 percentage-point curve power. It slows
 the inner wheel and speeds up the outer wheel without reversing either. GP21
 starts/stops it; there is no fixed duration cutoff.
 Use [STEERING_TESTS.md](STEERING_TESTS.md) for staged bench/track tests.
@@ -52,5 +52,10 @@ about 10 degrees of heading change across the barcode. Drive straight past
 the barcode so it passes under the side sensor; speed need not be steady
 because widths are measured in encoder distance. Valid letters and rejected
 frames are logged from the controller task, outside sensor capture.
-Letter-to-turn mapping remains disabled until the demo mapping and physical
-qualification are available; `barcode_mode 2` is rejected.
+Letter-to-turn mapping (`robot_controller.c`): a valid letter read while line
+following sets the move at the next junction. `A` turns left, `C` turns right,
+any other letter goes straight on, and the latest letter wins. At that
+junction Buddy 3 stops instead of crossing, the controller drives
+`ROBOT_JUNCTION_AXLE_MM` (front sensors to wheel axle, 100 mm until measured),
+pivots 90 degrees and starts line following again. An encoder fault or a stop
+ends the turn. Letters read while driving by hand only log.

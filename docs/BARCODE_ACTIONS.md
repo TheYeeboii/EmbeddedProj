@@ -1,9 +1,13 @@
 # Barcode qualification and action mapping
 
-Reading currently reports letters only. `barcode_mode 0` suppresses logs and
-`barcode_mode 1` observes. `barcode_mode 2` is rejected because the demo mapping
-is unknown and physical qualification has not been completed. The unsupported
-numeric 1/2/3 motor-action path and its helper module have been removed.
+While line following, a decoded letter sets the turn at the next junction:
+**A** turns left, **C** turns right, any other letter goes straight on (team
+mapping, `ROBOT_BARCODE_LETTER_LEFT` / `_RIGHT` in `robot_controller.c`). The
+latest letter wins. At the junction the rover stops, drives its
+front-sensor-to-axle distance, pivots 90 degrees and follows the line again.
+Letters read while driving by hand are printed but move nothing.
+`barcode_mode 0` suppresses the letters; `barcode_mode 1` (the default) reads
+them. The old numeric 1/2/3 motor-action path has been removed.
 
 ## Test one stage at a time
 
@@ -12,13 +16,16 @@ numeric 1/2/3 motor-action path and its helper module have been removed.
    mounted height. Measure its sideways offset from the wheel midpoint.
 3. Configure the minimum resolvable element and offset while stopped, following
    [BARCODE_DISTANCE.md](BARCODE_DISTANCE.md). Start with a straight approach.
-4. Press GP21. Pass F and Y prints individually at low speed. USB should report
-   exactly one correct letter and orientation per complete passage. GP21 stops.
+4. Press GP21, or drive forward with W. Pass F and Y prints individually at
+   low speed. USB should report exactly one correct letter and orientation per
+   complete passage. GP21 stops.
 5. Flip each print end-for-end. It should return the same letter, with reversed
    orientation. Uniformly scale prints and repeat above the resolution limit.
-6. Try incomplete patterns, inadequate quiet space, a mid-read stop/reversal,
-   turns and encoder faults. None may produce a valid letter or a barcode turn.
-7. Record trials across speeds, lighting and scales before enabling any actions.
+6. Try incomplete patterns, a mid-read reversal, turns and encoder faults.
+   None may produce a valid letter or a barcode turn. No white space is needed
+   after the barcode: the letter is decoded as the closing `*` ends.
+7. Record trials across speeds, lighting and scales, then try the A and C
+   junction turns on the track.
 
 ## Outstanding issue gates
 
@@ -33,13 +40,13 @@ numeric 1/2/3 motor-action path and its helper module have been removed.
   export/replay are now implemented; physical radio tests remain.
 - [#16](https://github.com/TheYeeboii/EmbeddedProj/issues/16): physical qualification
   remains open. Target at least 95% successful reads and no wrong-letter accepts.
-- [#17](https://github.com/TheYeeboii/EmbeddedProj/issues/17): mapping remains
-  disabled until the actual letters/actions are announced and qualification
-  passes. Then act immediately after a validated frame, independent of scan
-  orientation. Do not assume A=left, Z=right, or F/Y navigation meanings.
+- [#17](https://github.com/TheYeeboii/EmbeddedProj/issues/17): the team mapping
+  (A left, C right, at the next junction) is implemented, independent of scan
+  orientation; physical track qualification remains.
 
-Buddy 2 odometry, Buddy 4 IMU, Buddy 5 avoidance and GP21 steering behavior are
-preserved. Barcode events do not acquire the motors or resume a stopped rover.
+Buddy 2 odometry, Buddy 4 IMU, Buddy 5 avoidance and GP21 steering behaviour are
+preserved. A letter only takes the motors at the junction it was read for, and
+it never restarts a stopped rover.
 
 ## Implementation verification (4 November 2026)
 
@@ -52,9 +59,9 @@ cd firmware/build_make
 make CONSOLE=usb_cdc PICO_SDK_PATH=/path/to/pico-sdk/2.3.1 -j4
 ```
 
-A broader run of the existing `test_buddy5_avoidance.c` fails its PWM assertion
-at line 90. The avoidance source and this test are unchanged by the barcode
-work. This failure remains outstanding; it is not counted as a passing check.
+The older `test_buddy5_avoidance.c` predates the obstacle width sweep and fails
+its first stub check. It is not in the test scripts and is not counted as a
+passing check; `test_buddy5_line_return.c` covers the return to the line.
 The optional Address/Undefined Sanitizer executable did not complete within
 20 seconds in the local environment, so sanitizer verification is unconfirmed.
 No board has been flashed or physically qualified by these software checks.

@@ -72,7 +72,8 @@ void robot_packed_put (robot_packed_writer_t * p_writer, uint32_t value,
  *
  * @param p_writer Writer from robot_packed_writer_init().
  * @param value    Value to write.
- * @param width    Field width in bits, 2..ROBOT_PACKED_MAX_WIDTH.
+ * @param width    Field width in bits, 2..31; any other width writes
+ *                 nothing.
  */
 void robot_packed_put_signed (robot_packed_writer_t * p_writer, int32_t value,
                               uint32_t width);
@@ -104,8 +105,9 @@ uint32_t robot_packed_get (robot_packed_reader_t * p_reader, uint32_t width);
 /**
  * @brief Read the next two's-complement field and sign-extend it.
  * @param p_reader Reader from robot_packed_reader_init().
- * @param width    Field width in bits, 2..ROBOT_PACKED_MAX_WIDTH.
- * @return The field, or 0 when the read overran.
+ * @param width    Field width in bits, 2..31; any other width reads
+ *                 nothing.
+ * @return The field, or 0 when the read overran or the width is invalid.
  */
 int32_t robot_packed_get_signed (robot_packed_reader_t * p_reader,
                                  uint32_t                width);

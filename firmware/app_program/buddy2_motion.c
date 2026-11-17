@@ -80,6 +80,14 @@
 #define BUDDY2_SPEED_USE_LIMIT (0u)
 #define BUDDY2_DEG_PER_TURN    (360.0f)
 #define BUDDY2_MS_PER_S        (1000.0f)
+/* Shortest time between two control steps.  The cyclic handler wakes the
+ * motion task every BUDDY2_CONTROL_PERIOD_MS, but a higher-priority task
+ * (USB, Wi-Fi) can hold one wake-up back by a millisecond or two, so the
+ * next, on-time one arrives after only 18-19 ms.  Asking for a full period
+ * skipped that step and left the motors uncorrected for 40 ms.  Half a
+ * period accepts it, and still skips a queued wake-up that runs straight
+ * after a late one (its tiny time step would only add noise). */
+#define BUDDY2_MIN_STEP_MS (BUDDY2_CONTROL_PERIOD_MS / 2u)
 
 /* ------------------------------------------------------------------ *
  *  State
@@ -452,9 +460,11 @@ void buddy2_update (uint32_t now_ms)
     if (g_b_initialized)
     {
         buddy2_lock();
+        /* Wrap-safe difference; on the first call it is the time since
+         * boot.  A step only runs with a non-zero elapsed time, so dt_s
+         * below is never 0. */
         elapsed_ms = now_ms - g_last_update_ms;
-        if ((elapsed_ms >= BUDDY2_CONTROL_PERIOD_MS) ||
-            (0u == g_last_update_ms))
+        if (elapsed_ms >= BUDDY2_MIN_STEP_MS)
         {
             dt_s             = (float32_t) elapsed_ms / BUDDY2_MS_PER_S;
             g_last_update_ms = now_ms;
@@ -657,10 +667,10 @@ static void buddy2_drive_locked (int16_t left_pwm, int16_t right_pwm,
                    BUDDY2_PERCENT_SQUARED));
     /* Observe requested steering before trim; trim alone is not a turn.
      * Logging only queues transitions and never publishes while locked.
-     * The millisecond clock wraps; consumers use differences. */
+     * Same kernel clock as the steering trace; it wraps, so consumers use
+     * differences. */
     robot_action_record(robot_action_direction_for_pwm(left_pwm, right_pwm),
-                        ROBOT_ACTION_PWM, left_pwm, right_pwm,
-                        (uint32_t) (hal_time_us() / 1000u));
+                        ROBOT_ACTION_PWM, left_pwm, right_pwm, app_now_ms());
     buddy2_trace(left_pwm, right_pwm, p_input);
 }
 
@@ -756,7 +766,7 @@ static void buddy2_stop_locked (const robot_steering_input_t * p_input)
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, 0);
     /* The millisecond clock wraps; consumers use differences. */
     robot_action_record(ROBOT_ACTION_NONE, ROBOT_ACTION_STOP, 0, 0,
-                        (uint32_t) (hal_time_us() / 1000u));
+                        app_now_ms());
     buddy2_trace(0, 0, p_input);
 }
 
@@ -823,7 +833,7 @@ static bool buddy2_start_motion (float32_t left_distance_mm,
         robot_action_record(direction, ROBOT_ACTION_MOTION,
                             (int16_t) (g_motion.left_direction * max_pwm),
                             (int16_t) (g_motion.right_direction * max_pwm),
-                            (uint32_t) (hal_time_us() / 1000u));
+                            app_now_ms());
         buddy2_trace((int16_t) (g_motion.left_direction * max_pwm),
                      (int16_t) (g_motion.right_direction * max_pwm), NULL);
         buddy2_unlock();

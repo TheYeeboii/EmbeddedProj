@@ -21,10 +21,6 @@ int tk_unl_mtx (ID id)
     (void) id;
     return 0;
 }
-uint64_t hal_time_us (void)
-{
-    return g_fake_us;
-}
 uint32_t app_now_ms (void)
 {
     return (uint32_t) (g_fake_us / 1000u);
@@ -66,11 +62,13 @@ static void test_action_hooks (void)
 {
     buddy2_calibration_t motion_cal   = {0};
     robot_action_event_t action_event = {0};
-    assert(buddy2_motion_init() == 0);
+    assert(0 == buddy2_motion_init());
     buddy2_get_calibration(&motion_cal);
     assert(387.0f == motion_cal.left_ticks_per_wheel_rev &&
            387.0f == motion_cal.right_ticks_per_wheel_rev);
     buddy2_set_trim(50, 100);
+    /* Fixed here, not the boot default, so the expected PWMs below hold. */
+    assert(buddy2_set_speed_limit(40));
     g_fake_us = 10000;
     buddy2_set_motor_pwm(12000, 12000);
     assert(2400 == g_left_applied_pwm && 4800 == g_right_applied_pwm);
@@ -177,7 +175,7 @@ static void test_encoder_cadence (void)
         g_fake_us    = (uint64_t) now * 1000;
         ++g_left_ticks;
         ++g_right_ticks;
-        if (tick % 2 == 0)
+        if (0u == (tick % 2u))
         {
             buddy2_update(now);
         }
@@ -214,7 +212,7 @@ static void test_encoder_cadence (void)
                                 true, &event) &&
             B3BC_VALID == event.kind)
         {
-            assert(event.decoded.symbol == 'F');
+            assert('F' == event.decoded.symbol);
             ++fresh_reads;
         }
         previous_cached = old.left_distance_mm;
@@ -223,10 +221,39 @@ static void test_encoder_cadence (void)
     assert(0 == cached_reads && 1 == fresh_reads);
 }
 
+/* The kernel tick is 1 ms, so a wake-up held back by a higher-priority task
+ * is followed by an on-time one only 19 ms later.  That step must still run
+ * (with its real 19 ms), while a queued wake-up that runs 1 ms after a late
+ * one is skipped. */
+static void test_update_jitter (void)
+{
+    buddy2_motion_state_t state = {0};
+
+    buddy2_stop();
+    buddy2_update(8000u); /* On time. */
+    buddy2_update(8021u); /* Held back 1 ms. */
+    g_left_ticks += 10;
+    buddy2_update(8040u); /* On time again: 19 ms after the late one. */
+    buddy2_get_motion_state(&state);
+    assert(8040u == state.timestamp_ms);
+    /* 10 ticks of 0.528 mm in 19 ms is about 278 mm/s. */
+    assert((state.left_speed_mm_s > 276.0f) &&
+           (state.left_speed_mm_s < 279.0f));
+    buddy2_update(8041u); /* Queued wake-up straight after: skipped. */
+    buddy2_get_motion_state(&state);
+    assert(8040u == state.timestamp_ms);
+    buddy2_update(8060u);
+    buddy2_get_motion_state(&state);
+    assert(8060u == state.timestamp_ms);
+}
+
 int main (void)
 {
     test_action_hooks();
     test_encoder_cadence();
+    test_update_jitter();
+    puts("PASS: a late wake-up does not cost the next 20 ms control step; a "
+         "queued one is skipped");
     puts("PASS: real 20ms/10ms encoder cadence: cached reader fails; fresh "
          "snapshot decodes F without changing motor control");
     puts("PASS: real Buddy 2 hooks capture accepted steering, preserve "

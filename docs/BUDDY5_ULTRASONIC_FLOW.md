@@ -23,10 +23,18 @@ The higher-level obstacle-avoidance sequence is implemented by
 
 1. While the rover is actively driving forward, line following, or completing
    a forward distance move, the code watches the saved front-facing distance.
-2. A valid front distance of 10 cm or less starts avoidance.
+2. A valid front distance of 15 cm or less (`APP_OBSTACLE_STOP_CM`) starts
+   avoidance.
 3. The controller stops the motors and stops line following so line-following
-   motor commands cannot override avoidance commands.
-4. The displayed telemetry value remains the last forward-facing reading.
+   motor commands cannot override avoidance commands.  It remembers whether
+   the run came from line following, to hand control back at the end.
+4. The rover backs away 80 mm (`APP_AVOID_REVERSE_DISTANCE_MM`) to make room
+   for the sweep and the turn-out.
+5. The displayed telemetry value remains the last forward-facing reading.
+
+Every avoidance move runs at a fixed 60 % (`APP_AVOID_SPEED_PCT`), not the
+dashboard speed limit, so a low limit cannot stall it.  A dashboard command
+(stop included) cancels the run.
 
 ## Obstacle width sweep and side choice
 
@@ -39,8 +47,8 @@ The higher-level obstacle-avoidance sequence is implemented by
 3. Each reading is split into a forward part (`d * cos(off-axis angle)`) and
    a sideways part (`d * sin(off-axis angle)`).
 4. The obstacle's front face is the nearest forward part of the 75, 90 and
-   105-degree readings.  With no echo at any of them the rover stays
-   stopped.
+   105-degree readings.  With no echo at any of them there is nothing to
+   measure the edges against, so the fallback route of step 8 is used.
 5. Walking outward from the centre on each side, a reading stays on the
    obstacle while it has an echo and its forward part is within 100 mm of
    the face.  The sideways part of the last reading on the face is that
@@ -90,41 +98,45 @@ one sweep step.  Smooth faces seen at a steep angle may not echo; the
 obstacle-side monitors during the turn-out and first diagonal still extend
 the route if the rover passes too close.
 
-## Outward turn and custom forward move
+## Route round the obstacle
 
-1. The rover commands a left or right turn using Buddy 2 motor/encoder code.
-2. A five-second turn timeout stops the rover if that turn never completes.
-3. Once the outward turn completes, Buddy 5 starts its own forward routine:
-   `app_forward_start()`.
-4. This forward routine does not call `buddy2_move_forward()`.
-5. It saves the current left and right encoder distances, then commands both
-   motors forward using the configured drive PWM.
-6. On each sensor cycle, `app_forward_update()` compares the distance travelled
-   by the left and right wheels.
-7. If the left wheel is ahead, its PWM is reduced and the right PWM is raised.
-   If the right wheel is ahead, the correction is reversed.
-8. The routine stops only after both wheel encoders reach the requested
-   distance, within the configured tolerance.
-9. A newly detected front obstacle immediately stops this forward move and
-   restarts the side-scan sequence.
+Turns are measured with the IMU compass, and the straight parts hold the
+heading they started with (`app_forward_drive()`: a small PWM difference per
+tenth of a degree of error).
 
-## Opposite-side check and final forward move
+1. **Turn-out arc.**  The servo turns to watch the obstacle side, then the
+   rover drives a forward arc (outer wheel 14000, inner 4000) until its
+   heading has changed by 30 degrees (left) or 60 degrees (right).  For the
+   first 2 s it pings the obstacle side every 100 ms; a reading of 25 cm or
+   less extends the turn once by 10 degrees.
+2. **Outward diagonal.**  It drives the planned diagonal.  The side monitor
+   runs for the first 2 s of this leg too: 25 cm or less makes both
+   diagonals 100 mm longer and the heading 10 degrees wider (once).  The
+   servo then faces forward again, and a front reading of 15 cm or less
+   restarts avoidance (back away and sweep again).
+3. **Heading recovery.**  It curves back to the heading it had before the
+   turn-out, within 2 degrees (5 s limit).
+4. **Straight leg** of 250 mm (`APP_AVOID_FINAL_FORWARD_DISTANCE_MM`).
+5. **Turn-in arc** the other way, mirroring the turn-out including any
+   extension.
+6. **Inward diagonal.**  From the encoder travel and the heading the rover
+   keeps a running sideways offset from the line it left.  The leg is long
+   enough to cancel that offset (never shorter than the outward diagonal)
+   plus 200 mm, at most 800 mm (`app_return_distance_mm()`).
 
-1. After the outward move completes, the servo scans the side opposite the
-   original outward turn.
-2. That reading is temporary and does not change telemetry.
-3. The rover turns back by the same configured turn angle to restore its
-   original heading.
-4. If the opposite-side reading is valid and farther than the obstacle limit,
-   Buddy 5 starts the same custom encoder-synchronised forward routine for the
-   final configured distance.
-5. If the opposite-side reading is invalid or too close, the rover remains
-   stopped at its restored heading.
-6. After the final move completes, the servo returns to 90 degrees and the
-   controller returns to `idle`.
+From step 3 on, black under either front IR sensor means the rover is back
+on the line: it stops and hands control back to line following (or goes
+idle if the run did not start from line following).  The outward diagonal
+starts on the original line, so black there is ignored.  If the inward
+diagonal ends without finding the line, the rover stops instead of
+following a line it cannot see.  It also stops, reporting the reason on the
+USB console and in the avoidance status, when the IMU heading is lost, an
+encoder faults, an arc or leg times out, or it is still stuck after three
+rescans.  At the end the servo faces forward again.
 
 ## Telemetry rule
 
 Only `buddy5_measure_cm()` updates telemetry.  It represents the last normal
-front measurement.  `buddy5_sample_cm()` is used only for temporary avoidance
-decisions and never replaces the telemetry ultrasonic-distance value.
+front measurement.  `buddy5_sample_with_result_cm()` is used only for
+temporary avoidance pings (width sweep, side monitors) and never replaces the
+telemetry ultrasonic-distance value.

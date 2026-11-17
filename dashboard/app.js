@@ -64,6 +64,8 @@ let wireMismatch = null;
 /* Telemetry sends the low 16 bits of each encoder count. */
 const leftTicks = new window.RoverWire.TickUnwrapper();
 const rightTicks = new window.RoverWire.TickUnwrapper();
+/* Uptime going backwards means the rover rebooted (its ticks restart at 0). */
+let lastUptime = 0;
 
 /* ---------- helpers ---------- */
 
@@ -131,6 +133,72 @@ function refreshRobotLink() {
   }
 }
 
+/* ---------- lift stop card (Buddy 4) ---------- */
+
+/* What the lift card needs: the IMU's lifted state and count, and what the
+ * motors were doing around each lift. A lift counts as "stopped" when the
+ * mode is idle and both motor outputs are 0 within 1 s of the lift. */
+const LIFT_STOP_WINDOW_MS = 1000;
+/* IMU reports can reach the dashboard several seconds late over a busy
+ * Wi-Fi link, so a lift stays shown for 10 s and is matched to whatever was
+ * driving up to 10 s before it arrived. */
+const LIFT_SHOW_MS = 10000;
+const LIFT_FROM_MS = 10000;
+const lift = { lifted: null, count: null, at: 0, stopped: null, from: null,
+  mode: null, left: null, right: null, activeMode: null, activeAt: 0 };
+
+function noteDrive(mode, left, right) {
+  lift.mode = mode;
+  lift.left = left;
+  lift.right = right;
+  const running = mode !== 'idle' || left !== 0 || right !== 0;
+  if (running) { lift.activeMode = mode; lift.activeAt = Date.now(); }
+  if (lift.at && lift.stopped === null && Date.now() - lift.at <= LIFT_STOP_WINDOW_MS && !running) lift.stopped = true;
+  renderLift();
+}
+
+function noteLift(data) {
+  const lifted = data.motion === 7;
+  const counted = lift.count !== null && data.lifts > lift.count;
+  if (counted || (lifted && lift.lifted === false)) {
+    lift.at = Date.now();
+    lift.stopped = null;
+    lift.from = Date.now() - lift.activeAt < LIFT_FROM_MS ? lift.activeMode : null;
+  }
+  lift.lifted = lifted;
+  lift.count = data.lifts;
+  renderLift();
+}
+
+function renderLift() {
+  const now = Date.now();
+  if (lift.at && lift.stopped === null && now - lift.at > LIFT_STOP_WINDOW_MS) {
+    lift.stopped = lift.mode === 'idle' && lift.left === 0 && lift.right === 0;
+  }
+  /* The rover reports "lifted" from the pick-up push until its IR sensors
+   * see the floor again (or while tipped past 45°). Reports can arrive late,
+   * so a lift that already ended still shows for a while. */
+  const recent = lift.at && now - lift.at < LIFT_SHOW_MS;
+  setText('lift-now', lift.lifted === null ? '--'
+    : (lift.lifted ? 'In the air / overturned' : (recent ? 'Put back down' : 'On the ground')));
+  const running = lift.mode !== null && (lift.mode !== 'idle' || lift.left !== 0 || lift.right !== 0);
+  setText('lift-motors', lift.mode === null ? '--' : (running ? 'Running' : 'Stopped'));
+  setText('lift-motors-sub', lift.mode === null ? '--' : `L ${fmt(lift.left)} · R ${fmt(lift.right)} · ${lift.mode}`);
+  setText('lift-count', fmt(lift.count));
+  if (lift.at) {
+    setText('lift-last', relativeFormat.format(Math.round((lift.at - now) / 1000), 'second'));
+    setText('lift-last-sub', lift.stopped === null ? 'checking motors…'
+      : lift.stopped ? (lift.from ? `stopped ${lift.from === 'line' ? 'line following' : lift.from}` : 'rover was already idle')
+        : 'motors did NOT stop');
+  }
+  if (lift.lifted) setBadge('lift-status', running ? 'Lifted: motors still running' : 'Lifted: motors stopped', running ? 'destructive' : 'warning');
+  else if (lift.at && lift.stopped === false) setBadge('lift-status', 'Failed: motors kept running', 'destructive');
+  else if (lift.at && lift.stopped && now - lift.at < 30000) setBadge('lift-status', 'Stopped on lift', 'success');
+  else if (lift.lifted === false) setBadge('lift-status', 'Armed', 'muted');
+}
+
+setInterval(renderLift, 1000);
+
 /* ---------- telemetry ---------- */
 
 function showTelemetry(data) {
@@ -154,6 +222,7 @@ function showTelemetry(data) {
     setText('imu-motion', MOTION_NAMES[data.motion] ?? '--');
     setText('imu-turn-rate', fmt(data.turn_rate_x10 / 10));
     setText('imu-lifts', fmt(data.lifts));
+    noteLift(data);
     return;
   }
 
@@ -169,6 +238,7 @@ function showTelemetry(data) {
 
   barcodeConfiguration.robot(data.mode);
   const mode = data.mode || 'idle';
+  noteDrive(mode, data.motor_left, data.motor_right);
   setBadge('mode', mode, MODE_TONES[mode] || 'muted');
 
   setText('distance', fmt(data.distance_cm));
@@ -263,6 +333,9 @@ function drawSpark() {
 
 function showDebug(data) {
   markSeen();
+  showIrRaw('left', data.raw_center);
+  showIrRaw('right', data.raw_left);
+  showBarcodeRaw(data.raw_right);
   /* Firmware ADC order: 0 physical front right, 1 physical front left, 2 barcode. */
   [
     [data.norm_center, data.raw_center],
@@ -512,6 +585,48 @@ $('#drive-form').addEventListener('submit', (event) => {
   sendCommand('drive', { left, right });
 });
 
+/* IR sensor levels (Buddy 3 tab): white and black raw readings for each
+ * sensor.  Wire numbering 0 barcode, 1 left line, 2 right line.  Debug
+ * names: raw_center = front left, raw_left = front right, raw_right =
+ * barcode (firmware ADC order). */
+const IR_LEVEL_SENSORS = { barcode: 0, left: 1, right: 2 };
+const irLive = { barcode: null, left: null, right: null };
+function showIrRaw(key, raw) {
+  if (typeof raw !== 'number') return;
+  irLive[key] = raw;
+  const row = document.querySelector(`[data-ir-levels="${key}"]`);
+  if (row) row.querySelector('[data-ir-live]').textContent = String(raw);
+}
+function showBarcodeRaw(raw) { showIrRaw('barcode', raw); }
+function sendIrLevels(key) {
+  const row = document.querySelector(`[data-ir-levels="${key}"]`);
+  const whiteInput = row.querySelector('[data-ir-white]');
+  const blackInput = row.querySelector('[data-ir-black]');
+  const white = readInt(whiteInput, 0, 4095);
+  const black = readInt(blackInput, 0, 4095);
+  if (white === null || black === null) {
+    showError('levels-error', 'Levels must be whole numbers from 0 to 4095.', white === null ? whiteInput : blackInput);
+    return;
+  }
+  if (black - white < 200) {
+    showError('levels-error', 'Black must be at least 200 above white.', blackInput);
+    return;
+  }
+  showError('levels-error', '');
+  if (sendCommand('barcode_mode', { mode: 1, sensor: IR_LEVEL_SENSORS[key], white, black })) {
+    commandResult.textContent = `${key} IR white ${white} / black ${black}`;
+  }
+}
+for (const row of document.querySelectorAll('[data-ir-levels]')) {
+  const key = row.dataset.irLevels;
+  row.querySelector('[data-ir-apply]').addEventListener('click', () => sendIrLevels(key));
+  for (const take of row.querySelectorAll('[data-ir-take]')) {
+    take.addEventListener('click', () => {
+      if (irLive[key] !== null) row.querySelector(`[data-ir-${take.dataset.irTake}]`).value = irLive[key];
+    });
+  }
+}
+
 /* Motor trim: percent of commanded PWM per motor, 50..100. */
 function sendTrim() {
   const leftInput = $('#trim-left');
@@ -616,8 +731,9 @@ $('#servo-form').addEventListener('submit', (event) => {
 document.querySelectorAll('[data-servo-angle]').forEach((button) => {
   button.addEventListener('click', () => sendServoAngle(Number(button.dataset.servoAngle)));
 });
+/* Reset to the firmware defaults (BUDDY2_TRIM_DEFAULT_LEFT/RIGHT). */
 $('#trim-reset').addEventListener('click', () => {
-  $('#trim-left').value = 100;
+  $('#trim-left').value = 83;
   $('#trim-right').value = 100;
   sendTrim();
 });
@@ -662,6 +778,9 @@ const resetInputs = [...document.querySelectorAll('.col-side input:not([type="fi
 $('#reset-all').addEventListener('click', () => {
   if (!window.confirm('Reset everything?\n\nStops the rover, clears encoder faults, odometry and IMU, restores default settings, and clears all histories and logs on this page (export first if you need them).')) return;
   sendCommand('reset_all');
+  /* The rover zeroes its encoder counts: restart the unwrapped totals too. */
+  leftTicks.reset();
+  rightTicks.reset();
   document.querySelectorAll('[data-steering="clear"], [data-ir="clear"], [data-barcode="clear"], #clear-serial')
     .forEach((button) => button.click());
   resetInputs.forEach((input) => { input.value = input.defaultValue; });
@@ -755,6 +874,8 @@ if (!window.mqtt) {
     if (message.kind !== 'json') wireMismatch = null;
     const data = message.data;
     if (message.kind === 'telemetry') {
+      if (data.uptime_s < lastUptime) { leftTicks.reset(); rightTicks.reset(); }
+      lastUptime = data.uptime_s;
       data.left_ticks = leftTicks.update(data.left_ticks_raw);
       data.right_ticks = rightTicks.update(data.right_ticks_raw);
     }
@@ -775,7 +896,16 @@ if (!window.mqtt) {
       }
     }
     else if (topic === topics.irStream) {
-      if (irStreamView.handle(data)) markSeen();
+      if (irStreamView.handle(data)) {
+        markSeen();
+        /* 10 ms rows (DIAGNOSTICS=1 builds): faster live value, and the
+         * levels the robot is using right now. */
+        const row = Array.isArray(data.rows) ? data.rows[data.rows.length - 1] : null;
+        if (row) {
+          showBarcodeRaw(row[2]);
+          setText('levels-robot', `white ${row[8]} / black ${row[9]}`);
+        }
+      }
     }
     else if (topic === topics.debug) showDebug(data);
     else if (topic === topics.heartbeat) markSeen();

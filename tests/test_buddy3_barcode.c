@@ -22,7 +22,7 @@ static void frame (char symbol, float32_t narrow, float32_t ratio, bool reverse,
         for (unsigned index = 0; index < 9; ++index)
         {
             forward[group * 10 + index] =
-                narrow * (groups[group][index] == '1' ? ratio : 1.0f);
+                narrow * (('1' == groups[group][index]) ? ratio : 1.0f);
         }
     }
     forward[9] = forward[19] = narrow;
@@ -50,7 +50,7 @@ static void test_parser (void)
                     for (unsigned index = 0; index < 29; ++index)
                     {
                         widths[index] *=
-                            1.0f + (index % 3 == 0 ? 0.08f : -0.08f);
+                            1.0f + ((0u == (index % 3u)) ? 0.08f : -0.08f);
                     }
                     assert(code39_decode(widths, 29, 30, 30, &result) ==
                            CODE39_OK);
@@ -69,40 +69,40 @@ static void test_parser (void)
     float32_t photo_y[] = {13, 15, 42, 15, 42, 15, 14, 44, 14, 15,
                            14, 16, 14, 15, 44, 16, 14, 46, 45, 16,
                            15, 16, 46, 16, 47, 16, 16, 49, 15};
-    assert(code39_decode(photo_f, 29, 200, 200, &result) == CODE39_OK);
-    assert(result.symbol == 'F' && result.reversed);
-    assert(code39_decode(photo_y, 29, 200, 200, &result) == CODE39_OK);
-    assert(result.symbol == 'Y' && result.reversed);
+    assert(CODE39_OK == code39_decode(photo_f, 29, 200, 200, &result));
+    assert(('F' == result.symbol) && result.reversed);
+    assert(CODE39_OK == code39_decode(photo_y, 29, 200, 200, &result));
+    assert(('Y' == result.symbol) && result.reversed);
     frame('A', 1, 3, false, widths);
-    assert(code39_decode(widths, 28, 20, 20, &result) == CODE39_BAD_COUNT);
+    assert(CODE39_BAD_COUNT == code39_decode(widths, 28, 20, 20, &result));
     assert(!result.symbol);
-    assert(code39_decode(widths, 29, 9, 20, &result) == CODE39_BAD_QUIET);
-    assert(code39_decode(widths, 29, 20, 9, &result) == CODE39_BAD_QUIET);
+    assert(CODE39_BAD_QUIET == code39_decode(widths, 29, 9, 20, &result));
+    assert(CODE39_BAD_QUIET == code39_decode(widths, 29, 20, 9, &result));
     widths[9] = 3;
-    assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_WIDTH);
+    assert(CODE39_BAD_WIDTH == code39_decode(widths, 29, 20, 20, &result));
     frame('A', 1, 3, false, widths);
     widths[4] = NAN;
-    assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_WIDTH);
+    assert(CODE39_BAD_WIDTH == code39_decode(widths, 29, 20, 20, &result));
     frame('A', 1, 3, false, widths);
     widths[4] = 0;
-    assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_WIDTH);
+    assert(CODE39_BAD_WIDTH == code39_decode(widths, 29, 20, 20, &result));
     frame('A', 1, 3, false, widths);
     for (unsigned index = 0; index < 9; ++index)
     {
         widths[20 + index] = widths[8 - index];
     }
-    assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_FRAME);
+    assert(CODE39_BAD_FRAME == code39_decode(widths, 29, 20, 20, &result));
     frame('A', 1, 3, false, widths);
     for (unsigned index = 0; index < 9; ++index)
     {
         widths[10 + index] = widths[index]; /* * as payload */
     }
-    assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_SYMBOL);
+    assert(CODE39_BAD_SYMBOL == code39_decode(widths, 29, 20, 20, &result));
     for (unsigned index = 0; index < 29; ++index)
     {
         widths[index] = 1;
     }
-    assert(code39_decode(widths, 29, 20, 20, &result) == CODE39_BAD_WIDTH);
+    assert(CODE39_BAD_WIDTH == code39_decode(widths, 29, 20, 20, &result));
 }
 
 static unsigned replay (char symbol, float32_t scale, bool reversed,
@@ -129,7 +129,7 @@ static unsigned replay (char symbol, float32_t scale, bool reversed,
         {
             if (pos >= boundaries[index] && pos < boundaries[index + 1])
             {
-                black = index % 2 == 0;
+                black = (0u == (index % 2u));
             }
         }
         if (buddy3_barcode_step(&decoder, &cfg, black, step_mm, now, true,
@@ -149,6 +149,68 @@ static unsigned replay (char symbol, float32_t scale, bool reversed,
         pos += step_mm;
     }
     return valid;
+}
+
+/* Drive a run of widths (black first) under the sensor at 0.05 mm/sample,
+ * starting after `lead` mm of white and stopping `tail` mm after the last
+ * element. Returns the first valid letter, or 0. */
+static char drive (const float32_t * widths, unsigned count, float32_t lead,
+                   float32_t tail)
+{
+    buddy3_barcode_decoder_t decoder = {0};
+    buddy3_barcode_config_t  cfg     = {0.25f};
+    buddy3_barcode_event_t   event;
+    float32_t                end = lead;
+    char                     got = 0;
+    for (unsigned index = 0; index < count; ++index)
+    {
+        end += widths[index];
+    }
+    for (uint32_t now = 0; (now * 0.05f) < (end + tail) && !got; ++now)
+    {
+        float32_t pos   = now * 0.05f;
+        float32_t edge  = lead;
+        bool      black = false;
+        for (unsigned index = 0; index < count; ++index)
+        {
+            if (pos >= edge && pos < edge + widths[index])
+            {
+                black = (0u == (index % 2u));
+            }
+            edge += widths[index];
+        }
+        if (buddy3_barcode_step(&decoder, &cfg, black, now ? 0.05f : 0.0f, now,
+                                true, &event) &&
+            B3BC_VALID == event.kind)
+        {
+            got = event.decoded.symbol;
+        }
+    }
+    return got;
+}
+
+/* Like the friend's reader: no white needed before or after the barcode,
+ * and a stray mark in front of it is skipped by sliding the window. */
+static void test_no_quiet_and_resync (void)
+{
+    float32_t widths[29 + 4];
+    frame('F', 2, 3, false, widths);
+    assert('F' == drive(widths, 29, 0.5f, 0.2f)); /* stop at the last bar */
+    frame('Y', 2, 3, true, widths);
+    assert('Y' == drive(widths, 29, 0.5f, 0.2f));
+    /* A stray black mark and gap first. */
+    widths[0] = 3;
+    widths[1] = 2;
+    frame('A', 2, 3, false, widths + 2);
+    assert('A' == drive(widths, 31, 0.5f, 0.2f));
+    /* Blurred narrow bars (narrows 1.6..2.6, wides 5..6.5) still decode. */
+    frame('C', 2, 3, false, widths);
+    for (unsigned index = 0; index < 29; ++index)
+    {
+        widths[index] *=
+            (1u == (index % 4u)) ? 1.3f : ((3u == (index % 4u)) ? 0.8f : 1.0f);
+    }
+    assert('C' == drive(widths, 29, 0.5f, 0.2f));
 }
 
 static void test_abort (void)
@@ -180,24 +242,44 @@ static void test_abort (void)
     decoder.last_progress_ms = 30000;
     assert(buddy3_barcode_step(&decoder, &cfg, true, 1, 30000, true, &event));
     assert(B3BC_TIMEOUT == event.kind);
-    assert(buddy3_barcode_travel(9, 11, 100, 50) == 9);
-    assert(buddy3_barcode_travel(9, 11, 100, -50) == 11);
-    assert(buddy3_barcode_travel(10, 10, 100, 50) == 10);
+    assert(9 == buddy3_barcode_travel(9, 11, 100, 50));
+    assert(11 == buddy3_barcode_travel(9, 11, 100, -50));
+    assert(10 == buddy3_barcode_travel(10, 10, 100, 50));
 }
+/* A real pass over a small printed *Y* (17 Nov 2026): narrow about 4.5 mm,
+ * wide about 14 mm, but the first bar blurred to 10 mm.  Taking the three
+ * widest of nine elements made that bar wide and lost the opening '*';
+ * comparing bars with bars and spaces with spaces reads the letter. */
+static void test_blurred_first_bar (void)
+{
+    static const float32_t recorded[29] = {
+        10.0f, 8.2f,  5.4f, 3.6f, 14.2f, 5.3f, 13.2f, 4.7f, 3.7f, 4.6f,
+        14.5f, 13.6f, 5.1f, 4.1f, 14.8f, 5.3f, 4.0f,  4.5f, 5.1f, 4.9f,
+        4.8f,  14.2f, 6.3f, 3.7f, 14.8f, 4.5f, 14.5f, 5.0f, 3.4f};
+    code39_result_t result = {0};
+
+    assert(code39_is_star(recorded));
+    assert(CODE39_OK == code39_decode(recorded, 29, 1000.0f, 1000.0f, &result));
+    assert(('Y' == result.symbol) && !result.reversed);
+}
+
 int main (void)
 {
+    test_blurred_first_bar();
     test_parser();
     for (char letter = 'A'; letter <= 'Z'; ++letter)
     {
         for (unsigned reverse = 0; reverse < 2; ++reverse)
         {
-            assert(replay(letter, 0.5f, reverse != 0, false) == 1);
-            assert(replay(letter, 2.0f, reverse != 0, true) == 1);
+            assert(1 == replay(letter, 0.5f, reverse != 0, false));
+            assert(1 == replay(letter, 2.0f, reverse != 0, true));
         }
     }
     test_abort();
+    test_no_quiet_and_resync();
     puts("PASS: adaptive A-Z Code39, both orientations, photo F/Y, noise, "
-         "malformed frames, distance replay, changing speed, abort guards");
+         "malformed frames, distance replay, changing speed, abort guards, "
+         "blurred first bar (real *Y* pass)");
     return 0;
 }
 

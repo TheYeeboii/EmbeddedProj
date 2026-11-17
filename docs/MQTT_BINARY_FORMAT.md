@@ -148,7 +148,7 @@ rejected.
 | 9 | motor trim | left - 50 (6), right - 50 (6) | 2 |
 | 10 | speed limit | percent (7) | 2 |
 | 11 | servo angle | degrees (8) | 2 |
-| 12 | barcode mode | 0 off / 1 observe (1) | 1 |
+| 12 | barcode mode + sensor levels | 0 off / 1 read (1), barcode sensor white raw (12), black raw (12); both 0 = levels unchanged | 4 |
 | 13 | barcode config | min element mm (10), left offset mm signed (10) | 3 |
 | 14 | line stage | 0-3 (2) | 1 |
 | 15 | line speed | base % (7), curve % (6) | 3 |
@@ -332,8 +332,8 @@ count the kernel's memory pool.
 - Manual barcode reading: `test_buddy3_ir_junction.c` drives the real IR code
   over a Code 39 "F" three ways. Line following and a manual forward drive
   each read it once, and with neither nothing is read. The controller test
-  checks a held W key keeps the reader running and that turning, reversing
-  or stopping ends it.
+  checks a held W key keeps the reader running, that turning or reversing
+  ends it, and that a stop only pauses it.
 - The dashboard was checked in the browser by feeding it the golden messages:
   every tile showed the expected value. Its commands were captured and
   matched the table above; the version-mismatch and offline badges worked.

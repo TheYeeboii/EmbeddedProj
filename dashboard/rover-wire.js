@@ -233,8 +233,10 @@
         r.get(6), r.get(12), r.get(12), r.get(1)]);
     }
     d.ts_ms = ts;
-    /* Fixed in the firmware (10 ms IR task, Buddy 3 white/black thresholds). */
-    d.period_ms = 10; d.white = 400; d.black = 600;
+    /* Not on the wire: copies of ROBOT_IR_STREAM_PERIOD_MS and of
+     * BUDDY3_BARCODE_WHITE_ON / _BLACK_ON in firmware/app_program/buddy3_ir.c.
+     * Change them together (also ir-stream-model.js and ir-stream-view.js). */
+    d.period_ms = 10; d.white = 140; d.black = 210;
     return d;
   }
 
@@ -292,9 +294,15 @@
       case 'servo_angle':
         if (!inRange(values.angle, 0, 255)) return null;
         return new Writer(2).put(OP.servo_angle, 4).put(values.angle, 8).bytes;
-      case 'barcode_mode':
-        if (!inRange(values.mode, 0, 1)) return null;
-        return new Writer(1).put(OP.barcode_mode, 4).put(values.mode, 1).bytes;
+      case 'barcode_mode': {
+        /* Mode, then one IR sensor (0 barcode, 1 left line, 2 right line)
+         * and its white and black raw levels (both 0 = leave them). */
+        const sensor = values.sensor ?? 0, white = values.white ?? 0, black = values.black ?? 0;
+        if (!inRange(values.mode, 0, 1) || !inRange(sensor, 0, 2) ||
+            !inRange(white, 0, 4095) || !inRange(black, 0, 4095)) return null;
+        return new Writer(4).put(OP.barcode_mode, 4).put(values.mode, 1).put(sensor, 2)
+          .put(white, 12).put(black, 12).bytes;
+      }
       case 'barcode_config':
         if (!inRange(values.min_element_mm, 0, 1023) || !inRange(values.offset_left_mm, -512, 511)) return null;
         return new Writer(3).put(OP.barcode_config, 4).put(values.min_element_mm, 10)

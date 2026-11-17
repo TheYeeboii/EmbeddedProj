@@ -52,6 +52,14 @@ code39_status_t code39_decode (const float32_t * p_widths, uint32_t count,
                                code39_result_t * p_result);
 
 /**
+ * @brief True when nine element widths are a start/stop '*', read either
+ *        way (a reversed '*' looks different).  Used to resynchronise.
+ * @param p_widths Nine element widths, first one black.
+ * @return True for '*' or a reversed '*'.
+ */
+bool code39_is_star (const float32_t * p_widths);
+
+/**
  * @brief Short log name for a decode status.
  * @param status Status from code39_decode().
  * @return Constant string, "unknown" for out-of-range values.
