@@ -268,9 +268,13 @@ static void test_barcode_handoff (void)
     g_pause_ms = 0u;
     /* Really too fast (1.2 mm per sample) is still refused. */
     assert(0u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 1.2f));
-    /* Faint bars (raw 1050 on white 500) are only 15 % of the default
-     * 200..3800 range: too small a jump, so nothing is read... */
+    /* A faint peak above the black threshold reads from clear white,
+     * even when the rise is smaller than the relative jump threshold. */
     g_black_raw = 1050u;
+    g_white_raw = 200u;
+    assert(1u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 0.52f));
+    /* A peak below the black threshold still needs adjusted calibration. */
+    g_black_raw = 900u;
     g_white_raw = 500u;
     assert(0u == scan_barcode(SCAN_MANUAL, BUDDY3_BARCODE_PERIOD_MS, 0.52f));
     /* ...until the dashboard levels are set to them (white 500, black 1100). */
