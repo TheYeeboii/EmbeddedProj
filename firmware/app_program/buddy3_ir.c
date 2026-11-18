@@ -1178,9 +1178,12 @@ static bool buddy3_barcode_colour (uint16_t value)
         {
             g_barcode_extreme = value;
         }
-        else if ((((uint32_t) value - g_barcode_extreme) >=
-                  BUDDY3_BARCODE_JUMP) &&
-                 (value >= BUDDY3_BARCODE_BLACK_ON))
+        /* From confirmed white, the absolute black threshold is enough.
+         * After a shallow gap between bars, require a new relative rise. */
+        else if ((value >= BUDDY3_BARCODE_BLACK_ON) &&
+                 ((g_barcode_extreme <= BUDDY3_BARCODE_WHITE_ON) ||
+                  (((uint32_t) value - g_barcode_extreme) >=
+                   BUDDY3_BARCODE_JUMP)))
         {
             g_b_barcode_black = true;
             g_barcode_extreme = value;
