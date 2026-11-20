@@ -12,6 +12,7 @@ C_DEPS += \
 
 mtkernel_3/lib/libtm/%.o: ../lib/libtm/%.c
 	@echo 'Building file: $<'
+	@mkdir -p "$(@D)"
 	$(GCC) $(CFLAGS) -D$(TARGET) $(INCPATH) -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
