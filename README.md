@@ -133,6 +133,10 @@ Git: **never commit it**.
 
 ### 2. Build the `.uf2` (every time the code changes)
 
+Copy `firmware/config/mqtt_config.example.h` to
+`firmware/config/mqtt_config.h` and set `ROBOT_MQTT_BROKER_IP` to your laptop's
+IP on the rover's Wi-Fi network. The local MQTT configuration is ignored by Git.
+
 In Ubuntu (change `<you>` to your Windows user name; `/mnt/c/` is your C: drive):
 
 ```sh
