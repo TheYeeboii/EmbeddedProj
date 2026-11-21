@@ -37,6 +37,7 @@
 #define ROBOT_WIRE_TYPE_ACTION   (8u)  /**< rover/actions */
 #define ROBOT_WIRE_TYPE_STEERING (9u)  /**< rover/steering */
 #define ROBOT_WIRE_TYPE_BARCODE  (10u) /**< rover/barcode */
+#define ROBOT_WIRE_TYPE_IR_TUNING (12u) /**< sensor settings and live state */
 #define ROBOT_WIRE_TYPE_IR       (11u) /**< rover/ir */
 /** Largest diagnostic message (a 4-row barcode sample packet), in bytes. */
 #define ROBOT_WIRE_DIAG_MESSAGE_MAX (96u)
@@ -50,6 +51,7 @@
 
 /* Command opcodes (high nibble of byte 0).  0 and 7 are reserved, so an
  * all-zero byte or an old text/JSON command ('{', 's', ...) is rejected. */
+#define ROBOT_WIRE_OP_IR_THRESHOLDS  (0u)
 #define ROBOT_WIRE_OP_STOP           (1u)
 #define ROBOT_WIRE_OP_DRIVE_PRESET   (2u)
 #define ROBOT_WIRE_OP_DRIVE          (3u)
@@ -210,6 +212,11 @@ uint32_t robot_wire_encode_imu (const robot_wire_imu_t * p_values,
  */
 bool robot_wire_decode_command (const uint8_t * p_data, uint32_t length,
                                 robot_wire_command_t * p_command);
+
+/** Add mailbox/retry age to a diagnostic packet, saturating at 65535 ms.
+ * Unsupported packets are preserved. Call on a fresh copy for each retry. */
+void robot_wire_add_transport_age (uint8_t * data, uint32_t length,
+                                    uint32_t age_ms);
 
 #endif /* ROBOT_WIRE_H */
 

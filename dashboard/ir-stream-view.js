@@ -30,6 +30,7 @@
         }catch(error){this.find('notice').textContent=error.message;}e.target.value='';
       });
       this.mode('continuous');
+      this.freshnessTimer = setInterval(() => this.live(), 1000);
     }
     mode(name) {
       if(!['continuous','attempts'].includes(name))return;
@@ -40,16 +41,37 @@
     }
     handle(d) {
       if(!this.history.accept(d))return false;
+      this.linkUnavailable = false;
       this.live();
-      if(!this.frozen&&!this.find('continuous-panel').hidden&&!this.scheduled){this.scheduled=true;requestAnimationFrame(()=>{this.scheduled=false;this.render();});}
+      this.scheduleRender();
       return true;
     }
+    canRender() {
+      return !this.find('continuous-panel').hidden &&
+        !this.element.closest('[hidden]') && document.visibilityState !== 'hidden';
+    }
+    scheduleRender() {
+      if (this.frozen || this.scheduled || !this.canRender()) return;
+      this.scheduled = true;
+      // Record every packet, but rebuild the plot at most ten times/second.
+      setTimeout(() => {
+        this.scheduled = false;
+        if (!this.frozen && this.canRender()) this.render();
+      }, 100);
+    }
     /* Keep the last reading: Wi-Fi often pauses the stream for a second. */
-    unavailable(){this.live();}
+    unavailable(){this.linkUnavailable = true;this.live();}
     live() {
-      const sample=this.history.live;
-      this.find('live').textContent=sample?(sample.row[4]?'Black observed':'White observed'):'Sensor state unavailable';
-      this.find('live').dataset.color=sample?(sample.row[4]?'black':'white'):'unknown';
+      const sample = this.history.last;
+      const age = Math.max(0, Date.now() - this.history.receivedAt) + this.history.lagMs;
+      const delayed = this.linkUnavailable || !this.history.live || age > 1500;
+      const reading = sample ? (sample.row[4] ? 'Black observed' : 'White observed') : '';
+      const label = !sample ? 'Waiting for IR reports' : delayed ?
+        'Updates delayed · last ' + reading + ' · ' + (age / 1000).toFixed(1) + ' s old' : reading;
+      const color = sample && !delayed ? (sample.row[4] ? 'black' : 'white') : 'unknown';
+      const badge = this.find('live');
+      if (badge.textContent !== label) badge.textContent = label;
+      if (badge.dataset.color !== color) badge.dataset.color = color;
     }
     add(svg,tag,attrs,text){const node=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))node.setAttribute(k,String(v));if(text!==undefined)node.textContent=text;svg.append(node);return node;}
     render() {
@@ -68,6 +90,17 @@
       }
       // A current sample is a point, not a fabricated future bar width.
       this.add(strip,'line',{x1:995,x2:995,y1:0,y2:75,stroke:view.selected.row[4]?'#111':'#fff','stroke-width':3});
+      const r = view.selected.row;
+      const digital = r[8] === 0 && r[9] === 1;
+      signal.toggleAttribute('hidden', digital);
+      this.find('signal-legend').hidden = digital;
+      this.find('axis').textContent = `${Math.max(0,-view.start)} ms of time history ending at rover ${r[1]} ms · grey = unknown/missing observations · bar widths here represent time, not printed millimetres.`;
+      if (digital) {
+        this.find('detail').textContent = `Digital GPIO ${r[2] ? 'HIGH (1)' : 'LOW (0)'} · ${r[4] ? 'BLACK' : 'WHITE'}
+Rover ${r[1]} ms · sample ${r[0]} · software thresholds bypassed
+Wheel positions L ${r[5]/10} mm / R ${r[6]/10} mm`;
+        return;
+      }
       let raw='',normalized='',previous=null;
       // Retain bucket extrema and every gap boundary when zoomed out.
       // All 6000 observations remain available for inspection/export.
@@ -83,8 +116,6 @@
       }
       this.add(signal,'path',{d:raw,class:'barcode-raw-signal'});this.add(signal,'path',{d:normalized,class:'barcode-norm-signal'});
       for(const threshold of [140,210])this.add(signal,'line',{x1:0,x2:1000,y1:94-threshold/1000*88,y2:94-threshold/1000*88,class:'barcode-threshold'});
-      const r=view.selected.row;
-      this.find('axis').textContent=`${Math.max(0,-view.start)} ms of time history ending at rover ${r[1]} ms · grey = unknown/missing observations · bar widths here represent time, not printed millimetres.`;
       this.find('detail').textContent=`Boot ${view.selected.boot} · sample ${r[0]} · rover ${r[1]} ms · ${r[4]?'BLACK':'WHITE'}\nRaw ${r[2]}/4095 · normalized ${r[3]}/1000 · thresholds white ≤140 / black ≥210\nWheel positions L ${r[5]/10} mm / R ${r[6]/10} mm · decoder blocked flags ${r[7]} (do not block this view)\nRaw calibration ${r[8]}–${r[9]}, inverted ${r[10]}. ${view.selected.gap?'Gap before sample: '+view.selected.gap+'. ':''}This is sensor evidence, not a decoded barcode.`;
     }
   }

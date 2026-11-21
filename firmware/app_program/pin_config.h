@@ -67,6 +67,19 @@
 #define IR_ADC_CHANNEL_CENTER (1u)
 #define IR_ADC_CHANNEL_RIGHT  (2u)
 
+/* Barcode input mode. Wire the sensor's DO output to GP28 for digital
+ * operation. Both front sensors remain on their analog outputs.
+ * Override these with ROBOT_CFLAGS when changing wiring or polarity. */
+#ifndef BARCODE_DIGITAL_INPUT
+#define BARCODE_DIGITAL_INPUT (1)
+#endif
+#ifndef BARCODE_DIGITAL_PIN
+#define BARCODE_DIGITAL_PIN IR_SENSOR_RIGHT_PIN
+#endif
+#ifndef BARCODE_DIGITAL_BLACK_LEVEL
+#define BARCODE_DIGITAL_BLACK_LEVEL (1u)
+#endif
+
 /* Robo Pico on-board push buttons (active low) */
 #define BUTTON_LINE_PIN (21u) /* GP21: start/stop line following     */
 

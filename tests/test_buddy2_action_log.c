@@ -247,11 +247,60 @@ static void test_update_jitter (void)
     assert(8060u == state.timestamp_ms);
 }
 
+static void test_barcode_speed (void)
+{
+    bool active;
+    uint8_t effective;
+    buddy2_stop();
+    buddy2_set_trim(100, 100);
+    assert(buddy2_set_speed_limit(60));
+    buddy2_set_motor_pwm(10000, 20000);
+    assert(g_left_applied_pwm == 6000 && g_right_applied_pwm == 12000);
+    buddy2_set_barcode_slowdown(true);
+    buddy2_get_barcode_speed(&active, &effective);
+    assert(active && effective == 10 && buddy2_get_speed_limit() == 60);
+    assert(g_left_applied_pwm == 1000 && g_right_applied_pwm == 2000);
+    /* Subsequent steering/junction commands cannot bypass the override. */
+    buddy2_set_motor_pwm(20000, 10000);
+    assert(g_left_applied_pwm == 2000 && g_right_applied_pwm == 1000);
+    buddy2_set_motor_pwm_at_speed(16000, -16000, 30);
+    assert(g_left_applied_pwm == 1600 && g_right_applied_pwm == -1600);
+    assert(buddy2_set_speed_limit(40));
+    buddy2_set_barcode_slowdown(false);
+    assert(g_left_applied_pwm == 4800 && g_right_applied_pwm == -4800);
+    buddy2_set_motor_pwm(12000, 12000);
+    assert(g_left_applied_pwm == 4800 && g_right_applied_pwm == 4800);
+    buddy2_set_barcode_slowdown(true);
+    assert(g_left_applied_pwm == 1200);
+    buddy2_stop();
+    buddy2_set_barcode_slowdown(false);
+    assert(g_left_applied_pwm == 0 && g_right_applied_pwm == 0);
+    assert(buddy2_set_speed_limit(60));
+    assert(buddy2_move_forward(100, 20000));
+    assert(g_motion.max_pwm == 12000);
+    g_motion.left_integral = 50.0f;
+    buddy2_set_barcode_slowdown(true);
+    assert(g_motion.b_active && g_motion.target_distance_mm == 100);
+    assert(g_motion.max_pwm == 2000 && g_left_applied_pwm == 2000);
+    assert(g_motion.left_integral == 0.0f);
+    buddy2_set_barcode_slowdown(false);
+    assert(g_motion.max_pwm == 12000 && g_left_applied_pwm == 12000);
+    buddy2_stop();
+    buddy2_set_barcode_slowdown(true);
+    assert(buddy2_turn_left(90, 12000));
+    assert(g_motion.max_pwm == 1200);
+    buddy2_stop();
+    buddy2_set_barcode_slowdown(false);
+    assert(!g_motion.b_active && g_left_applied_pwm == 0 && g_right_applied_pwm == 0);
+    puts("PASS: barcode speed 10 overrides ongoing/new steering and PID, preserves configured speeds, and never restarts stopped motors");
+}
+
 int main (void)
 {
     test_action_hooks();
     test_encoder_cadence();
     test_update_jitter();
+    test_barcode_speed();
     puts("PASS: a late wake-up does not cost the next 20 ms control step; a "
          "queued one is skipped");
     puts("PASS: real 20ms/10ms encoder cadence: cached reader fails; fresh "

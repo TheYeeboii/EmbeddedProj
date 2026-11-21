@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=35">
+  <link rel="stylesheet" href="styles.css?v=38">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -187,6 +187,63 @@
         </div>
 
         <div class="main-group group-ir">
+          <section class="ir-threshold-panels" data-widget="ir-threshold-editor" aria-label="Three sensor IR tuning">
+          <form id="ir-threshold-editor" class="card ir-threshold-editor" aria-labelledby="ir-threshold-title">
+            <header class="card-header"><h2 id="ir-threshold-title">Barcode IR threshold tuning</h2><span data-threshold="live" class="badge">Sensor unavailable</span></header>
+            <p data-threshold="speed" class="small" hidden></p>
+            <p data-threshold="hint" class="muted small">Raw ADC · drag either stop or type a value. Grey retains the previous colour. Apply sends the draft to the rover.</p>
+            <div class="threshold-strip" data-threshold="strip"><span data-threshold="marker" class="threshold-marker" aria-hidden="true"></span></div>
+            <div class="threshold-handles">
+              <input data-threshold="low-range" type="range" min="0" max="4095" step="1" value="700" aria-label="Lower ADC stop">
+              <input data-threshold="high-range" type="range" min="0" max="4095" step="1" value="1000" aria-label="Upper ADC stop">
+            </div>
+            <div class="threshold-fields">
+              <label>Lower stop<input data-threshold="low-number" class="input num" type="number" min="0" max="4095" step="1" value="700" required></label>
+              <label>Upper stop<input data-threshold="high-number" class="input num" type="number" min="0" max="4095" step="1" value="1000" required></label>
+              <label class="threshold-polarity"><input data-threshold="invert" type="checkbox"> Black at low readings</label>
+            </div>
+            <p data-threshold="legend" class="small"></p>
+            <p data-threshold="active" class="small">Waiting for active rover settings.</p>
+            <div class="threshold-actions"><button data-threshold="apply" class="btn btn-sm" type="submit" disabled>Apply raw thresholds</button><button data-threshold="legacy" class="btn btn-outline btn-sm" type="button" disabled>Use existing classifier</button></div>
+            <p data-threshold="status" class="muted small" role="status">Waiting for tuning-capable firmware. Settings reset on reboot. Grey starts as white after applying.</p>
+          </form>
+          <form id="ir-threshold-editor-left" class="card ir-threshold-editor" aria-labelledby="ir-threshold-title-left">
+            <header class="card-header"><h2 id="ir-threshold-title-left">Front-left IR threshold tuning</h2><span data-threshold="live" class="badge">Sensor unavailable</span></header>
+            <p data-threshold="hint" class="muted small">Raw ADC · drag either stop or type a value. Grey retains the previous colour. Apply sends the draft to the rover.</p>
+            <div class="threshold-strip" data-threshold="strip"><span data-threshold="marker" class="threshold-marker" aria-hidden="true"></span></div>
+            <div class="threshold-handles">
+              <input data-threshold="low-range" type="range" min="0" max="4095" step="1" value="700" aria-label="Lower ADC stop">
+              <input data-threshold="high-range" type="range" min="0" max="4095" step="1" value="1000" aria-label="Upper ADC stop">
+            </div>
+            <div class="threshold-fields">
+              <label>Lower stop<input data-threshold="low-number" class="input num" type="number" min="0" max="4095" step="1" value="700" required></label>
+              <label>Upper stop<input data-threshold="high-number" class="input num" type="number" min="0" max="4095" step="1" value="1000" required></label>
+              <label class="threshold-polarity"><input data-threshold="invert" type="checkbox"> Black at low readings</label>
+            </div>
+            <p data-threshold="legend" class="small"></p>
+            <p data-threshold="active" class="small">Waiting for active rover settings.</p>
+            <div class="threshold-actions"><button data-threshold="apply" class="btn btn-sm" type="submit" disabled>Apply raw thresholds</button><button data-threshold="legacy" class="btn btn-outline btn-sm" type="button" disabled>Use existing classifier</button></div>
+            <p data-threshold="status" class="muted small" role="status">Waiting for tuning-capable firmware. Settings reset on reboot. Grey starts as white after applying.</p>
+          </form>
+          <form id="ir-threshold-editor-right" class="card ir-threshold-editor" aria-labelledby="ir-threshold-title-right">
+            <header class="card-header"><h2 id="ir-threshold-title-right">Front-right IR threshold tuning</h2><span data-threshold="live" class="badge">Sensor unavailable</span></header>
+            <p data-threshold="hint" class="muted small">Raw ADC · drag either stop or type a value. Grey retains the previous colour. Apply sends the draft to the rover.</p>
+            <div class="threshold-strip" data-threshold="strip"><span data-threshold="marker" class="threshold-marker" aria-hidden="true"></span></div>
+            <div class="threshold-handles">
+              <input data-threshold="low-range" type="range" min="0" max="4095" step="1" value="700" aria-label="Lower ADC stop">
+              <input data-threshold="high-range" type="range" min="0" max="4095" step="1" value="1000" aria-label="Upper ADC stop">
+            </div>
+            <div class="threshold-fields">
+              <label>Lower stop<input data-threshold="low-number" class="input num" type="number" min="0" max="4095" step="1" value="700" required></label>
+              <label>Upper stop<input data-threshold="high-number" class="input num" type="number" min="0" max="4095" step="1" value="1000" required></label>
+              <label class="threshold-polarity"><input data-threshold="invert" type="checkbox"> Black at low readings</label>
+            </div>
+            <p data-threshold="legend" class="small"></p>
+            <p data-threshold="active" class="small">Waiting for active rover settings.</p>
+            <div class="threshold-actions"><button data-threshold="apply" class="btn btn-sm" type="submit" disabled>Apply raw thresholds</button><button data-threshold="legacy" class="btn btn-outline btn-sm" type="button" disabled>Use existing classifier</button></div>
+            <p data-threshold="status" class="muted small" role="status">Waiting for tuning-capable firmware. Settings reset on reboot. Grey starts as white after applying.</p>
+          </form>
+          </section>
           <section class="card" aria-labelledby="line-title" data-widget="line-sensor">
             <header class="card-header">
               <h2 id="line-title">Line sensor</h2>
@@ -245,7 +302,7 @@
               <label class="barcode-field">Time window <select data-ir="window"><option value="2000">2 seconds</option><option value="5000" selected>5 seconds</option><option value="10000">10 seconds</option><option value="30000">30 seconds</option><option value="60000">60 seconds</option></select></label>
               <svg data-ir="strip" class="ir-stream-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Continuous black and white sensor observations over time"></svg>
               <p data-ir="axis" class="muted small trace-notice"></p>
-              <p class="muted small trace-notice">Blue = raw signal /4095 · green = normalized /1000 · dashed = classification thresholds. Grey gaps mean missing or delayed sampling, never assumed white.</p>
+              <p data-ir="signal-legend" class="muted small trace-notice">Blue = raw signal /4095 · green = normalized /1000 · dashed = classification thresholds. Grey gaps mean missing or delayed sampling, never assumed white.</p>
               <svg data-ir="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Continuous raw and normalized side IR signals"></svg>
               <label class="trace-cursor">Inspect history <input data-ir="cursor" type="range" min="0" max="0" value="0" disabled></label>
               <pre data-ir="detail" class="trace-detail" tabindex="0"></pre>
@@ -288,7 +345,7 @@
             <p data-barcode="scale" class="muted small trace-notice"></p>
             <div data-barcode="elements" class="barcode-elements" aria-label="Measured bar and space details"></div>
             <pre data-barcode="detail" class="trace-detail" tabindex="0"></pre>
-            <p class="small trace-notice">Side sensor over rover time: blue = raw /4095, green = normalized /1000, dashed lines = hysteresis thresholds. Gaps in samples break the curves.</p>
+            <p data-barcode="signal-legend" class="small trace-notice">Side sensor over rover time: blue = raw /4095, green = normalized /1000, dashed lines = hysteresis thresholds. Gaps in samples break the curves.</p>
             <svg data-barcode="signal" class="barcode-signal" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="Side IR signal history"></svg>
             <label class="trace-cursor">Inspect sample <input data-barcode="sample" type="range" min="0" max="0" value="0" disabled></label>
             <pre data-barcode="sample-detail" class="trace-detail" tabindex="0"></pre>
@@ -541,6 +598,7 @@
 
     <section id="tab-buddy3" class="buddy-panel" data-tab-panel="buddy3" role="tabpanel" aria-labelledby="tab-btn-buddy3" hidden>
       <div class="buddy-grid">
+        <div class="tab-slot buddy-wide" data-slot="ir-threshold-editor"></div>
         <div class="tab-slot" data-slot="line-sensor"></div>
         <div class="tab-slot" data-slot="barcode-letter"></div>
         <div class="tab-slot" data-slot="line-follow"></div>
@@ -581,6 +639,7 @@
             </div>
             <div class="btn-row"><button class="btn btn-primary btn-sm" type="button" data-ir-apply><i data-lucide="send" aria-hidden="true"></i>Apply Right line</button></div>
           </div>
+          <p id="barcode-level-mode" class="muted small" role="status"></p>
           <div class="trim-grid" data-ir-levels="barcode">
             <div class="trim-side">
               <span class="small"><b>Barcode</b> · live <span class="num" data-ir-live>--</span></span>
@@ -724,12 +783,13 @@
   <script src="action-log.js?v=2"></script>
   <script src="steering-view.js?v=3"></script>
   <script src="barcode-model.js?v=3"></script>
-  <script src="barcode-view.js?v=8"></script>
+  <script src="barcode-view.js?v=9"></script>
   <script src="barcode-config.js?v=2"></script>
-  <script src="ir-stream-model.js?v=1"></script>
-  <script src="ir-stream-view.js?v=3"></script>
+  <script src="ir-stream-model.js?v=4"></script>
+  <script src="ir-stream-view.js?v=6"></script>
   <script src="tabs-view.js?v=1"></script>
-  <script src="rover-wire.js?v=4"></script>
-  <script src="app.js?v=37"></script>
+  <script src="rover-wire.js?v=10"></script>
+  <script src="ir-threshold-view.js?v=5"></script>
+  <script src="app.js?v=41"></script>
 </body>
 </html>

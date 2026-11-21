@@ -5,11 +5,13 @@ const assert=require('node:assert/strict');
  const page=await browser.newPage({viewport:{width:1280,height:960}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://**/*',route=>{
-  if(route.request().url().includes('mqtt.min.js'))return route.fulfill({contentType:'application/javascript',body:`window.mockHandlers={};window.mqtt={connect:()=>({connected:true,on:(name,fn)=>window.mockHandlers[name]=fn,subscribe:()=>{},publish:()=>{}})};`});
+  if(route.request().url().includes('mqtt.min.js'))return route.fulfill({contentType:'application/javascript',body:`window.mockHandlers={};window.mqtt={connect:()=>({connected:true,on:(name,fn)=>window.mockHandlers[name]=name==='message'?(topic,payload)=>fn(topic,typeof payload==='string'?new TextEncoder().encode(payload):payload):fn,subscribe:()=>{},publish:()=>{}})};`});
   if(route.request().url().includes('lucide'))return route.fulfill({contentType:'application/javascript',body:'window.lucide={createIcons:()=>{}};'});
   return route.abort();
  });
  await page.goto(process.env.DASHBOARD_URL || 'http://127.0.0.1:8765/',{waitUntil:'networkidle'});
+ await page.locator('[data-tab="buddy2"]').click();
+ await page.locator('#steering-visual .tools-toggle').click();
  await page.evaluate(()=>{
   window.mockHandlers.connect();
   const make=(seq,direction)=>({v:1,type:'steering',boot:42,seq,ts_ms:seq*10,lag_ms:0,dropped:0,owner:2,phase:1,direction,requested:direction===1?[1000,4000]:direction===2?[4000,1000]:[3000,3000],applied:direction===1?[400,1600]:direction===2?[1600,400]:[1200,1200],encoder_ms:seq*10,distance:[100,100],speed:[500,500],faults:0,sample_ms:seq*10,ir:[3000,200,1000,0,500,200,1300,200,3000,0],has_input:1});

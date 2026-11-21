@@ -87,9 +87,47 @@ assert.equal(hex('motor_trim', { left: 50, right: 50 }), '90 00');
 assert.equal(hex('barcode_config', { min_element_mm: 1000, offset_left_mm: -500 }), 'df a2 0c');
 assert.equal(hex('line_speed', { base: 80, turn: 60 }), 'fa 1e 00');
 assert.equal(hex('reset_all'), '80');
+assert.equal(W.encodeCommand('ir_thresholds', {
+  sensor: 3, inverted: false, white: 200, black: 300
+}), null);
+const irCommand = W.encodeCommand('ir_thresholds', {
+  sensor: 2, inverted: true, white: 220, black: 260
+});
+const irReader = new W.Reader(irCommand);
+assert.deepEqual([irReader.get(4), irReader.get(2), irReader.get(1),
+  irReader.get(12), irReader.get(12)], [0, 2, 1, 220, 260]);
+const frontReport = new W.Writer(11).put(0xc1, 8).put(200, 32).put(220, 12)
+  .put(260, 12).put(200, 12).put(1, 1).put(1, 1).put(1, 1).put(2, 2).bytes;
+assert.equal(W.decode(frontReport).data.sensor, 2);
+const agedReport = new W.Writer(13).put(0xc1,8).put(2000,32)
+  .put(220,12).put(260,12).put(250,12).put(1,1).put(0,1).put(1,1)
+  .put(1,2).put(0,1).put(0,5).put(0,1).put(3000,16).bytes;
+assert.equal(W.decode(agedReport).data.lag_ms,3000);
+assert.equal(W.decode(agedReport).data.sensor,1);
+const speedReport = new W.Writer(14).put(0xc1,8).put(2000,32)
+  .put(0,12).put(0,12).put(1,12).put(0,1).put(0,1).put(1,1)
+  .put(0,2).put(1,1).put(28,5).put(1,1).put(3000,16)
+  .put(1,1).put(10,7).bytes;
+assert.equal(W.decode(speedReport).data.lag_ms,3000);
+assert.equal(W.decode(speedReport).data.slowdown,true);
+assert.equal(W.decode(speedReport).data.effective_speed,10);
+const digitalReport = new W.Writer(11).put(0xc1,8).put(2000,32)
+  .put(0,12).put(0,12).put(1,12).put(0,1).put(0,1).put(1,1)
+  .put(0,2).put(1,1).put(28,5).put(1,1).bytes;
+assert.deepEqual(W.decode(digitalReport).data, {
+  ts_ms:2000, low:0, high:0, raw:1, enabled:false, inverted:false,
+  black:true, sensor:0, digital:true, pin:28, black_level:1
+});
+
 assert.equal(hex('barcode_mode', { mode: 1, white: 1300, black: 3900 }), 'c8 a2 9e 78');
 assert.equal(hex('barcode_mode', { mode: 1, sensor: 1, white: 200, black: 1300 }), 'ca 19 0a 28');
-assert.equal(W.encodeCommand('barcode_mode', { mode: 1, sensor: 3, white: 200, black: 1300 }), null);
+assert.equal(hex('barcode_mode', { mode: 1, sensor: 3, white: 200, black: 1300 }), 'ce 19 0a 28');
+const tuning = new W.Writer(10).put(0xc1, 8).put(200, 32).put(220, 12)
+  .put(260, 12).put(200, 12).put(1, 1).put(1, 1).put(1, 1).bytes;
+assert.deepEqual(W.decode(tuning), { kind: 'ir_tune', data: {
+  ts_ms: 200, low: 220, high: 260, raw: 200, enabled: true, inverted: true, black: true
+} });
+assert.equal(W.encodeCommand('barcode_mode', { mode: 1, sensor: 4, white: 200, black: 1300 }), null);
 assert.equal(hex('barcode_mode', { mode: 1 }), 'c8 00 00 00');
 assert.equal(W.encodeCommand('barcode_mode', { mode: 1, white: 4096, black: 0 }), null);
 assert.equal(W.encodeCommand('motor_trim', { left: 49, right: 100 }), null);

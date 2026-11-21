@@ -15,14 +15,14 @@
 #include <stdint.h>
 #include "robot_types.h"
 
-/* Line following, junctions and the IR stream run every 10 ms. */
+/* Front sensors, line following and IR diagnostics share this interval. */
 #define BUDDY3_SAMPLE_PERIOD_MS (10u)
-/* The side (barcode) sensor is read five times as often: the reader needs
+/* The side (barcode) sensor is sampled separately: the reader needs
  * at least four samples per 3 mm narrow bar (0.75 mm of travel per sample),
  * which at 10 ms limited driving to about 75 mm/s.  At 2 ms it allows about
  * 375 mm/s, so a manual W drive can read barcodes.  Needs the kernel tick
  * (CNF_TIMER_PERIOD) at 1 or 2 ms. */
-#define BUDDY3_BARCODE_PERIOD_MS (2u)
+#define BUDDY3_BARCODE_PERIOD_MS (1u)
 
 #include "buddy3_barcode.h"
 

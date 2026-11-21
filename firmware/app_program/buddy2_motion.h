@@ -40,6 +40,8 @@
  *  Change at run time with buddy2_set_speed_limit(). */
 #define BUDDY2_SPEED_DEFAULT (60u)
 #define BUDDY2_SPEED_MIN     (20u)
+/* Temporary barcode scan speed, on the same percentage scale. */
+#define BUDDY2_BARCODE_SPEED_PCT (10u)
 
 /** How often buddy2_update() must be called. */
 #define BUDDY2_CONTROL_PERIOD_MS (20u)
@@ -179,6 +181,11 @@ void buddy2_get_trim (uint8_t * p_left_pct, uint8_t * p_right_pct);
  * @return false if the value is outside BUDDY2_SPEED_MIN..100.
  */
 bool buddy2_set_speed_limit (uint8_t percent);
+
+/** Apply/release the temporary barcode speed limit. Safe while stopped. */
+void buddy2_set_barcode_slowdown (bool active);
+/** Read the temporary limit and effective normal-drive percentage. */
+void buddy2_get_barcode_speed (bool * active, uint8_t * effective_pct);
 
 /** @brief Read the global speed limit in percent. */
 uint8_t buddy2_get_speed_limit (void);

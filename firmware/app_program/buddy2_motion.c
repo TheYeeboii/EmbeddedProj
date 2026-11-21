@@ -100,6 +100,8 @@ typedef struct
     float32_t start_left_distance_mm;
     float32_t start_right_distance_mm;
     int16_t   max_pwm;
+    int16_t   requested_max_pwm;
+    uint8_t   requested_speed_pct;
     int8_t    left_direction;
     int8_t    right_direction;
     float32_t left_integral;
@@ -125,6 +127,10 @@ static uint8_t g_right_trim_pct = BUDDY2_TRIM_DEFAULT_RIGHT;
 /* Global speed limit in percent: scales open-loop PWM and the max_pwm of
  * distance/turn moves. */
 static uint8_t  g_speed_pct       = BUDDY2_SPEED_DEFAULT;
+static bool g_barcode_slowdown;
+static int16_t g_open_left_request;
+static int16_t g_open_right_request;
+static uint8_t g_open_speed_request = BUDDY2_SPEED_USE_LIMIT;
 static uint32_t g_last_update_ms  = 0u;
 static int8_t   g_left_direction  = 1;
 static int8_t   g_right_direction = 1;
@@ -151,6 +157,7 @@ static void buddy2_drive_locked (int16_t left_pwm, int16_t right_pwm,
                                  const robot_steering_input_t * p_input,
                                  uint8_t                        speed_pct);
 static bool buddy2_speed_valid (uint8_t percent);
+static uint8_t buddy2_effective_speed (uint8_t requested);
 static int32_t buddy2_trace_distance (float32_t distance_mm);
 static int16_t buddy2_trace_speed (float32_t speed);
 static void    buddy2_trace (int16_t left, int16_t right,
@@ -272,6 +279,76 @@ uint8_t buddy2_get_speed_limit (void)
     buddy2_unlock();
 
     return percent;
+}
+
+/* Caller holds the motion mutex. Preserve the configured speed while the
+ * barcode override also limits explicit-speed commands and PID moves. */
+static uint8_t buddy2_effective_speed (uint8_t requested)
+{
+    uint8_t percent = (requested == BUDDY2_SPEED_USE_LIMIT) ?
+        g_speed_pct : requested;
+    if (g_barcode_slowdown && (percent > BUDDY2_BARCODE_SPEED_PCT))
+    {
+        percent = BUDDY2_BARCODE_SPEED_PCT;
+    }
+    return percent;
+}
+
+void buddy2_get_barcode_speed (bool * active, uint8_t * effective_pct)
+{
+    buddy2_lock();
+    *active = g_barcode_slowdown;
+    *effective_pct = buddy2_effective_speed(BUDDY2_SPEED_USE_LIMIT);
+    buddy2_unlock();
+}
+
+void buddy2_set_barcode_slowdown (bool active)
+{
+    if (!g_b_initialized)
+    {
+        return;
+    }
+    buddy2_lock();
+    if (g_barcode_slowdown != active)
+    {
+        g_barcode_slowdown = active;
+        if (g_motion.b_active)
+        {
+            int16_t previous_max = g_motion.max_pwm;
+            uint8_t percent = buddy2_effective_speed(g_motion.requested_speed_pct);
+            float32_t target_speed;
+            g_motion.max_pwm = buddy2_clamp_pwm(
+                (float32_t) g_motion.requested_max_pwm * percent / BUDDY2_PERCENT);
+            target_speed = BUDDY2_MAX_SPEED_MM_S *
+                ((float32_t) g_motion.max_pwm / g_calibration.pwm_limit);
+            /* Avoid derivative kick and integral carry-over on speed changes. */
+            g_motion.left_integral = 0.0f;
+            g_motion.right_integral = 0.0f;
+            g_motion.left_previous_error =
+                target_speed * g_motion.left_direction - g_state.left_speed_mm_s;
+            g_motion.right_previous_error =
+                target_speed * g_motion.right_direction - g_state.right_speed_mm_s;
+            if (previous_max > 0)
+            {
+                buddy2_set_motor_pwm_locked(
+                    buddy2_clamp_pwm((float32_t) g_left_applied_pwm * g_motion.max_pwm / previous_max),
+                    buddy2_clamp_pwm((float32_t) g_right_applied_pwm * g_motion.max_pwm / previous_max));
+            }
+            else
+            {
+                buddy2_set_motor_pwm_locked(
+                    (int16_t) (g_motion.left_direction * g_motion.max_pwm),
+                    (int16_t) (g_motion.right_direction * g_motion.max_pwm));
+            }
+            buddy2_trace(g_left_applied_pwm, g_right_applied_pwm, NULL);
+        }
+        else if ((g_open_left_request != 0) || (g_open_right_request != 0))
+        {
+            buddy2_drive_locked(g_open_left_request, g_open_right_request,
+                                  NULL, g_open_speed_request);
+        }
+    }
+    buddy2_unlock();
 }
 
 bool buddy2_set_trim (uint8_t left_pct, uint8_t right_pct)
@@ -649,12 +726,11 @@ static void buddy2_drive_locked (int16_t left_pwm, int16_t right_pwm,
                                  const robot_steering_input_t * p_input,
                                  uint8_t                        speed_pct)
 {
-    uint8_t percent = speed_pct;
+    uint8_t percent = buddy2_effective_speed(speed_pct);
 
-    if (BUDDY2_SPEED_USE_LIMIT == percent)
-    {
-        percent = g_speed_pct;
-    }
+    g_open_left_request = left_pwm;
+    g_open_right_request = right_pwm;
+    g_open_speed_request = speed_pct;
 
     /* trim and speed are at most 100 %, so each product divided by
      * 100 * 100 stays within the int16_t command range. */
@@ -760,6 +836,8 @@ static void buddy2_trace (int16_t left, int16_t right,
 static void buddy2_stop_locked (const robot_steering_input_t * p_input)
 {
     g_motion.b_active   = false;
+    g_open_left_request = 0;
+    g_open_right_request = 0;
     g_left_applied_pwm  = 0;
     g_right_applied_pwm = 0;
     buddy2_apply_one(MOTOR_LEFT_PWM_A, MOTOR_LEFT_PWM_B, 0);
@@ -807,10 +885,9 @@ static bool buddy2_start_motion (float32_t left_distance_mm,
         }
 
         buddy2_lock();
-        if (BUDDY2_SPEED_USE_LIMIT == percent)
-        {
-            percent = g_speed_pct;
-        }
+        g_motion.requested_max_pwm = max_pwm;
+        g_motion.requested_speed_pct = speed_pct;
+        percent = buddy2_effective_speed(speed_pct);
         g_motion.b_active = true;
         g_motion.target_distance_mm =
             (left_abs > right_abs) ? left_abs : right_abs;

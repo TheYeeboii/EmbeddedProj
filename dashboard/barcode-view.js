@@ -162,18 +162,23 @@
     }
     drawSignal(f){
       const svg=this.find('signal');svg.replaceChildren();const samples=f.samples.filter(Boolean);if(!samples.length)return;
+      const digital = f.meta?.config[0] === 0 && f.meta?.config[1] === 1;
+      this.find('signal-legend').textContent = digital ?
+        'Digital barcode input over rover time: blue = GPIO LOW/HIGH (0/1), green = white/black. Software thresholds bypassed.' :
+        'Side sensor over rover time: blue = raw /4095, green = normalized /1000, dashed lines = hysteresis thresholds. Gaps in samples break the curves.';
       const start=samples[0][1],span=Math.max(1,(samples[samples.length-1][1]-start)>>>0);
       let raw='',norm='',previous=-2;
       for(const row of samples){const move=row[0]===previous+1?'L':'M',x=5+(((row[1]-start)>>>0)/span)*990;
-        raw+=`${move}${x},${94-row[2]/4095*88} `;norm+=`${move}${x},${94-row[3]/1000*88} `;previous=row[0];}
+        raw+=`${move}${x},${94-row[2]/(digital ? 1 : 4095)*88} `;norm+=`${move}${x},${94-row[3]/1000*88} `;previous=row[0];}
       this.add(svg,'path',{d:raw,class:'barcode-raw-signal'});this.add(svg,'path',{d:norm,class:'barcode-norm-signal'});
-      if(f.meta)for(const threshold of f.meta.config.slice(3,5))this.add(svg,'line',{x1:0,x2:1000,y1:94-threshold/1000*88,y2:94-threshold/1000*88,class:'barcode-threshold'});
+      if(f.meta && !digital)for(const threshold of f.meta.config.slice(3,5))this.add(svg,'line',{x1:0,x2:1000,y1:94-threshold/1000*88,y2:94-threshold/1000*88,class:'barcode-threshold'});
       const lastIndex=samples[samples.length-1][0];this.find('sample').max=String(lastIndex);this.find('sample').disabled=false;
       this.sampleIndex=Math.min(this.sampleIndex,lastIndex);this.find('sample').value=String(this.sampleIndex);
     }
     renderSample(){
       const f=this.frame(),r=f?.samples[this.sampleIndex];
-      this.find('sample-detail').textContent=r?`Sample ${r[0]+1} · rover ${r[1]} ms · raw ${r[2]} / normalized ${r[3]} · hysteresis state ${r[7]?'black':'white'}\nObserved wheel positions L ${r[4]/10} mm, R ${r[5]/10} mm; estimated local sensor travel ${mm(r[6])} mm. Stationary flicker changes signals, not spatial widths.`:'No received sample at this index. A diagnostic gap is not a white barcode space.';
+      const digital = f?.meta?.config[0] === 0 && f?.meta?.config[1] === 1;
+      this.find('sample-detail').textContent=r?`Sample ${r[0]+1} · rover ${r[1]} ms · ${digital ? 'digital GPIO' : 'raw'} ${r[2]} / ${digital ? 'display level' : 'normalized'} ${r[3]} · ${digital ? 'digital colour' : 'hysteresis state'} ${r[7]?'black':'white'}\nObserved wheel positions L ${r[4]/10} mm, R ${r[5]/10} mm; estimated local sensor travel ${mm(r[6])} mm. Stationary flicker changes signals, not spatial widths.`:'No received sample at this index. A diagnostic gap is not a white barcode space.';
     }
   }
   root.RoverBarcodeView=BarcodeView;

@@ -10,7 +10,7 @@
  *   (usb)          3  kernel            USB serial console           -
  *   (cyw43)        4  2 ms, kernel      Wi-Fi + lwIP + MQTT          1
  *   motion         5  20 ms (cyclic)    buddy2_update(): PID, moves  2
- *   line           6  2 ms (cyclic)     buddy3_update(): IR, barcode 3
+ *   line           6  1 ms (cyclic)     buddy3_update(): IR, barcode 3
  *   controller     7  20 ms             commands, barcodes, buttons  all
  *   imu            9  50 ms target      IMU + hump processing         4
  *   sensors       10  100 ms            ultrasonic + avoidance        5
@@ -18,7 +18,7 @@
  *
  * Lower number = higher priority.  (usb) and (cyw43) are created by the
  * kernel itself; (cyw43) only exists in Wi-Fi builds.  The line task reads
- * the barcode sensor on every 2 ms wake-up and does its line and junction
+ * the barcode sensor on every 1 ms wake-up and does its line and junction
  * step every 10 ms.
  */
 
@@ -37,6 +37,7 @@
 #include "robot_controller.h"
 #include "robot_debug.h"
 #include "robot_hal.h"
+#include "barcode_tuning.h"
 #include "robot_telemetry.h"
 #include "robot_action_log.h"
 #include "robot_steering_trace.h"
@@ -173,7 +174,7 @@ static void motion_task (INT stacd, void * p_exinf)
 /**
  * @brief Run Buddy 3's periodic line-sensor update.
  *
- * A cyclic handler wakes this task every BUDDY3_BARCODE_PERIOD_MS (2 ms) for
+ * A cyclic handler wakes this task every BUDDY3_BARCODE_PERIOD_MS (1 ms) for
  * the barcode sensor; buddy3_update() does the line and junction work every
  * BUDDY3_SAMPLE_PERIOD_MS (10 ms) of those wake-ups.
  */
@@ -220,6 +221,8 @@ static void controller_task (INT stacd, void * p_exinf)
             robot_controller_handle_command(command, length, app_now_ms());
         }
         robot_controller_step(app_now_ms());
+        /* Small sensor-status reports get room before bulk trace batches. */
+        barcode_tuning_publish(app_now_ms());
         robot_action_publish(app_now_ms());
         robot_steering_publish(app_now_ms());
         robot_barcode_publish(app_now_ms());
@@ -420,7 +423,7 @@ static void telemetry_task (INT stacd, void * p_exinf)
 
         /* Human-readable status for the USB console. */
 #if BUDDY3_DEBUG
-        /* Print at the telemetry rate, never in the 10 ms steering task. */
+        /* Print at the telemetry rate, never in the steering task. */
         buddy3_print_debug();
 #endif
         if (!BUDDY3_DEBUG && (0u == (tick % APP_STATUS_EVERY_N)))

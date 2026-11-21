@@ -12,13 +12,13 @@
 
   const VERSION = 1;
   const TYPE = { telemetry: 1, debug: 2, heartbeat: 3, statusOffline: 4, statusOnline: 5, imu: 6,
-    action: 8, steering: 9, barcode: 10, ir: 11 };
+    action: 8, steering: 9, barcode: 10, ir: 11, irTune: 12 };
   /* Byte 0 of JSON text from older firmware: '{' = type 7. */
   const JSON_FIRST_BYTE = 0x7b;
   /* Exact lengths; the diagnostic types (8-11) vary and are checked by
    * reading them to the end instead. */
   const LENGTH = { 1: 28, 2: 25, 3: 1, 4: 1, 5: 1, 6: 14 };
-  const DIAGNOSTIC = new Set([8, 9, 10, 11]);
+  const DIAGNOSTIC = new Set([8, 9, 10, 11, 12]);
 
   /* Indexed by the firmware's enums. */
   const MODES = ['idle', 'drive', 'motion', 'line', 'avoid'];
@@ -31,7 +31,7 @@
 
   const OP = {
     stop: 1, drive_preset: 2, drive: 3, line_follow: 4, line_stop: 5, imu_reset: 6,
-    reset_all: 8, motor_trim: 9, speed_limit: 10, servo_angle: 11, barcode_mode: 12,
+    ir_thresholds: 0, reset_all: 8, motor_trim: 9, speed_limit: 10, servo_angle: 11, barcode_mode: 12,
     barcode_config: 13, line_stage: 14, line_speed: 15
   };
   const PRESETS = { forward: 0, reverse: 1, left: 2, right: 3 };
@@ -233,14 +233,31 @@
         r.get(6), r.get(12), r.get(12), r.get(1)]);
     }
     d.ts_ms = ts;
-    /* Not on the wire: copies of ROBOT_IR_STREAM_PERIOD_MS and of
-     * BUDDY3_BARCODE_WHITE_ON / _BLACK_ON in firmware/app_program/buddy3_ir.c.
-     * Change them together (also ir-stream-model.js and ir-stream-view.js). */
-    d.period_ms = 10; d.white = 140; d.black = 210;
+    // Older firmware omitted the interval and always sampled this stream at 10 ms.
+    d.period_ms = Math.ceil(r.bit / 8) < r.bytes.length ? r.get(8) : 10;
+    d.white = 140; d.black = 210;
     return d;
   }
 
-  const DECODERS = { 8: ['action', action], 9: ['steering', steering], 10: ['barcode', barcode], 11: ['ir', irStream] };
+  const DECODERS = { 8: ['action', action], 9: ['steering', steering], 10: ['barcode', barcode], 11: ['ir', irStream], 12: ['ir_tune', r => {
+    const data = {
+      ts_ms: r.get(32), low: r.get(12), high: r.get(12), raw: r.get(12),
+      enabled: r.flag(), inverted: r.flag(), black: r.flag()
+    };
+    // Barcode-only firmware sent 10 bytes. The extension appends sensor ID.
+    if (r.bytes.length >= 11) {
+      data.sensor = r.get(2);
+      data.digital = r.flag();
+      data.pin = r.get(5);
+      data.black_level = r.get(1);
+    }
+    if (r.bytes.length >= 13) data.lag_ms = r.get(16);
+    if (r.bytes.length === 14) {
+      data.slowdown = r.flag();
+      data.effective_speed = r.get(7);
+    }
+    return data;
+  }] };
 
   /* Returns { kind, data } where kind is 'json' (text from older firmware),
    * 'telemetry', 'debug', 'imu', 'heartbeat', 'status', 'action', 'steering',
@@ -294,11 +311,18 @@
       case 'servo_angle':
         if (!inRange(values.angle, 0, 255)) return null;
         return new Writer(2).put(OP.servo_angle, 4).put(values.angle, 8).bytes;
+      case 'ir_thresholds': {
+        if (!inRange(values.sensor, 0, 2) || typeof values.inverted !== 'boolean' ||
+            !inRange(values.white, 0, 4095) || !inRange(values.black, 0, 4095) ||
+            (values.black === 0 ? values.white !== 0 : values.white >= values.black)) return null;
+        return new Writer(4).put(OP.ir_thresholds, 4).put(values.sensor, 2)
+          .put(values.inverted ? 1 : 0, 1).put(values.white, 12).put(values.black, 12).bytes;
+      }
       case 'barcode_mode': {
         /* Mode, then one IR sensor (0 barcode, 1 left line, 2 right line)
          * and its white and black raw levels (both 0 = leave them). */
         const sensor = values.sensor ?? 0, white = values.white ?? 0, black = values.black ?? 0;
-        if (!inRange(values.mode, 0, 1) || !inRange(sensor, 0, 2) ||
+        if (!inRange(values.mode, 0, 1) || !inRange(sensor, 0, 3) ||
             !inRange(white, 0, 4095) || !inRange(black, 0, 4095)) return null;
         return new Writer(4).put(OP.barcode_mode, 4).put(values.mode, 1).put(sensor, 2)
           .put(white, 12).put(black, 12).bytes;

@@ -12,13 +12,13 @@
   }
   function valid(d) {
     return d&&d.v===1&&d.type==='ir_stream'&&u32(d.boot)&&u32(d.ts_ms)&&u32(d.lag_ms)&&u32(d.dropped)&&
-      d.period_ms===10&&d.white===140&&d.black===210&&Array.isArray(d.rows)&&d.rows.length>0&&d.rows.length<=4&&
+      integer(d.period_ms,1,255)&&d.white===140&&d.black===210&&Array.isArray(d.rows)&&d.rows.length>0&&d.rows.length<=4&&
       d.rows.every((r,i)=>validRow(r)&&(!i||((r[0]-d.rows[i-1][0])>>>0)===1))&&d.ts_ms===d.rows[d.rows.length-1][1];
   }
   class IRStreamHistory {
     constructor(limit=6000) {
       this.limit=limit;this.records=[];this.last=null;this.boot=null;this.retired=[];
-      this.live=null;this.receivedAt=0;this.evicted=0;this.dropped=0;
+      this.live=null;this.receivedAt=0;this.lagMs=0;this.evicted=0;this.dropped=0;
     }
     unavailable(){this.live=null;}
     accept(d,now=Date.now()) {
@@ -34,14 +34,14 @@
           const elapsed=(input[1]-this.last.row[1])>>>0;
           if(elapsed>=0x80000000)continue; // Old clock value, not a firmware reboot.
           if(advance>1)gap='missing_samples';
-          else if(elapsed>20)gap='sampling_gap';
+          else if(elapsed>2*d.period_ms)gap='sampling_gap';
         }
-        const record={boot:d.boot,row:input.slice(),gap,dropped:d.dropped};
+        const record={boot:d.boot,row:input.slice(),gap,dropped:d.dropped,period_ms:d.period_ms};
         this.records.push(record);this.last=record;reboot=false;++accepted;
       }
       if(!accepted)return false;
       while(this.records.length>this.limit){this.records.shift();++this.evicted;}
-      this.dropped=d.dropped;this.receivedAt=now;
+      this.dropped=d.dropped;this.receivedAt=now;this.lagMs=d.lag_ms;
       this.live=d.lag_ms>500?null:this.last;
       return true;
     }
@@ -54,7 +54,7 @@
       const check=new IRStreamHistory();
       for(const r of file.records) {
         if(!r||!u32(r.boot)||!u32(r.dropped)||!validRow(r.row)||!gaps.includes(r.gap))throw new Error('Invalid IR observation');
-        if(!check.accept({v:1,type:'ir_stream',boot:r.boot,ts_ms:r.row[1],lag_ms:0,dropped:r.dropped,period_ms:10,white:140,black:210,rows:[r.row]}))
+        if(!check.accept({v:1,type:'ir_stream',boot:r.boot,ts_ms:r.row[1],lag_ms:0,dropped:r.dropped,period_ms:r.period_ms??10,white:140,black:210,rows:[r.row]}))
           throw new Error('IR observations are duplicated or out of order');
         if(check.records.length>1&&check.last.gap&&r.gap!==check.last.gap)throw new Error('IR recording conceals a data gap');
       }
@@ -65,7 +65,16 @@
     if(!records.length)return null;
     index=Math.max(0,Math.min(index??records.length-1,records.length-1));
     const selected=records[index],end=selected.row[1];
-    const points=records.slice(0,index+1).filter(r=>r.boot===selected.boot).map(r=>({...r,time:-((end-r.row[1])>>>0)}));
+    const points = [];
+    // Keep one observation before the viewport to establish its left edge.
+    for (let i = index; i >= 0; --i) {
+      const record = records[i];
+      if (record.boot !== selected.boot) break;
+      const time = -((end - record.row[1]) >>> 0);
+      points.push({...record, time});
+      if (time <= -windowMs) break;
+    }
+    points.reverse();
     const start=Math.max(-windowMs,points[0].time),span=Math.max(1,-start),segments=[];
     for(let i=0;i<points.length-1;i++) {
       const a=Math.max(start,points[i].time),b=points[i+1].time;

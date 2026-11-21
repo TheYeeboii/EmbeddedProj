@@ -2,7 +2,7 @@
  * @file    comms.c
  * @brief   Buddy 1: mailboxes between the robot tasks and the network.
  *
- * See comms.h.  Outgoing messages are stored as [topic byte][payload],
+ * See comms.h.  Outgoing messages are stored as [topic byte][enqueue time][payload],
  * incoming ones as the raw command bytes, each in a micro T-Kernel message
  * buffer.  The kernel returns each message's size, so no terminator is
  * needed and payloads may contain 0x00.
@@ -34,12 +34,21 @@ typedef uint8_t
 #define COMMS_MSG_OVERHEAD (8u)
 /* One topic byte in front of each outgoing payload. */
 #define COMMS_TOPIC_BYTES (1u)
+#define COMMS_TIME_BYTES (4u)
+#define COMMS_MESSAGE_HEADER (COMMS_TOPIC_BYTES + COMMS_TIME_BYTES)
 
 static ID g_outbox_id = 0;
 static ID g_inbox_id  = 0;
 /* Written only by the radio task (comms_set_link_state); an aligned byte
  * read is atomic, so readers need no lock. */
 static volatile uint8_t g_link_state = COMMS_LINK_OFFLINE;
+
+static uint32_t comms_now_ms (void)
+{
+    SYSTIM now = {0};
+    (void) tk_get_otm(&now);
+    return (uint32_t) now.lo;
+}
 
 static void comms_update_link_faults (uint8_t state);
 
@@ -56,8 +65,8 @@ int32_t comms_init (void)
     /* Sizes are small compile-time constants, well inside SZ and INT. */
     cmbf.bufsz =
         (SZ) (COMMS_OUTBOX_MESSAGES *
-              (COMMS_PAYLOAD_MAX + COMMS_TOPIC_BYTES + COMMS_MSG_OVERHEAD));
-    cmbf.maxmsz = (INT) (COMMS_PAYLOAD_MAX + COMMS_TOPIC_BYTES);
+              (COMMS_PAYLOAD_MAX + COMMS_MESSAGE_HEADER + COMMS_MSG_OVERHEAD));
+    cmbf.maxmsz = (INT) (COMMS_PAYLOAD_MAX + COMMS_MESSAGE_HEADER);
     mailbox_id  = tk_cre_mbf(&cmbf);
     if (mailbox_id < E_OK)
     {
@@ -86,7 +95,7 @@ int32_t comms_init (void)
 
 bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length)
 {
-    UB       message[COMMS_PAYLOAD_MAX + COMMS_TOPIC_BYTES];
+    UB       message[COMMS_PAYLOAD_MAX + COMMS_MESSAGE_HEADER];
     uint32_t index    = 0u;
     bool     b_queued = false;
 
@@ -95,43 +104,56 @@ bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length)
         (COMMS_LINK_MQTT_UP == g_link_state))
     {
         /* topic < COMMS_TOPIC_COUNT, so it fits in one byte. */
+        uint32_t queued_at = comms_now_ms();
         message[0] = (UB) topic;
+        for (index = 0u; index < COMMS_TIME_BYTES; index++)
+        {
+            message[COMMS_TOPIC_BYTES + index] = (UB) (queued_at >> (index * 8u));
+        }
         for (index = 0u; index < length; index++)
         {
-            message[index + COMMS_TOPIC_BYTES] = p_data[index];
+            message[index + COMMS_MESSAGE_HEADER] = p_data[index];
         }
 
-        /* TMO_POL: never wait - if the network is slow, drop this message.
-         * length + 1 <= COMMS_PAYLOAD_MAX + 1, so it fits in INT. */
+        /* Never block the producer. Return false when full so bounded
+         * diagnostic recorders can retain their pending data for retry. */
         b_queued =
             (E_OK == tk_snd_mbf(g_outbox_id, message,
-                                (INT) (length + COMMS_TOPIC_BYTES), TMO_POL));
+                                (INT) (length + COMMS_MESSAGE_HEADER), TMO_POL));
     }
 
     return b_queued;
 }
 
-bool comms_take_outgoing (uint32_t * p_topic, uint8_t * p_payload,
-                          uint32_t buffer_size, uint32_t * p_length)
+bool comms_take_outgoing_timed (uint32_t * p_topic, uint8_t * p_payload,
+                                uint32_t buffer_size, uint32_t * p_length,
+                                uint32_t * p_age_ms)
 {
-    UB       message[COMMS_PAYLOAD_MAX + COMMS_TOPIC_BYTES];
+    UB       message[COMMS_PAYLOAD_MAX + COMMS_MESSAGE_HEADER];
     INT      size    = 0;
     uint32_t length  = 0u;
     uint32_t index   = 0u;
     bool     b_taken = false;
 
     if ((g_outbox_id > 0) && (NULL != p_topic) && (NULL != p_payload) &&
-        (NULL != p_length) && (buffer_size >= COMMS_PAYLOAD_MAX))
+        (NULL != p_length) && (NULL != p_age_ms) &&
+        (buffer_size >= COMMS_PAYLOAD_MAX))
     {
         size = tk_rcv_mbf(g_outbox_id, message, TMO_POL);
-        if (size > (INT) COMMS_TOPIC_BYTES)
+        if (size > (INT) COMMS_MESSAGE_HEADER)
         {
-            /* size > 1 here, so the unsigned conversion is exact, and
-             * maxmsz keeps it at most COMMS_PAYLOAD_MAX + 1. */
-            length = (uint32_t) size - COMMS_TOPIC_BYTES;
+            /* The kernel bounds the complete internal header + payload. */
+            uint32_t queued_at = 0u;
+            for (index = 0u; index < COMMS_TIME_BYTES; index++)
+            {
+                queued_at |=
+                    (uint32_t) message[COMMS_TOPIC_BYTES + index] << (index * 8u);
+            }
+            *p_age_ms = comms_now_ms() - queued_at;
+            length = (uint32_t) size - COMMS_MESSAGE_HEADER;
             for (index = 0u; index < length; index++)
             {
-                p_payload[index] = message[index + COMMS_TOPIC_BYTES];
+                p_payload[index] = message[index + COMMS_MESSAGE_HEADER];
             }
             *p_topic  = (uint32_t) message[0];
             *p_length = length;
@@ -140,6 +162,14 @@ bool comms_take_outgoing (uint32_t * p_topic, uint8_t * p_payload,
     }
 
     return b_taken;
+}
+
+bool comms_take_outgoing (uint32_t * p_topic, uint8_t * p_payload,
+                          uint32_t buffer_size, uint32_t * p_length)
+{
+    uint32_t age;
+    return comms_take_outgoing_timed(p_topic, p_payload, buffer_size,
+                                      p_length, &age);
 }
 
 void comms_put_incoming (const uint8_t * p_data, uint32_t length)

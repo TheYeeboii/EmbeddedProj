@@ -91,6 +91,11 @@ uint8_t comms_get_link_state (void);
 bool comms_take_outgoing (uint32_t * p_topic, uint8_t * p_payload,
                           uint32_t buffer_size, uint32_t * p_length);
 
+/** Take an outgoing packet and report how long it waited in the mailbox. */
+bool comms_take_outgoing_timed (uint32_t * p_topic, uint8_t * p_payload,
+                                uint32_t buffer_size, uint32_t * p_length,
+                                uint32_t * p_age_ms);
+
 /** Queue a command received from the broker for the controller.  A
  *  command longer than COMMS_COMMAND_MAX is dropped. */
 void comms_put_incoming (const uint8_t * p_data, uint32_t length);

@@ -1,6 +1,6 @@
 /** @file robot_ir_stream.h
  *
- * @brief Fixed-size queue of continuous barcode-sensor (ADC2) samples, filled
+ * @brief Fixed-size queue of continuous barcode-sensor samples, filled
  *        by the line task and drained by the MQTT publisher.
  */
 #ifndef ROBOT_IR_STREAM_H
@@ -9,12 +9,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "robot_barcode_trace.h"
+#include "buddy3_ir.h"
 
 #define ROBOT_IR_STREAM_CAPACITY  256u
 #define ROBOT_IR_STREAM_BATCH     4u
-#define ROBOT_IR_STREAM_PERIOD_MS 10u
+#define ROBOT_IR_STREAM_PERIOD_MS BUDDY3_SAMPLE_PERIOD_MS
 
-/** One 10 ms observation of the barcode sensor. */
+/** One observation at the front-sensor processing interval. */
 typedef struct
 {
     uint32_t seq;
@@ -39,7 +40,7 @@ typedef struct
 } robot_ir_stream_batch_t;
 
 /**
- * @brief Queue one observation.  Always observes ADC2, independently of
+ * @brief Queue one observation.  Always observes the barcode input, independently of
  *        decoder enable, framing or movement.  Fixed-size queue only; no
  *        formatting, allocation or network work happens here.
  * @param p_observation Decoder observation to copy.
