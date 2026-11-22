@@ -178,6 +178,7 @@ static void test_debug_layout (void)
     robot_packed_reader_t reader;
     uint32_t              length = 0u;
 
+    values.b_barcode_irq = true;
     length = robot_wire_encode_debug(&values, buffer, sizeof(buffer));
     assert(TEST_DEBUG_LENGTH == length);
     assert(0x21u == buffer[0]);
@@ -204,6 +205,7 @@ static void test_debug_layout (void)
     assert(32767 == robot_packed_get_signed(&reader, 16u));
     assert(250u == robot_packed_get(&reader, 11u));
     assert(2047u == robot_packed_get(&reader, 11u));
+    assert(1u == robot_packed_get(&reader, 1u));
     assert(robot_packed_rest_is_zero(&reader));
 }
 

@@ -6,6 +6,7 @@
   class BarcodeView {
     constructor(element){
       this.element=element;this.history=new BarcodeHistory();this.frozen=null;this.selected=null;this.elementIndex=0;this.sampleIndex=0;this.scheduled=false;
+      this.interruptResult=null;
       this.find=name=>element.querySelector(`[data-barcode="${name}"]`);
       for(let code=65;code<=90;code++){
         const option=document.createElement('option');option.value=option.textContent=String.fromCharCode(code);this.find('expected').append(option);
@@ -25,7 +26,7 @@
           this.frozen=BarcodeHistory.read(await file.text());this.selected=null;this.render();this.find('notice').textContent='Imported scan replay — live reader state still describes the connected rover.';
         }catch(error){this.find('notice').textContent=error.message;}e.target.value='';
       });
-      this.timer=setInterval(()=>{if(this.history.state!==null&&Date.now()-this.history.receivedAt>2500)this.unavailable();else this.renderLive();},1000);
+      this.timer=setInterval(()=>{if(this.history.state!==null&&Date.now()-this.history.receivedAt>2500)this.history.unavailable();this.renderLive();},1000);
       element.addEventListener('ir-view-change',event=>{if(event.detail.mode==='attempts')this.render();});
       this.render();
     }
@@ -35,8 +36,21 @@
       if(!this.frozen&&!this.element.querySelector('[data-ir="attempts-panel"]').hidden&&!this.scheduled){this.scheduled=true;requestAnimationFrame(()=>{this.scheduled=false;this.render();});}
       return true;
     }
-    unavailable(){this.history.unavailable();this.renderLive();}
+    showInterruptResult(active,letter){
+      const changed=active||this.interruptResult!==null;
+      this.interruptResult=active?{letter,receivedAt:Date.now()}:null;
+      if(changed)this.renderLive();
+    }
+    unavailable(){
+      this.history.unavailable();
+      if(this.interruptResult)this.interruptResult.receivedAt=0;
+      this.renderLive();
+    }
     renderLive(){
+      if(this.interruptResult){
+        this.renderInterruptLetter();
+        return;
+      }
       const r=this.history.readiness;
       this.find('readiness').textContent=r?
         `Side-sensor snapshot: raw ${r[0]}, normalized ${r[1]}/1000, ${r[2]?'black':'white'}. White lead-in observed: ${mm(r[3])} mm. Sensor travel this observation: ${mm(r[4])} mm; allowed ≤${mm(r[5])} mm. Oversized steps rejected: ${r[7]} (last ${mm(r[6])} mm).`:
@@ -47,6 +61,23 @@
           blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21, or drive forward with W, to read':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
       this.find('status').textContent='Decoder: '+label;
       this.renderLetter(state,label);
+    }
+    renderInterruptLetter(){
+      const {letter,receivedAt}=this.interruptResult;
+      const online=Date.now()-receivedAt<=2500;
+      const symbol=online?letter:'';
+      this.find('status').textContent=online?'Decoder: GPIO interrupts':'Decoder: offline';
+      this.find('readiness').textContent='The reader measures bar and space durations. Nine-width diagnostics are available on the firmware console when enabled.';
+      if(!this.frames().length)this.find('outcome').textContent=symbol?`Latest confirmed letter: ${symbol}`:'Waiting for a confirmed GPIO scan.';
+      const card=document.getElementById('barcode-letter');if(!card)return;
+      const pick=name=>card.querySelector(`[data-letter="${name}"]`);
+      pick('reader').textContent=online?'Reader: GPIO interrupts':'Reader: offline';
+      pick('reader').dataset.tone=online?'success':'muted';
+      pick('symbol').textContent=symbol||'–';
+      pick('headline').textContent=symbol?`Read “${symbol}”`:'No barcode read yet';
+      pick('detail').textContent=symbol?'Latest confirmed Code 39 letter.':'Pass the side sensor over the entire barcode, including both markers.';
+      pick('latest').textContent='';
+      card.dataset.result=symbol?'ok':'none';
     }
     renderLetter(state,label){
       const card=document.getElementById('barcode-letter');if(!card)return;
@@ -83,10 +114,10 @@
       this.find('pause').textContent=this.frozen?'Resume live history':'Freeze scans';this.find('pause').setAttribute('aria-pressed',String(!!this.frozen));
       this.find('notice').textContent=`${frames.length}/20 scans · ${this.history.evicted} evicted · ${this.frozen?'Frozen; rover is still running':'Live capture'} · expected letter is your independent reference`;
       if(!f){
-        this.find('outcome').textContent='Waiting for a scan. Press GP21 to line follow, or drive forward with W, over the barcode. While line following, A turns left and C right at the next junction.';
+        if(!this.interruptResult)this.find('outcome').textContent='Waiting for a scan. Press GP21 to line follow, or drive forward with W, over the barcode. While line following, A turns left and C right at the next junction.';
         for(const name of ['strip','reference','signal','elements'])this.find(name).replaceChildren();
-        this.find('summary').textContent='Bars and spaces will appear as they are measured. No exact barcode width is assumed.';
-        this.find('detail').textContent='Select a measured element to inspect its width and encoder references.';
+        this.find('summary').textContent=this.interruptResult?'Import a saved distance trace to inspect it here.':'Bars and spaces will appear as they are measured. No exact barcode width is assumed.';
+        this.find('detail').textContent=this.interruptResult?'':'Select a measured element to inspect its width and encoder references.';
         this.find('sample-detail').textContent='No raw samples yet.';this.find('sample').disabled=true;return;
       }
       const end=f.end,progress=end||f.progress;

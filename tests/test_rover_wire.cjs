@@ -3,6 +3,8 @@
  * "test_robot_wire --print" (tests/test_robot_wire.c) from the firmware's own
  * encoder, so this proves both sides agree on every bit. */
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
 const W = require('../dashboard/rover-wire.js');
 
 const bytes = text => Uint8Array.from(text.split(' ').map(h => parseInt(h, 16)));
@@ -49,6 +51,34 @@ const DEBUG = bytes('21 ff f0 01 00 0f a0 00 7d 20 c5 b4 00 c8 57 1f 1c 1f 00 02
   assert.equal(d.avoid_heading_target_x10, 3599);
   assert.deepEqual([d.avoid_motor_left_pwm, d.avoid_motor_right_pwm], [-32767, 32767]);
   assert.deepEqual([d.avoid_forward_mm, d.avoid_forward_target_mm], [250, 2047]);
+  assert.equal(d.barcode_irq, false);
+  const irq = DEBUG.slice();
+  irq[24] |= 0x04;
+  assert.equal(W.decode(irq).data.barcode_irq, true);
+  assert.equal(W.decode(irq).data.command, d.command);
+}
+
+/* A GPIO result updates the letter card without a distance trace. */
+{
+  const irq = DEBUG.slice();
+  irq[24] |= 0x04;
+  const result = W.decode(irq).data;
+  const fields = new Map();
+  const find = key => {
+    if (!fields.has(key)) fields.set(key, {dataset: {}});
+    return fields.get(key);
+  };
+  const card = {querySelector: find, dataset: {}};
+  const context = {RoverBarcode: {}, document: {getElementById: () => card}};
+  vm.runInNewContext(fs.readFileSync(require.resolve('../dashboard/barcode-view.js'), 'utf8'), context);
+  const view = Object.create(context.RoverBarcodeView.prototype);
+  Object.assign(view, {find, interruptResult: null, history: {frames: [], unavailable() {}}});
+  view.showInterruptResult(result.barcode_irq, String.fromCharCode(result.command));
+  assert.equal(find('[data-letter="symbol"]').textContent, 'Z');
+  assert.equal(find('outcome').textContent, 'Latest confirmed letter: Z');
+  assert.equal(card.dataset.result, 'ok');
+  view.unavailable();
+  assert.equal(find('[data-letter="symbol"]').textContent, '–');
 }
 
 /* Buddy 4's IMU report (type 6): every field at an edge. */

@@ -12,6 +12,7 @@
 
 /* Single uppercase letter, framed as *LETTER*. Each character has nine
  * alternating black/white elements, separated by one narrow white gap. */
+#define CODE39_CHARACTER_ELEMENTS 9u
 #define CODE39_FRAME_ELEMENTS 29u
 
 /** Decode result; code39_status_name() gives the log name of each value. */
@@ -58,6 +59,12 @@ code39_status_t code39_decode (const float32_t * p_widths, uint32_t count,
  * @return True for '*' or a reversed '*'.
  */
 bool code39_is_star (const float32_t * p_widths);
+
+/** Classify nine widths in scan order and return the pattern (first bar in bit 8). */
+bool code39_character_pattern (const float32_t * p_widths, uint16_t * p_pattern);
+
+/** Look up A–Z or '*'. Reverse the pattern for a scan in reverse print order. */
+char code39_character_symbol (uint16_t pattern, bool reversed);
 
 /**
  * @brief Short log name for a decode status.

@@ -43,9 +43,10 @@ the few deliberate deviations.
 | `robot_diagnostics_mqtt.c/.h`, `robot_action_log`, `robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream` | 1 | Diagnostic streams for the dashboard's tuning views (`DIAGNOSTICS=1` builds) |
 | `robot_diagnostics_off.c` | 1 | Empty stand-ins for those five modules in the default `DIAGNOSTICS=0` build |
 | `buddy2_motion.c/.h` | 2 | Motors, encoders, PID, `move_forward` / `turn_left` / ... |
-| `buddy3_ir.c/.h` | 3 | IR sensors, line following and line search; feeds the barcode reader |
+| `buddy3_ir.c/.h` | 3 | Front IR sensors, line following and line search |
 | `buddy3_steering.c/.h`, `buddy3_junction.c/.h` | 3 | Steering state machine; straight across junctions |
-| `buddy3_barcode.c/.h`, `code39.c/.h` | 3 | Barcode reader: black/white and wheel travel to a Code 39 letter |
+| `barcode_reading.c/.h`, `code39.c/.h` | 3 | Side-sensor GPIO edge timing to a Code 39 letter, in either direction |
+| `buddy3_barcode.c/.h` | 3 | Wheel-distance barcode reader for analogue builds (`BARCODE_DIGITAL_INPUT=0`) |
 | `buddy4_imu.c/.h`, `buddy4_processing.c/.h` | 4 | LSM303 IMU: heading, tilt, filtering, hump detection, lifted/overturned motor stop |
 | `buddy5_ultrasonic.c/.h` | 5 | Ultrasonic distance + scanning servo |
 | `buddy5_avoidance.c/.h` | 5 | Obstacle avoidance and return to the line |
@@ -63,8 +64,9 @@ the few deliberate deviations.
 | usb (kernel) | 3 | on demand | USB serial console |
 | cyw43 (kernel) | 4 | about every 2 ms | Wi-Fi + lwIP + MQTT (Wi-Fi builds only) |
 | motion | 5 | every 20 ms (cyclic handler) | Buddy 2 motor and encoder control |
-| line | 6 | every 2 ms (cyclic handler) | Buddy 3: barcode sensor every 2 ms; line sensors and steering every 10 ms |
+| line | 6 | every 10 ms (cyclic handler) | Buddy 3: line sensors and steering. Analogue barcode builds also sample the side sensor every 1 ms. |
 | controller | 7 | every 20 ms, or on command | commands, barcodes, GP21 button, safety |
+| barcode | 8 | on side GPIO edges | Decode each set of nine widths and publish a letter after both markers are confirmed |
 | imu | 9 | every 50 ms | Buddy 4 IMU and hump processing |
 | sensors | 10 | every 100 ms | Buddy 5 ultrasonic and avoidance |
 | telemetry | 15 | every 1 s | console status + MQTT publish |
@@ -241,7 +243,7 @@ A raw drive command stops the motors if it is not refreshed within one second.
 | File | Change | Why |
 |---|---|---|
 | `firmware/config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (left motor, M1). We use the SDK for ADC/I2C instead |
-| `firmware/config/config.h` | `CNF_TIMER_PERIOD 1` (was 10) | 1 ms kernel tick, so the barcode sensor can be read every 2 ms |
+| `firmware/config/config.h` | `CNF_TIMER_PERIOD 1` (was 10) | 1 ms kernel tick for task scheduling |
 | `firmware/build_make/pico_rp2040.mk` | `include robot.mk`, `WIFI_MQTT` option | Pico SDK libraries; MQTT build profile |
 | `firmware/build_make/makefile` | links `$(LIBS_ROBOT)` (`-lm`) | maths functions for the IMU |
 | `firmware/lib/libnet/lwip/include/lwipopts.h` | TCP on for MQTT, bigger MQTT buffer | MQTT needs TCP |

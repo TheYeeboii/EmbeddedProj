@@ -14,6 +14,7 @@
 #include "buddy3_ir.h"
 #include "buddy4_imu.h"
 #include "buddy5_ultrasonic.h"
+#include "pin_config.h"
 #include "robot_controller.h"
 #include "robot_debug.h"
 #include "robot_fault.h"
@@ -235,6 +236,7 @@ uint32_t robot_telemetry_build_debug (uint8_t * p_buffer, uint32_t capacity)
     values.turn_right_pwm     = avoidance.turn_right_pwm;
     values.forward_mm         = avoidance.forward_progress_mm;
     values.forward_target_mm  = avoidance.forward_target_mm;
+    values.b_barcode_irq       = BARCODE_DIGITAL_INPUT;
 
     return robot_wire_encode_debug(&values, p_buffer, capacity);
 }

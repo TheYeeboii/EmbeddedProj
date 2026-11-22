@@ -118,6 +118,7 @@
     data.avoid_motor_right_pwm = r.signed(16);
     data.avoid_forward_mm = r.get(11);
     data.avoid_forward_target_mm = r.get(11);
+    data.barcode_irq = r.flag();
     return data;
   }
 

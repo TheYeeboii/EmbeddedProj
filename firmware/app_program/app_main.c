@@ -10,7 +10,7 @@
  *   (usb)          3  kernel            USB serial console           -
  *   (cyw43)        4  2 ms, kernel      Wi-Fi + lwIP + MQTT          1
  *   motion         5  20 ms (cyclic)    buddy2_update(): PID, moves  2
- *   line           6  1 ms (cyclic)     buddy3_update(): IR, barcode 3
+ *   line           6  10 ms (digital)  buddy3_update(): front IR     3
  *   controller     7  20 ms             commands, barcodes, buttons  all
  *   imu            9  50 ms target      IMU + hump processing         4
  *   sensors       10  100 ms            ultrasonic + avoidance        5
@@ -18,8 +18,8 @@
  *
  * Lower number = higher priority.  (usb) and (cyw43) are created by the
  * kernel itself; (cyw43) only exists in Wi-Fi builds.  The line task reads
- * the barcode sensor on every 1 ms wake-up and does its line and junction
- * step every 10 ms.
+ * the front sensors every 10 ms. The analogue barcode fallback also samples
+ * the side sensor every 1 ms.
  */
 
 #include <tk/tkernel.h>
@@ -45,6 +45,9 @@
 #include "robot_ir_stream.h"
 #include "robot_diagnostics_mqtt.h"
 #include "usb_console_compat.h"
+#if BARCODE_DIGITAL_INPUT
+#include "barcode_reading.h"
+#endif
 
 /* ------------------------------------------------------------------ *
  *  Configuration
@@ -55,6 +58,12 @@
 #define APP_PRI_MOTION     (5)
 #define APP_PRI_LINE       (6)
 #define APP_PRI_CONTROLLER (7)
+#if BARCODE_DIGITAL_INPUT
+#define APP_PRI_BARCODE     (8)
+#define APP_LINE_PERIOD_MS BUDDY3_SAMPLE_PERIOD_MS
+#else
+#define APP_LINE_PERIOD_MS BUDDY3_BARCODE_PERIOD_MS
+#endif
 #define APP_PRI_IMU        (9)
 #define APP_PRI_SENSORS    (10)
 #define APP_PRI_TELEMETRY  (15)
@@ -174,9 +183,8 @@ static void motion_task (INT stacd, void * p_exinf)
 /**
  * @brief Run Buddy 3's periodic line-sensor update.
  *
- * A cyclic handler wakes this task every BUDDY3_BARCODE_PERIOD_MS (1 ms) for
- * the barcode sensor; buddy3_update() does the line and junction work every
- * BUDDY3_SAMPLE_PERIOD_MS (10 ms) of those wake-ups.
+ * The digital barcode reader has its own IRQ worker. The line and junction
+ * step always runs every BUDDY3_SAMPLE_PERIOD_MS (10 ms).
  */
 static void line_task (INT stacd, void * p_exinf)
 {
@@ -225,7 +233,9 @@ static void controller_task (INT stacd, void * p_exinf)
         barcode_tuning_publish(app_now_ms());
         robot_action_publish(app_now_ms());
         robot_steering_publish(app_now_ms());
+#if !BARCODE_DIGITAL_INPUT
         robot_barcode_publish(app_now_ms());
+#endif
         robot_ir_stream_publish(app_now_ms());
     }
 }
@@ -477,6 +487,9 @@ static T_CTSK g_ctsk_controller = APP_TASK(controller_task, APP_PRI_CONTROLLER);
 static T_CTSK g_ctsk_imu        = APP_TASK(buddy4_task, APP_PRI_IMU);
 static T_CTSK g_ctsk_sensors = APP_TASK(buddy5_avoidance_task, APP_PRI_SENSORS);
 static T_CTSK g_ctsk_telemetry = APP_TASK(telemetry_task, APP_PRI_TELEMETRY);
+#if BARCODE_DIGITAL_INPUT
+static T_CTSK g_ctsk_barcode = APP_TASK(barcode_reading_task, APP_PRI_BARCODE);
+#endif
 
 static T_CCYC g_ccyc_motion = {
     .exinf  = &g_motion_task_id,
@@ -490,8 +503,8 @@ static T_CCYC g_ccyc_line = {
     .exinf  = &g_line_task_id,
     .cycatr = TA_HLNG | TA_STA,
     .cychdr = app_wake_isr,
-    .cyctim = BUDDY3_BARCODE_PERIOD_MS,
-    .cycphs = BUDDY3_BARCODE_PERIOD_MS,
+    .cyctim = APP_LINE_PERIOD_MS,
+    .cycphs = APP_LINE_PERIOD_MS,
 };
 
 /**
@@ -565,6 +578,12 @@ EXPORT INT usermain (void)
     }
     robot_diagnostics_init(hal_diagnostic_boot_id());
     buddy3_init();
+#if BARCODE_DIGITAL_INPUT
+    if (!app_check("barcode init", barcode_reading_init()))
+    {
+        app_fail_forever("barcode init");
+    }
+#endif
     buddy5_init();
     robot_controller_init();
     if (!buddy4_init())
@@ -586,6 +605,13 @@ EXPORT INT usermain (void)
         app_fail_forever("line cyclic");
     }
     (void) app_start_task("controller task", &g_ctsk_controller);
+#if BARCODE_DIGITAL_INPUT
+#if TK_SUPPORT_SMP
+    g_ctsk_barcode.tskatr |= TA_ASSPRC;
+    g_ctsk_barcode.assprc = TP_PRC1;
+#endif
+    (void) app_start_task("barcode task", &g_ctsk_barcode);
+#endif
     (void) app_start_task("IMU task", &g_ctsk_imu);
     (void) app_start_task("sensor task", &g_ctsk_sensors);
     (void) app_start_task("telemetry task", &g_ctsk_telemetry);

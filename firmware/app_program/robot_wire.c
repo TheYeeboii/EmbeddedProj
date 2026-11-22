@@ -191,6 +191,8 @@ uint32_t robot_wire_encode_debug (const robot_wire_debug_t * p_values,
         robot_packed_put(&writer, p_values->forward_mm, WIRE_BITS_FORWARD);
         robot_packed_put(&writer, p_values->forward_target_mm,
                          WIRE_BITS_FORWARD);
+        robot_packed_put(&writer, p_values->b_barcode_irq ? 1u : 0u,
+                         WIRE_BITS_FLAG);
         length = robot_packed_length(&writer);
     }
 

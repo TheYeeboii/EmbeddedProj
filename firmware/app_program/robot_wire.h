@@ -132,6 +132,7 @@ typedef struct
     int16_t  turn_right_pwm;     /**< 16 bits signed. */
     uint16_t forward_mm;         /**< 11 bits, 0..2047 mm. */
     uint16_t forward_target_mm;  /**< 11 bits. */
+    bool     b_barcode_irq;       /**< 1 bit. Barcode letter comes from GPIO edges. */
 } robot_wire_debug_t;
 
 /** Values of Buddy 4's IMU / hump report (type 6), in their native units. */

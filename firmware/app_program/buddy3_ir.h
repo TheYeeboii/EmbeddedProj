@@ -4,7 +4,7 @@
  *
  * micro T-Kernel usage:
  *   - buddy3_init() once from usermain().
- *   - buddy3_update() every BUDDY3_BARCODE_PERIOD_MS from the line task.
+ *   - buddy3_update() from the line task at the selected sensor cadence.
  *   - The other functions may be called from any task.
  */
 
@@ -17,11 +17,7 @@
 
 /* Front sensors, line following and IR diagnostics share this interval. */
 #define BUDDY3_SAMPLE_PERIOD_MS (10u)
-/* The side (barcode) sensor is sampled separately: the reader needs
- * at least four samples per 3 mm narrow bar (0.75 mm of travel per sample),
- * which at 10 ms limited driving to about 75 mm/s.  At 2 ms it allows about
- * 375 mm/s, so a manual W drive can read barcodes.  Needs the kernel tick
- * (CNF_TIMER_PERIOD) at 1 or 2 ms. */
+/* Analogue builds sample faster to resolve narrow bars while moving. */
 #define BUDDY3_BARCODE_PERIOD_MS (1u)
 
 #include "buddy3_barcode.h"
@@ -106,9 +102,9 @@ void buddy3_set_line_speed (int16_t base_pwm, float32_t proportional_gain);
 void buddy3_get_calibration (buddy3_calibration_t * p_calibration);
 
 /**
- * @brief Feed the barcode reader from the side sensor and, every
- *        BUDDY3_SAMPLE_PERIOD_MS, read all sensors and (while line following
- *        is on) steer.  Call every BUDDY3_BARCODE_PERIOD_MS.
+ * @brief Read the sensors and update steering every BUDDY3_SAMPLE_PERIOD_MS.
+ *        Analogue barcode builds call this at BUDDY3_BARCODE_PERIOD_MS to
+ *        feed their reader between steering updates. Digital builds use GPIO IRQs.
  * @param now_ms Current time in milliseconds.
  */
 void buddy3_update (uint32_t now_ms);
@@ -123,7 +119,7 @@ void buddy3_stop_line_follow (void);
 bool buddy3_line_following (void);
 
 /**
- * @brief Let the barcode reader run while the robot is driven by hand.
+ * @brief Let the analogue barcode reader run while the robot is driven by hand.
  *
  * Without line following the reader is normally suspended.  The controller
  * calls this with true while a manual drive goes straight forward, so a
@@ -221,14 +217,15 @@ void buddy3_set_junction_turn (uint8_t turn);
 bool buddy3_take_junction_turn (uint8_t * p_turn);
 
 /**
- * @brief Take the oldest unread barcode event.
- * @param p_event Receives the event; its dropped field counts lost events.
+ * @brief Take an unread barcode event for the controller. The digital build
+ *        delivers the latest confirmed letter and retains it for telemetry.
+ * @param p_event Receives the event.
  * @return True when an event was waiting.
  */
 bool buddy3_take_barcode (buddy3_barcode_event_t * p_event);
 
 /**
- * @brief Configure the barcode reader; only while stopped.  Rejects
+ * @brief Configure the analogue barcode reader; only while stopped. Rejects
  *        uncalibrated or low-resolution odometry.  The minimum element is the
  *        smallest resolvable stripe, not a fixed cell width; the reader
  *        infers the actual narrow/wide widths per frame.

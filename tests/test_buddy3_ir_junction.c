@@ -102,6 +102,7 @@ static void reset (void)
     buddy3_set_test_stage(1);
     buddy3_start_line_follow();
 }
+#if !BARCODE_DIGITAL_INPUT
 /* Raw IR is observable before enabling the decoder, while stationary. */
 static void test_raw_stream (void)
 {
@@ -419,6 +420,7 @@ static void test_real_barcode_passes (void)
     replay_pass(g_replay_a5, sizeof(g_replay_a5) / sizeof(g_replay_a5[0]));
     replay_pass(g_replay_a3, sizeof(g_replay_a3) / sizeof(g_replay_a3[0]));
 }
+#endif
 
 /* A barcode turn request stops line following on the junction and hands
  * the turn over once; without one the junction is crossed straight. */
@@ -534,15 +536,17 @@ static void test_front_raw_tuning (void)
 
 int main (void)
 {
+#if !BARCODE_DIGITAL_INPUT
     /* The power-up white zero is tested on its own, last: the other tests
      * start from the default calibration. */
     g_b_zero_request = false;
     test_raw_stream();
     test_barcode_handoff();
-    test_steering_and_junctions();
-    test_junction_turn_handoff();
     test_white_zero();
     test_real_barcode_passes();
+#endif
+    test_steering_and_junctions();
+    test_junction_turn_handoff();
     test_front_raw_tuning();
     puts("PASS: real IR integration reads barcodes line following and by hand "
          "(2 ms side sampling at 237 mm/s), "

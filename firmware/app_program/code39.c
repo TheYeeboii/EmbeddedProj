@@ -10,7 +10,7 @@
 
 /* Each character is nine elements: six narrow and three wide. Characters
  * are separated by one narrow gap, so they start every ten elements. */
-#define CHAR_ELEMENTS 9u
+#define CHAR_ELEMENTS CODE39_CHARACTER_ELEMENTS
 #define CHAR_NARROW   6u
 #define CHAR_WIDE     3u
 #define CHAR_STRIDE   10u
@@ -253,16 +253,49 @@ static bool code39_classify (const float32_t * p_widths, uint16_t * p_pattern,
     return b_valid;
 }
 
-bool code39_is_star (const float32_t * p_widths)
+bool code39_character_pattern (const float32_t * p_widths, uint16_t * p_pattern)
 {
-    uint16_t  pattern   = 0u;
     float32_t narrow    = 0.0f;
     float32_t wide      = 0.0f;
     float32_t threshold = 0.0f;
 
-    return (NULL != p_widths) &&
-           code39_classify(p_widths, &pattern, &narrow, &wide, &threshold) &&
+    return (NULL != p_widths) && (NULL != p_pattern) &&
+           code39_classify(p_widths, p_pattern, &narrow, &wide, &threshold);
+}
+
+bool code39_is_star (const float32_t * p_widths)
+{
+    uint16_t pattern;
+
+    return code39_character_pattern(p_widths, &pattern) &&
            ((STAR == pattern) || (REVERSE_STAR == pattern));
+}
+
+char code39_character_symbol (uint16_t pattern, bool reversed)
+{
+    if (reversed)
+    {
+        uint16_t canonical = 0u;
+        for (uint32_t index = 0u; index < CHAR_ELEMENTS; ++index)
+        {
+            canonical = (uint16_t) ((canonical << 1u) | (pattern & 1u));
+            pattern >>= 1u;
+        }
+        pattern = canonical;
+    }
+
+    if (pattern == STAR)
+    {
+        return '*';
+    }
+    for (uint32_t letter = 0u; letter < LETTER_COUNT; ++letter)
+    {
+        if (g_letters[letter] == pattern)
+        {
+            return (char) ('A' + letter);
+        }
+    }
+    return '\0';
 }
 
 /* Frame checks that need all three characters: inter-character gaps
@@ -320,23 +353,16 @@ static code39_status_t code39_finish (const float32_t * p_widths,
                                       code39_result_t * p_decoded)
 {
     code39_status_t status = CODE39_OK;
-    uint32_t        letter = 0u;
-    uint32_t        index  = 0u;
+    const char symbol = code39_character_symbol(pattern, false);
 
-    while ((letter < LETTER_COUNT) && (g_letters[letter] != pattern))
-    {
-        ++letter;
-    }
-
-    if (LETTER_COUNT == letter)
+    if (symbol < 'A' || symbol > 'Z')
     {
         status = CODE39_BAD_SYMBOL;
     }
     else
     {
-        /* letter < 26, so 'A' + letter is an uppercase ASCII letter. */
-        p_decoded->symbol = (char) ('A' + letter);
-        for (index = 0u; index < CODE39_FRAME_ELEMENTS; ++index)
+        p_decoded->symbol = symbol;
+        for (uint32_t index = 0u; index < CODE39_FRAME_ELEMENTS; ++index)
         {
             p_decoded->frame_width += p_widths[index];
         }

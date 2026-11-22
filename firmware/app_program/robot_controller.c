@@ -27,6 +27,9 @@
 #include "buddy4_imu.h"
 #include "buddy5_ultrasonic.h"
 #include "pin_config.h"
+#if BARCODE_DIGITAL_INPUT
+#include "barcode_reading.h"
+#endif
 #include "robot_controller.h"
 #include "robot_fault.h"
 #include "robot_steering_trace.h"
@@ -518,6 +521,11 @@ static void robot_set_line_speed (int32_t base_pct, int32_t turn_pct)
 
 static void robot_start_line (void)
 {
+#if BARCODE_DIGITAL_INPUT
+    // Discard any unread turn from before this run, while retaining the dashboard letter.
+    buddy3_barcode_event_t previous;
+    (void) buddy3_take_barcode(&previous);
+#endif
     buddy4_clear_lift(); /* Starting again: the rover is on the ground. */
     buddy2_stop();
     g_drive_left  = 0u;
@@ -563,6 +571,9 @@ static void robot_set_barcode_mode (int32_t mode)
     else
     {
         g_barcode_mode = (uint8_t) mode; /* 0 or 1 checked above. */
+#if BARCODE_DIGITAL_INPUT
+        barcode_reading_set_enabled(0 != mode);
+#endif
         tm_printf((UB *) "[barcode] mode=%d (0 off, 1 read)\n", (INT) mode);
     }
 }
@@ -618,11 +629,15 @@ static void robot_reset_all (void)
                          ROBOT_LINE_TURN_DEFAULT_PCT);
     buddy4_reset_run();
     g_barcode_mode = ROBOT_BARCODE_MODE_OBSERVE;
+#if BARCODE_DIGITAL_INPUT
+    barcode_reading_set_enabled(true);
+#else
     /* The defaults are small whole millimetres, so they fit the types. */
     (void) buddy3_configure_barcode((uint16_t) BUDDY3_BARCODE_MIN_ELEMENT_MM,
                                     (int16_t) BUDDY3_BARCODE_OFFSET_LEFT_MM);
     /* Whatever is under the side sensor now is white. */
     buddy3_zero_barcode_white();
+#endif
     tm_printf((UB *) "[cmd] reset_all: stopped; faults, odometry and IMU "
                      "cleared; defaults restored\n");
 }
@@ -763,6 +778,11 @@ static void robot_run_valued (const robot_wire_command_t * p_command,
 /* Print a decoded or rejected barcode (observe mode only). */
 static void robot_log_barcode (const buddy3_barcode_event_t * p_event)
 {
+#if BARCODE_DIGITAL_INPUT
+    tm_printf((UB *) "[barcode] Decoded: %c (%s, GPIO timing)\n",
+              p_event->decoded.symbol,
+              p_event->decoded.reversed ? "reverse" : "forward");
+#else
     if (B3BC_VALID == p_event->kind)
     {
         /* Widths are small positive millimetre values, so x100 fits UINT. */
@@ -783,6 +803,7 @@ static void robot_log_barcode (const buddy3_barcode_event_t * p_event)
                       : "capture",
                   (UINT) p_event->ts_ms, (UINT) p_event->dropped);
     }
+#endif
 }
 
 /* A valid letter read while line following sets the turn for the next

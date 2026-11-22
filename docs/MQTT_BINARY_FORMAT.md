@@ -64,7 +64,7 @@ dashboard vM" instead of decoding garbage.
 | Line curve power | 0-60 % | text | 6 | Plain value |
 | Speed limit | 20-100 % | text | 7 | Plain value |
 
-### rover/debug: type 2, 25 bytes (197 bits), every 1 s
+### rover/debug: type 2, 25 bytes (198 bits), every 1 s
 
 | Field | Valid range | Before | Bits | Representation |
 |---|---|---|---|---|
@@ -81,6 +81,7 @@ dashboard vM" instead of decoding garbage.
 | Heading target | 0-359.9 deg | text tenths | 12 | Tenths |
 | Turn PWM L/R | +/-32767 | text | 16 each | Signed |
 | Forward progress / target | 0-2047 mm | text | 11 each | Plain value; saturates |
+| GPIO barcode reader | yes / no | padding | 1 | Set when the barcode letter is the latest confirmed GPIO scan. Older firmware sends zero. |
 
 ### rover/telemetry: type 6, Buddy 4's IMU / hump report, 14 bytes (107 bits)
 

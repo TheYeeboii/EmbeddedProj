@@ -366,6 +366,8 @@ function showDebug(data) {
   const barcodeName = Number.isInteger(data.command) && data.command >= 65 && data.command <= 90
     ? String.fromCharCode(data.command) : '';
   $('#barcode-cmd').textContent = data.barcode && barcodeName ? barcodeName : '';
+  barcodeView.showInterruptResult(data.barcode_irq, data.barcode ? barcodeName : '');
+  $('#barcode-config-form').hidden = data.barcode_irq;
 
   showAvoidance(data);
   appendSerial(data);
