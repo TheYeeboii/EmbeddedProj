@@ -197,7 +197,7 @@ void robot_ir_stream_publish (uint32_t now_ms)
         {
             b_more = false;
         }
-        /* Batch 100 Hz observations into roughly 25 Hz packets, with bounded
+        /* Batch observations at the configured cadence, with bounded
          * latency for a final short batch. No samples are downsampled. */
         else if ((batch.count < ROBOT_IR_STREAM_BATCH) &&
                  ((now_ms - batch.rows[0].ts_ms) < IR_MQTT_FLUSH_MS))
@@ -545,6 +545,8 @@ static uint32_t ir_pack (uint8_t *                       p_payload,
         robot_packed_put(&writer, p_row->maximum, DIAG_BITS_RAW);
         robot_packed_put(&writer, p_row->inverted, DIAG_BITS_FLAG);
     }
+    /* Optional trailing field: older firmware omitted the nominal cadence. */
+    robot_packed_put(&writer, ROBOT_IR_STREAM_PERIOD_MS, 8u);
 
     return robot_packed_length(&writer);
 }

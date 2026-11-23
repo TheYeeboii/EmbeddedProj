@@ -756,3 +756,24 @@ kbd {
   .buddy-panel .metric-value strong, .buddy-panel .metric-wide .metric-value strong { font-size: 22px; }
   .buddy-panel .metric-text strong { font-size: 18px; }
 }
+
+/* Raw ADC threshold editor, independent of existing IR evidence views. */
+.ir-threshold-editor { padding: 18px; min-width: 0; }
+.threshold-strip { height: 44px; border: 1px solid #777; border-radius: 8px; position: relative; margin-top: 20px; }
+.threshold-marker { position: absolute; top: -7px; bottom: -7px; width: 3px; background: #f97316; transform: translateX(-50%); }
+.threshold-handles { position: relative; height: 34px; margin: 0 8px; }
+.threshold-handles input { position: absolute; inset: 0; width: 100%; pointer-events: none; background: transparent; appearance: none; }
+.threshold-handles input::-webkit-slider-thumb { pointer-events: auto; appearance: none; width: 18px; height: 24px; border-radius: 4px; background: var(--foreground, #eee); border: 2px solid #777; cursor: ew-resize; }
+.threshold-handles input::-moz-range-thumb { pointer-events: auto; width: 18px; height: 24px; border-radius: 4px; background: #eee; border: 2px solid #777; cursor: ew-resize; }
+.threshold-handles input:focus-visible { outline: 2px solid #f97316; }
+.threshold-fields, .threshold-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.threshold-fields label { display: grid; gap: 6px; }
+.threshold-fields .input { width: 120px; }
+
+.ir-threshold-editor p { margin: 10px 0; line-height: 1.5; }
+.threshold-fields .threshold-polarity { display: flex; align-items: center; gap: 8px; }
+.threshold-actions { margin: 12px 0; }
+
+.ir-threshold-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 16px; min-width: 0; }
+
+.ir-threshold-editor [hidden], .ir-evidence-panel svg[hidden] { display: none !important; }

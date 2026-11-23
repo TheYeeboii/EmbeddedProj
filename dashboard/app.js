@@ -54,6 +54,10 @@ const barcodeConfiguration = new window.RoverBarcodeConfiguration($('#barcode-co
   send: (command, values) => sendCommand(command, values, { quiet: true })
 });
 
+const irThresholdViews = ['ir-threshold-editor', 'ir-threshold-editor-left',
+  'ir-threshold-editor-right'].map((id, sensor) => new window.RoverIRThresholdView(
+    $('#' + id), (command, values) => sendCommand(command, values, { quiet: true }), sensor));
+
 let client = null;
 let serialPaused = false;
 let robotOffline = false;
@@ -70,7 +74,9 @@ let lastUptime = 0;
 /* ---------- helpers ---------- */
 
 function setText(id, value) {
-  $(`#${id}`).textContent = value;
+  const element = $(`#${id}`);
+  const text = value == null ? '' : String(value);
+  if (element.textContent !== text) element.textContent = text;
 }
 
 function fmt(value) {
@@ -79,8 +85,8 @@ function fmt(value) {
 
 function setBadge(id, text, tone) {
   const badge = $(`#${id}`);
-  badge.textContent = text;
-  badge.dataset.tone = tone;
+  if (badge.textContent !== text) badge.textContent = text;
+  if (badge.dataset.tone !== tone) badge.dataset.tone = tone;
 }
 
 function formatUptime(ms) {
@@ -589,6 +595,7 @@ $('#drive-form').addEventListener('submit', (event) => {
  * sensor.  Wire numbering 0 barcode, 1 left line, 2 right line.  Debug
  * names: raw_center = front left, raw_left = front right, raw_right =
  * barcode (firmware ADC order). */
+let barcodeDigital = false;
 const IR_LEVEL_SENSORS = { barcode: 0, left: 1, right: 2 };
 const irLive = { barcode: null, left: null, right: null };
 function showIrRaw(key, raw) {
@@ -599,6 +606,10 @@ function showIrRaw(key, raw) {
 }
 function showBarcodeRaw(raw) { showIrRaw('barcode', raw); }
 function sendIrLevels(key) {
+  if (key === 'barcode' && barcodeDigital) {
+    showError('levels-error', 'Barcode uses digital input; software levels are disabled.');
+    return;
+  }
   const row = document.querySelector(`[data-ir-levels="${key}"]`);
   const whiteInput = row.querySelector('[data-ir-white]');
   const blackInput = row.querySelector('[data-ir-black]');
@@ -828,7 +839,10 @@ if (document.documentElement.dataset.theme === 'light') {
 /* ---------- tabs ---------- */
 
 /* Built after every listener above, so moved cards keep their handlers. */
-const tabs = new window.RoverTabs($('#tabbar'), { onChange: () => window.scrollTo(0, 0) });
+const tabs = new window.RoverTabs($('#tabbar'), { onChange: () => {
+  window.scrollTo(0, 0);
+  irStreamView.scheduleRender();
+} });
 
 /* ---------- MQTT ---------- */
 
@@ -873,6 +887,20 @@ if (!window.mqtt) {
     if (message.kind === 'invalid') return;
     if (message.kind !== 'json') wireMismatch = null;
     const data = message.data;
+    if (message.kind === 'ir_tune') {
+      irThresholdViews.forEach(view => view.handle(data));
+      if ((data.sensor ?? 0) === 0) {
+        barcodeDigital = !!data.digital;
+        const row = document.querySelector('[data-ir-levels="barcode"]');
+        row.querySelectorAll('input, button').forEach(control => {
+          control.disabled = barcodeDigital;
+        });
+        $('#barcode-level-mode').textContent = barcodeDigital ?
+          'Digital input: analogue calibration disabled.' : '';
+      }
+      markSeen();
+      return;
+    }
     if (message.kind === 'telemetry') {
       if (data.uptime_s < lastUptime) { leftTicks.reset(); rightTicks.reset(); }
       lastUptime = data.uptime_s;

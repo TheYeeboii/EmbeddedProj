@@ -45,6 +45,49 @@ static uint32_t        g_incoming_length = 0u;
  * whole, never truncated into a different command. */
 static bool    g_b_incoming_too_long = false;
 static uint8_t g_outgoing[COMMS_PAYLOAD_MAX];
+static uint8_t g_publish[COMMS_PAYLOAD_MAX];
+static uint32_t g_outgoing_topic;
+static uint32_t g_outgoing_length;
+static uint32_t g_outgoing_queue_age;
+static uint64_t g_outgoing_started_us;
+static bool g_b_outgoing_pending;
+
+/* Retain one packet until lwIP accepts it. Never drain more of the mailbox
+ * after a full MQTT buffer, so backpressure reaches the bounded producers. */
+static bool robot_mqtt_publish_next (void)
+{
+    uint64_t age;
+    uint32_t age_ms;
+    if (!g_b_outgoing_pending)
+    {
+        if (!comms_take_outgoing_timed(&g_outgoing_topic, g_outgoing,
+                                        sizeof(g_outgoing), &g_outgoing_length,
+                                        &g_outgoing_queue_age))
+        {
+            return false;
+        }
+        g_outgoing_started_us = time_us_64();
+        g_b_outgoing_pending = true;
+    }
+    if (g_outgoing_topic >= COMMS_TOPIC_COUNT)
+    {
+        g_b_outgoing_pending = false;
+        return false;
+    }
+    age = (time_us_64() - g_outgoing_started_us) / 1000u;
+    age += g_outgoing_queue_age;
+    age_ms = (age > UINT32_MAX) ? UINT32_MAX : (uint32_t) age;
+    memcpy(g_publish, g_outgoing, g_outgoing_length);
+    robot_wire_add_transport_age(g_publish, g_outgoing_length, age_ms);
+    if (ERR_OK != mqtt_publish(g_p_client, g_topic_names[g_outgoing_topic],
+                                g_publish, (u16_t) g_outgoing_length,
+                                0u, 0u, NULL, NULL))
+    {
+        return false;
+    }
+    g_b_outgoing_pending = false;
+    return true;
+}
 /* The Last Will: one status byte (robot_wire.h).  lwIP takes it as a char
  * pointer, but its length is passed explicitly, never measured. */
 static const char g_will_offline[] = {(char) ROBOT_WIRE_STATUS_OFFLINE_BYTE,
@@ -144,8 +187,6 @@ static void robot_mqtt_start_connect (void)
 static void robot_mqtt_service (void)
 {
     static const uint8_t online[] = {(uint8_t) ROBOT_WIRE_STATUS_ONLINE_BYTE};
-    uint32_t             topic    = 0u;
-    uint32_t             length   = 0u;
     uint32_t             sent     = 0u;
     bool                 b_more   = true;
 
@@ -173,16 +214,7 @@ static void robot_mqtt_service (void)
     /* Drain a couple of queued messages per poll. */
     for (sent = 0u; b_more && (sent < ROBOT_MQTT_MAX_PUBLISH_PER_POLL); sent++)
     {
-        b_more = comms_take_outgoing(&topic, g_outgoing, sizeof(g_outgoing),
-                                     &length);
-        if (b_more && (topic < COMMS_TOPIC_COUNT))
-        {
-            /* The length comes from the mailbox, never from strlen: packed
-             * payloads contain 0x00 bytes.  It is at most COMMS_PAYLOAD_MAX
-             * (96), so it fits in u16_t. */
-            (void) mqtt_publish(g_p_client, g_topic_names[topic], g_outgoing,
-                                (u16_t) length, 0u, 0u, NULL, NULL);
-        }
+        b_more = robot_mqtt_publish_next();
     }
 }
 

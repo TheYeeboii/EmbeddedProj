@@ -64,7 +64,7 @@
 
 /* Exact length of each command, indexed by opcode; 0 = not a command. */
 static const uint8_t g_command_length[] = {
-    0u, /* 0  reserved */
+    4u, /* 0  raw IR thresholds: sensor 2, polarity 1, low/high 12 each */
     1u, /* 1  stop: opcode only */
     1u, /* 2  drive preset: 4 + 2 bits */
     5u, /* 3  drive: 4 + 16 + 16 bits */
@@ -302,6 +302,13 @@ static void wire_read_arguments (robot_packed_reader_t * p_reader,
         case ROBOT_WIRE_OP_SERVO_ANGLE:
             p_command->values[0] =
                 (int32_t) robot_packed_get(p_reader, WIRE_BITS_SERVO);
+        break;
+
+        case ROBOT_WIRE_OP_IR_THRESHOLDS:
+            p_command->values[0] = (int32_t) robot_packed_get(p_reader, 2u);
+            p_command->values[1] = (int32_t) robot_packed_get(p_reader, 1u);
+            p_command->values[2] = (int32_t) robot_packed_get(p_reader, 12u);
+            p_command->values[3] = (int32_t) robot_packed_get(p_reader, 12u);
         break;
 
         case ROBOT_WIRE_OP_BARCODE_MODE:

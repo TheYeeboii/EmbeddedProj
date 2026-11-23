@@ -31,6 +31,7 @@
 #include "robot_fault.h"
 #include "robot_steering_trace.h"
 #include "robot_hal.h"
+#include "barcode_tuning.h"
 #include "robot_wire.h"
 
 #define ROBOT_LEGACY_MAX (65535)
@@ -572,6 +573,15 @@ static void robot_set_barcode_mode (int32_t mode)
  * stopped. */
 static void robot_barcode_settings (const int32_t * p_values)
 {
+    /* Reserved sensor 3 configures raw barcode hysteresis; mode is polarity.
+     * This command never changes barcode navigation or motor ownership. */
+    if (3 == p_values[1])
+    {
+        (void) barcode_tuning_request((uint16_t) p_values[2],
+                                      (uint16_t) p_values[3],
+                                      0 != p_values[0]);
+        return;
+    }
     if ((0 != p_values[2]) || (0 != p_values[3]))
     {
         /* 2- and 12-bit wire fields, so they fit their types. */
@@ -594,6 +604,9 @@ static void robot_barcode_settings (const int32_t * p_values)
  * counter to its boot value without rebooting the Pico. */
 static void robot_reset_all (void)
 {
+    (void) ir_tuning_request(0u, 0u, 0u, false);
+    (void) ir_tuning_request(1u, 0u, 0u, false);
+    (void) ir_tuning_request(2u, 0u, 0u, false);
     buddy3_set_manual_barcode(false);
     robot_stop_all();
     buddy2_reset_encoders(); /* odometry + latched encoder faults */
@@ -703,6 +716,13 @@ static void robot_run_valued (const robot_wire_command_t * p_command,
 
         case ROBOT_WIRE_OP_SERVO_ANGLE:
             robot_set_servo_angle(p_values[0]); /* accepted only when idle */
+        break;
+
+        case ROBOT_WIRE_OP_IR_THRESHOLDS:
+            (void) ir_tuning_request((uint8_t) p_command->values[0],
+                                      (uint16_t) p_command->values[2],
+                                      (uint16_t) p_command->values[3],
+                                      0 != p_command->values[1]);
         break;
 
         case ROBOT_WIRE_OP_BARCODE_MODE:

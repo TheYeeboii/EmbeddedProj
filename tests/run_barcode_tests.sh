@@ -11,9 +11,13 @@ run() {
         -Ifirmware/app_program -Ifirmware/config "$@" -lm -o "$build_dir/$name"
     "$build_dir/$name"
 }
+run slowdown tests/test_barcode_slowdown.c firmware/app_program/barcode_slowdown.c
+run tuning -DBARCODE_DIGITAL_INPUT=0 tests/test_barcode_tuning.c firmware/app_program/barcode_tuning.c
+run tuning_mqtt -DBARCODE_DIGITAL_INPUT=0 tests/test_barcode_tuning_mqtt.c firmware/app_program/barcode_tuning.c firmware/app_program/barcode_tuning_mqtt.c firmware/app_program/robot_packed.c
 run decoder tests/test_buddy3_barcode.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c
-run controller tests/test_robot_barcode_controller.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_packed.c firmware/app_program/robot_wire.c firmware/app_program/robot_fault.c
-run ir tests/test_buddy3_ir_junction.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/robot_barcode_trace.c firmware/app_program/robot_ir_stream.c
+run controller -DBARCODE_DIGITAL_INPUT=0 tests/test_robot_barcode_controller.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_packed.c firmware/app_program/robot_wire.c firmware/app_program/robot_fault.c firmware/app_program/barcode_tuning.c
+run ir -DBARCODE_DIGITAL_INPUT=0 tests/test_buddy3_ir_junction.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/robot_barcode_trace.c firmware/app_program/robot_ir_stream.c firmware/app_program/barcode_tuning.c firmware/app_program/barcode_slowdown.c
+run ir_digital tests/test_buddy3_ir_digital.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/robot_barcode_trace.c firmware/app_program/robot_ir_stream.c firmware/app_program/barcode_tuning.c firmware/app_program/barcode_slowdown.c
 run steering tests/test_buddy3_steering.c firmware/app_program/buddy3_steering.c
 run junction tests/test_buddy3_junction.c firmware/app_program/buddy3_junction.c
 run lift tests/test_buddy4_lift.c firmware/app_program/buddy4_processing.c

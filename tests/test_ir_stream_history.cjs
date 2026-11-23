@@ -27,4 +27,11 @@ assert.throws(()=>IRStreamHistory.read(JSON.stringify({format:'rover-ir-stream-v
 const bounded=new IRStreamHistory(3);
 bounded.accept(packet([row(1,10),row(2,20),row(3,30),row(4,40)]));assert.equal(bounded.records.length,3);assert.equal(bounded.evicted,1);
 const wrap=new IRStreamHistory();assert(wrap.accept(packet([row(0xffffffff,0xfffffff0,1)])));assert(wrap.accept(packet([row(0,5,0)])));
+const fast = new IRStreamHistory();
+assert(fast.accept(packet([row(1,0),row(2,5),row(3,10)], {period_ms:5})));
+assert(fast.records.every(record=>record.gap===null));
+assert(fast.accept(packet([row(4,25)], {period_ms:5})));
+assert.equal(fast.records.at(-1).gap,'sampling_gap');
+assert.deepEqual(IRStreamHistory.read(fast.export()),fast.records);
+assert(!valid(packet([row(1,0)], {period_ms:0})));
 console.log('PASS: continuous black pulse without frames or motion, missing/sampling gaps, pause snapshot, replay, delayed/reordered/reboot/wrap data and bounded history');

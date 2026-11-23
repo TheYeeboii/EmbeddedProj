@@ -2,6 +2,17 @@
  * @file    buddy3_ir.c
  * @brief   Buddy 3: IR line following and barcode decoding.
  *
+ * File guide:
+ *   Core functionality: sensor setup, update scheduling, line steering,
+ *   junction handling, line-loss recovery and safety stops.
+ *   Bonus features: barcode reading/navigation, encoder heading hold,
+ *   obstacle-avoidance handoff and dashboard diagnostics.
+ *   Compatibility: stage 0 three-way steering and its search sweep.
+ *
+ * The default stage 3 path calls buddy3_staged_step(), which uses the
+ * separate buddy3_steering and buddy3_junction modules. The legacy stage 0
+ * path calls buddy3_steer_three_way(). See buddy3_follow_line() for dispatch.
+ *
  * Ported from the team's Pico SDK (CMake) version.  The algorithm is
  * unchanged; what changed:
  *   - ADC access goes through robot_hal.c.
@@ -18,6 +29,8 @@
 #include "robot_debug.h"
 #include "pin_config.h"
 #include "robot_hal.h"
+#include "barcode_tuning.h"
+#include "barcode_slowdown.h"
 #include "buddy3_steering.h"
 #include "robot_steering_trace.h"
 #include "robot_barcode_trace.h"
@@ -25,8 +38,16 @@
 #include "buddy3_barcode.h"
 #include "buddy3_junction.h"
 
-_Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS,
-               "IR stream cadence mismatch");
+_Static_assert((BUDDY3_BARCODE_PERIOD_MS > 0u) &&
+               (BUDDY3_SAMPLE_PERIOD_MS >= BUDDY3_BARCODE_PERIOD_MS) &&
+               (BUDDY3_SAMPLE_PERIOD_MS % BUDDY3_BARCODE_PERIOD_MS == 0u),
+               "Front interval must be a multiple of barcode interval");
+_Static_assert(BUDDY3_SAMPLE_PERIOD_MS <= 255u,
+               "IR stream interval must fit its wire field");
+
+/* ------------------------------------------------------------------ *
+ *  Core settings - sensor thresholds and layout
+ * ------------------------------------------------------------------ */
 
 #define BUDDY3_LINE_THRESHOLD     (350u)
 #define BUDDY3_JUNCTION_THRESHOLD (800u)
@@ -63,6 +84,10 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS,
 #define BUDDY3_SIDE_NONE  (0u)
 #define BUDDY3_SIDE_LEFT  (1u)
 #define BUDDY3_SIDE_RIGHT (2u)
+/* ------------------------------------------------------------------ *
+ *  Legacy settings - stage 0 turns and line search
+ * ------------------------------------------------------------------ */
+
 /* Steering tested on the car (30 Sep): black under the CENTER sensor ("R")
  * -> left wheel faster (turn right); under the LEFT sensor -> right wheel
  * faster.  Both correct, so no swap is needed.
@@ -107,6 +132,10 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS,
  * last touch = no line, so STOP (do not drive away).  Line following stays
  * on; the car moves again as soon as a front sensor sees black. */
 #define BUDDY3_LOST_STOP_MS (1000u)
+/* ------------------------------------------------------------------ *
+ *  Steering support - PWM limits and encoder heading hold
+ * ------------------------------------------------------------------ */
+
 /* Lowest power for the inner wheel on a correction.  0 = it may stop but
  * never runs backwards, so a correction curves instead of pivoting. */
 #define BUDDY3_INNER_MIN_PWM (0)
@@ -128,6 +157,10 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS,
 #define BUDDY3_PI        (3.14159265f)
 #define BUDDY3_HALF_TURN (180.0f)
 #define BUDDY3_FULL_TURN (360.0f)
+
+/* ------------------------------------------------------------------ *
+ *  Bonus settings - barcode sampling and classification
+ * ------------------------------------------------------------------ */
 
 /* Barcode reader: hysteresis on the side sensor and the largest heading
  * change a longitudinal barcode tolerates (radians). Narrow printed bars blur
@@ -171,10 +204,16 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS == ROBOT_IR_STREAM_PERIOD_MS,
 #define BUDDY3_SEARCH_SPIN    (4u) /* full spin on the spot           */
 #define BUDDY3_SEARCH_GAVE_UP (5u) /* nothing in a full turn: stopped */
 
+/* ------------------------------------------------------------------ *
+ *  Shared state - sensor calibration and controller state
+ * ------------------------------------------------------------------ */
+
 /* Internal snapshot groups each sensor's raw and normalized readings. */
 typedef struct
 {
     ir_sensor_reading_t sensors[BUDDY3_SENSOR_COUNT];
+    bool                black[BUDDY3_SENSOR_COUNT];
+    bool                raw_tuning[BUDDY3_SENSOR_COUNT];
     int16_t             line_position;
     bool                b_line_seen;
     bool                b_junction_seen;
@@ -191,7 +230,11 @@ static ir_calibration_params_t g_sensor_configs[BUDDY3_SENSOR_COUNT] = {
     {200u, 1300u, false}, /* left sensor */
     /* Side: measured over the printed barcode, white paper reads ~200 and a
      * wide bar ~3800 raw. */
+#if BARCODE_DIGITAL_INPUT
+    {0u, 1u, (BARCODE_DIGITAL_BLACK_LEVEL == 0u)} /* DO level, not ADC */
+#else
     {200u, 3800u, false} /* side sensor */
+#endif
 };
 
 static line_follow_configs_t g_steering_configs = {
@@ -202,6 +245,7 @@ static line_follow_configs_t g_steering_configs = {
 };
 
 static ir_processing_state_t g_state;
+static barcode_slowdown_t g_barcode_slowdown;
 static volatile bool         g_b_line_following = false;
 /* Manual-drive barcode reading: the controller task writes the request (one
  * byte, single writer); only the IR task acts on it and keeps
@@ -209,7 +253,7 @@ static volatile bool         g_b_line_following = false;
 static volatile bool g_b_manual_scan_request = false;
 /* White-level zero of the side sensor: requested by any task, carried out
  * by the IR task over BUDDY3_ZERO_SAMPLES line steps. */
-static volatile bool g_b_zero_request = true; /* Zero once at power-up. */
+static volatile bool g_b_zero_request = !BARCODE_DIGITAL_INPUT; /* Zero once at power-up. */
 /* Levels set by hand from the dashboard: written by the controller task in
  * one DI/EI step and applied by the IR task, which therefore never sees a
  * half-written request. */
@@ -277,6 +321,10 @@ static float32_t g_search_step_deg   = 0.0f; /* encoder angle when it began */
 static float32_t g_search_origin_deg = 0.0f; /* heading when search began  */
 static bool      g_b_reported_behind = false;
 
+/* ------------------------------------------------------------------ *
+ *  Internal function declarations
+ * ------------------------------------------------------------------ */
+
 static int16_t   buddy3_clamp_pwm (float32_t value);
 static uint16_t  buddy3_normalize (uint16_t raw, uint16_t minimum,
                                    uint16_t maximum, bool b_line_is_dark);
@@ -328,7 +376,7 @@ static bool buddy3_lost_stop (const ir_processing_state_t * p_next,
                               uint32_t                      now_ms);
 
 /* ------------------------------------------------------------------ *
- *  Public API
+ *  Core API - initialization, scheduling and line-follow controls
  * ------------------------------------------------------------------ */
 
 void buddy3_init (void)
@@ -338,8 +386,14 @@ void buddy3_init (void)
     hal_adc_init();
     hal_adc_pin_init(IR_SENSOR_LEFT_PIN);
     hal_adc_pin_init(IR_SENSOR_CENTER_PIN);
+#if BARCODE_DIGITAL_INPUT
+    hal_gpio_input_pullup(BARCODE_DIGITAL_PIN);
+#else
     hal_adc_pin_init(IR_SENSOR_RIGHT_PIN);
+#endif
 
+    g_barcode_slowdown = (barcode_slowdown_t) {0};
+    buddy2_set_barcode_slowdown(false);
     g_state             = empty;
     g_last_update_ms    = 0u;
     g_b_line_following  = false;
@@ -390,6 +444,7 @@ void buddy3_get_calibration (buddy3_calibration_t * p_calibration)
 void buddy3_update (uint32_t now_ms)
 {
     ir_processing_state_t next              = {0};
+    barcode_tuning_state_t side_tuning       = {0};
     int16_t               previous_position = 0;
     UINT                  interrupt_state   = 0u;
 
@@ -412,6 +467,11 @@ void buddy3_update (uint32_t now_ms)
         buddy3_decode_barcode(next.sensors[BUDDY3_SIDE_SENSOR].normalized,
                               next.sensors[BUDDY3_SIDE_SENSOR].raw, now_ms,
                               true);
+        barcode_tuning_get(&side_tuning);
+        next.raw_tuning[BUDDY3_SIDE_SENSOR] = side_tuning.enabled;
+        next.black[BUDDY3_SIDE_SENSOR] = side_tuning.enabled ?
+            side_tuning.black :
+            (next.sensors[BUDDY3_SIDE_SENSOR].normalized >= BUDDY3_EDGE_THRESHOLD);
         next.b_barcode_ready = g_b_barcode_ready;
         /* A decoded symbol is an uppercase ASCII letter. */
         next.barcode_command =
@@ -492,6 +552,10 @@ uint8_t buddy3_test_stage (void)
     return g_test_stage;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Diagnostics API - sensor snapshots and console output
+ * ------------------------------------------------------------------ */
+
 void buddy3_get_state (buddy3_ir_state_t * p_state)
 {
     UINT     interrupt_state = 0u;
@@ -534,6 +598,10 @@ void buddy3_print_debug (void)
 #endif
 }
 
+/* ------------------------------------------------------------------ *
+ *  Bonus API - line observations for obstacle-avoidance return
+ * ------------------------------------------------------------------ */
+
 void buddy3_clear_line_seen_event (void)
 {
     UINT interrupt_state = 0u;
@@ -556,6 +624,10 @@ bool buddy3_take_line_seen_event (void)
     return b_seen;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Sensor API - black/white status and calibration
+ * ------------------------------------------------------------------ */
+
 void buddy3_get_colors (bool * p_left_black, bool * p_right_black,
                         bool * p_side_black)
 {
@@ -565,12 +637,12 @@ void buddy3_get_colors (bool * p_left_black, bool * p_right_black,
     if ((NULL != p_left_black) && (NULL != p_right_black) &&
         (NULL != p_side_black))
     {
-        *p_left_black =
-            (state.normalized[BUDDY3_FRONT_LEFT] >= BUDDY3_EDGE_THRESHOLD);
-        *p_right_black =
-            (state.normalized[BUDDY3_FRONT_RIGHT] >= BUDDY3_EDGE_THRESHOLD);
-        *p_side_black =
-            (state.normalized[BUDDY3_SIDE_SENSOR] >= BUDDY3_EDGE_THRESHOLD);
+        UINT lock;
+        DI(lock);
+        *p_left_black = g_state.black[BUDDY3_FRONT_LEFT];
+        *p_right_black = g_state.black[BUDDY3_FRONT_RIGHT];
+        *p_side_black = g_state.black[BUDDY3_SIDE_SENSOR];
+        EI(lock);
     }
 }
 
@@ -583,7 +655,8 @@ bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black)
     bool                 b_ok =
         (sensor <= BUDDY3_LEVELS_RIGHT) && (black <= BUDDY3_RAW_MAX) &&
         (white < black) &&
-        (((uint32_t) black - (uint32_t) white) >= BUDDY3_LEVEL_MIN_SPAN);
+        (((uint32_t) black - (uint32_t) white) >= BUDDY3_LEVEL_MIN_SPAN) &&
+        (!BARCODE_DIGITAL_INPUT || (sensor != BUDDY3_LEVELS_BARCODE));
 
     if (b_ok)
     {
@@ -603,8 +676,12 @@ bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black)
 
 void buddy3_zero_barcode_white (void)
 {
-    g_b_zero_request = true; /* One byte store; the IR task does the rest. */
+    g_b_zero_request = !BARCODE_DIGITAL_INPUT; /* Digital DO has no white calibration. */
 }
+
+/* ------------------------------------------------------------------ *
+ *  Bonus API - barcode navigation and decoder configuration
+ * ------------------------------------------------------------------ */
 
 void buddy3_set_junction_turn (uint8_t turn)
 {
@@ -730,7 +807,7 @@ bool buddy3_barcode_calibrated (void)
 }
 
 /* ------------------------------------------------------------------ *
- *  Helpers
+ *  Shared helpers - PWM limits and analog normalization
  * ------------------------------------------------------------------ */
 
 static int16_t buddy3_clamp_pwm (float32_t value)
@@ -780,6 +857,10 @@ static uint16_t buddy3_normalize (uint16_t raw, uint16_t minimum,
     return (uint16_t) value;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Encoder helpers - heading measurement and legacy search setup
+ * ------------------------------------------------------------------ */
+
 /* Car heading from the wheel encoders, in degrees (only differences are
  * used, so the sign convention and any left/right encoder mix-up do not
  * matter: the sweep compares the SIZE of the turn). */
@@ -809,6 +890,10 @@ static void buddy3_search_begin_step (uint8_t step, int8_t direction,
     g_search_step_ms  = now_ms;
     g_search_step_deg = buddy3_encoder_angle_deg();
 }
+
+/* ------------------------------------------------------------------ *
+ *  Bonus control - encoder heading hold on straight segments
+ * ------------------------------------------------------------------ */
 
 /* When the line is centred between the two front sensors, both report white.
  * Preserve the current heading using the encoders so unequal motors do not
@@ -880,6 +965,10 @@ buddy3_apply_straight_heading_hold (buddy3_steering_output_t * p_output,
         }
     }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Bonus processing - barcode calibration, sampling and decoding
+ * ------------------------------------------------------------------ */
 
 /* Give the barcode trace the reader's present settings. */
 static void buddy3_trace_configure (uint16_t min_element_mm,
@@ -996,7 +1085,9 @@ static void buddy3_apply_manual_scan (uint32_t now_ms)
 /* Read only the side sensor and feed the reader (between line steps). */
 static void buddy3_sample_side (uint32_t now_ms)
 {
-    uint16_t raw = hal_adc_read(IR_ADC_CHANNEL_RIGHT);
+    uint16_t raw = BARCODE_DIGITAL_INPUT ?
+        (hal_gpio_read(BARCODE_DIGITAL_PIN) ? 1u : 0u) :
+        hal_adc_read(IR_ADC_CHANNEL_RIGHT);
 
     buddy3_apply_manual_scan(now_ms);
     buddy3_decode_barcode(
@@ -1087,7 +1178,23 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
     travel      = buddy3_smooth_travel(buddy3_barcode_travel(
         left_step, right_step, geometry.track_width_mm, g_barcode_offset));
 
-    (void) buddy3_barcode_colour(sensor_value);
+    if (!BARCODE_DIGITAL_INPUT)
+    {
+        (void) buddy3_barcode_colour(sensor_value);
+    }
+    g_b_barcode_black = barcode_tuning_sample(raw, g_b_barcode_black);
+    {
+        bool was_slow = g_barcode_slowdown.active;
+        bool slow = barcode_slowdown_update(&g_barcode_slowdown,
+                                             g_b_barcode_black, now_ms);
+        if (slow != was_slow)
+        {
+            buddy2_set_barcode_slowdown(slow);
+            tm_printf((UB *) "[barcode] %s\n",
+                slow ? "black: temporary speed 10%" :
+                       "white over 3 seconds: normal speed restored");
+        }
+    }
 
     observation.ts_ms      = now_ms;
     observation.raw        = raw;
@@ -1268,6 +1375,10 @@ buddy3_barcode_blocked (const buddy2_encoder_position_t * p_motion,
     return blocked;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Diagnostics helpers - steering evidence and motor requests
+ * ------------------------------------------------------------------ */
+
 static robot_steering_input_t buddy3_trace_input (void)
 {
     static const uint8_t   front[2] = {BUDDY3_FRONT_LEFT, BUDDY3_FRONT_RIGHT};
@@ -1330,6 +1441,10 @@ static void buddy3_stop_with_input (const robot_steering_input_t * p_input)
     buddy2_stop_observed(p_input);
 }
 
+/* ------------------------------------------------------------------ *
+ *  Core processing - ADC sampling and line/junction detection
+ * ------------------------------------------------------------------ */
+
 /* Read and normalise the sensors, then find the line. */
 static void buddy3_read_sensors (ir_processing_state_t * p_next,
                                  uint32_t                now_ms)
@@ -1343,7 +1458,9 @@ static void buddy3_read_sensors (ir_processing_state_t * p_next,
     /* Read the sensors first (slow part, no lock held). */
     raw[0] = hal_adc_read(IR_ADC_CHANNEL_LEFT);
     raw[1] = hal_adc_read(IR_ADC_CHANNEL_CENTER);
-    raw[2] = hal_adc_read(IR_ADC_CHANNEL_RIGHT);
+    raw[2] = BARCODE_DIGITAL_INPUT ?
+        (hal_gpio_read(BARCODE_DIGITAL_PIN) ? 1u : 0u) :
+        hal_adc_read(IR_ADC_CHANNEL_RIGHT);
 
     *p_next = g_state;
     for (index = 0u; index < BUDDY3_SENSOR_COUNT; index++)
@@ -1355,14 +1472,29 @@ static void buddy3_read_sensors (ir_processing_state_t * p_next,
                              g_sensor_configs[index].line_is_dark);
     }
 
+    /* Dashboard IDs: left=1 (ADC1), right=2 (ADC0). Preserve analog
+     * readings for diagnostics; the classified snapshot drives steering. */
+    for (index = 0u; index < 2u; ++index)
+    {
+        uint8_t sensor = (index == BUDDY3_FRONT_LEFT) ? 1u : 2u;
+        barcode_tuning_state_t tuning;
+        p_next->black[index] = ir_tuning_sample(sensor, raw[index],
+            p_next->sensors[index].normalized >= BUDDY3_EDGE_THRESHOLD);
+        ir_tuning_get(sensor, &tuning);
+        p_next->raw_tuning[index] = tuning.enabled;
+    }
+
 #if BUDDY3_LINE_BETWEEN_SENSORS
     /* Front sensors STRADDLE the line (see the photo in docs/): normally both
      * see the floor.  When one of them touches the line, steer towards that
      * side so the line goes back between them.  position = right - left:
      * > 0 -> line under the right-front sensor -> turn right. */
     {
-        int32_t left = (int32_t) p_next->sensors[BUDDY3_FRONT_LEFT].normalized;
-        int32_t right =
+        int32_t left = p_next->raw_tuning[BUDDY3_FRONT_LEFT] ?
+            (p_next->black[BUDDY3_FRONT_LEFT] ? 1000 : 0) :
+            (int32_t) p_next->sensors[BUDDY3_FRONT_LEFT].normalized;
+        int32_t right = p_next->raw_tuning[BUDDY3_FRONT_RIGHT] ?
+            (p_next->black[BUDDY3_FRONT_RIGHT] ? 1000 : 0) :
             (int32_t) p_next->sensors[BUDDY3_FRONT_RIGHT].normalized;
 
         (void) now_ms;
@@ -1408,6 +1540,10 @@ static void buddy3_read_sensors (ir_processing_state_t * p_next,
 #endif
 }
 
+/* ------------------------------------------------------------------ *
+ *  Core control - safety checks and steering-path selection
+ * ------------------------------------------------------------------ */
+
 /* Decide the wheel commands while line following is on. */
 static void buddy3_follow_line (const ir_processing_state_t * p_next,
                                 int16_t previous_position, uint32_t now_ms)
@@ -1451,6 +1587,10 @@ static void buddy3_follow_line (const ir_processing_state_t * p_next,
 }
 
 #if BUDDY3_LINE_BETWEEN_SENSORS
+/* ------------------------------------------------------------------ *
+ *  Line history - sensor transitions and recovery direction
+ * ------------------------------------------------------------------ */
+
 /* Track which front sensors see the line, log changes, and maintain the
  * touch timers used by the search and stop rules. */
 static void buddy3_track_side (const ir_processing_state_t * p_next,
@@ -1458,12 +1598,10 @@ static void buddy3_track_side (const ir_processing_state_t * p_next,
 {
     /* Which front sensor(s) are on black right now: 1 left, 2 right. */
     uint8_t side =
-        (uint8_t) (((p_next->sensors[BUDDY3_FRONT_LEFT].normalized >=
-                     BUDDY3_EDGE_THRESHOLD)
+        (uint8_t) ((p_next->black[BUDDY3_FRONT_LEFT]
                         ? BUDDY3_SIDE_LEFT
                         : 0u) |
-                   ((p_next->sensors[BUDDY3_FRONT_RIGHT].normalized >=
-                     BUDDY3_EDGE_THRESHOLD)
+                   (p_next->black[BUDDY3_FRONT_RIGHT]
                         ? BUDDY3_SIDE_RIGHT
                         : 0u));
 
@@ -1536,6 +1674,10 @@ static uint8_t buddy3_ignore_line_behind (uint8_t side)
     return side;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Diagnostics helpers - idle sensor transition logging
+ * ------------------------------------------------------------------ */
+
 /* Sensor check while idle: say which side sees the line, so the wiring can
  * be verified by hand (see docs).  While following, log every change with
  * what the car is told to do. */
@@ -1563,6 +1705,10 @@ static void buddy3_log_side (uint8_t side, uint32_t now_ms)
     }
 }
 
+/* ------------------------------------------------------------------ *
+ *  Safety - sustained all-black stop
+ * ------------------------------------------------------------------ */
+
 /* Lifted / dark surface: every sensor reads "black".  Returns true when the
  * car was stopped for it. */
 static bool buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
@@ -1570,9 +1716,7 @@ static bool buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
 {
     bool b_stopped = false;
 
-    if ((p_next->sensors[0].normalized >= BUDDY3_EDGE_THRESHOLD) &&
-        (p_next->sensors[1].normalized >= BUDDY3_EDGE_THRESHOLD) &&
-        (p_next->sensors[2].normalized >= BUDDY3_EDGE_THRESHOLD))
+    if (p_next->black[0] && p_next->black[1] && p_next->black[2])
     {
         if (0u == g_all_black_since_ms)
         {
@@ -1599,6 +1743,10 @@ static bool buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
 
     return b_stopped;
 }
+
+/* ------------------------------------------------------------------ *
+ *  Core control - stages 1 to 3, junctions and barcode turn handoff
+ * ------------------------------------------------------------------ */
 
 /* Staged steering (stage 1..3) with junction handling. */
 static void buddy3_staged_step (uint32_t now_ms)
@@ -1694,6 +1842,10 @@ static void buddy3_staged_step (uint32_t now_ms)
 }
 #endif
 
+/* ------------------------------------------------------------------ *
+ *  Safety - line-loss stop and legacy search completion
+ * ------------------------------------------------------------------ */
+
 /* Stop while no line is found.  Returns true when the car was stopped. */
 static bool buddy3_lost_stop (const ir_processing_state_t * p_next,
                               uint32_t                      now_ms)
@@ -1763,7 +1915,11 @@ static bool buddy3_lost_stop (const ir_processing_state_t * p_next,
 }
 
 #if BUDDY3_LINE_BETWEEN_SENSORS
-/* Digital sensors -> simple three-way steering (the derivative term is not
+/* ------------------------------------------------------------------ *
+ *  Legacy control - stage 0 three-way steering
+ * ------------------------------------------------------------------ */
+
+/* Thresholded analog readings -> three-way steering (the derivative is not
  * used here: the position only jumps between -1000, 0 and +1000).
  *   one sensor black  : turn towards it (harder if it stays black)
  *   both white, recent: straight (line is between the sensors)
@@ -1827,6 +1983,10 @@ static void buddy3_steer_three_way (uint32_t now_ms)
     buddy3_drive_observed(buddy3_clamp_pwm((float32_t) left_pwm),
                           buddy3_clamp_pwm((float32_t) right_pwm));
 }
+
+/* ------------------------------------------------------------------ *
+ *  Legacy recovery - stage 0 sweep and full-spin search
+ * ------------------------------------------------------------------ */
 
 /* Advance the line search and give the spin-on-the-spot wheel commands. */
 static void buddy3_search_step (uint32_t now_ms, int32_t base,

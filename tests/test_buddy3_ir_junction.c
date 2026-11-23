@@ -10,6 +10,11 @@ static uint16_t              g_adc[3];
 static buddy2_motion_state_t g_fake_motion;
 static int16_t               g_left_pwm;
 static int16_t               g_right_pwm;
+static bool g_test_barcode_slowdown;
+void buddy2_set_barcode_slowdown (bool active)
+{
+    g_test_barcode_slowdown = active;
+}
 int                          tm_printf (const unsigned char * fmt, ...)
 {
     (void) fmt;
@@ -20,10 +25,17 @@ void hal_adc_init (void)
 }
 void hal_adc_pin_init (uint32_t pin)
 {
+#if BARCODE_DIGITAL_INPUT
+    assert(pin != IR_SENSOR_RIGHT_PIN);
+#else
     (void) pin;
+#endif
 }
 uint16_t hal_adc_read (uint32_t channel)
 {
+#if BARCODE_DIGITAL_INPUT
+    assert(channel != IR_ADC_CHANNEL_RIGHT);
+#endif
     return g_adc[channel];
 }
 void buddy2_get_motion_state (buddy2_motion_state_t * p_state)
@@ -492,6 +504,34 @@ static void test_steering_and_junctions (void)
     assert(!buddy3_line_following() && 0 == g_left_pwm && 0 == g_right_pwm);
 }
 
+static void test_front_raw_tuning (void)
+{
+    ir_processing_state_t next = {0};
+    assert(ir_tuning_request(1u, 220u, 260u, false));
+    assert(ir_tuning_request(2u, 900u, 1000u, true));
+    g_adc[BUDDY3_FRONT_LEFT] = 270u;
+    g_adc[BUDDY3_FRONT_RIGHT] = 1050u;
+    buddy3_read_sensors(&next, 6000u);
+    assert(next.black[BUDDY3_FRONT_LEFT]);
+    assert(!next.black[BUDDY3_FRONT_RIGHT]);
+    assert(next.sensors[BUDDY3_FRONT_LEFT].normalized < BUDDY3_EDGE_THRESHOLD);
+    assert(next.b_line_seen && next.line_position == -1000);
+    buddy3_track_side(&next, 6000u);
+    assert(g_last_touch_side == BUDDY3_SIDE_LEFT);
+    g_adc[BUDDY3_FRONT_LEFT] = 240u;
+    buddy3_read_sensors(&next, 6010u);
+    assert(next.black[BUDDY3_FRONT_LEFT]); /* Grey retains black. */
+    g_adc[BUDDY3_FRONT_LEFT] = 210u;
+    g_adc[BUDDY3_FRONT_RIGHT] = 850u;
+    buddy3_read_sensors(&next, 6020u);
+    assert(!next.black[BUDDY3_FRONT_LEFT] && next.black[BUDDY3_FRONT_RIGHT]);
+    buddy3_track_side(&next, 6020u);
+    assert(g_last_touch_side == BUDDY3_SIDE_RIGHT);
+    assert(ir_tuning_request(1u, 0u, 0u, false));
+    assert(ir_tuning_request(2u, 0u, 0u, false));
+    buddy3_read_sensors(&next, 6030u);
+}
+
 int main (void)
 {
     /* The power-up white zero is tested on its own, last: the other tests
@@ -503,6 +543,7 @@ int main (void)
     test_junction_turn_handoff();
     test_white_zero();
     test_real_barcode_passes();
+    test_front_raw_tuning();
     puts("PASS: real IR integration reads barcodes line following and by hand "
          "(2 ms side sampling at 237 mm/s), "
          "overrides prior turn, hands barcode turns over at the junction, "
