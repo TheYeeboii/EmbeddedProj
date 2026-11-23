@@ -305,4 +305,3 @@ static bool barcode_finish (buddy3_barcode_decoder_t *      p_state,
 }
 
 /*** end of file ***/
-

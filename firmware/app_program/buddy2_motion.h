@@ -41,7 +41,7 @@
 #define BUDDY2_SPEED_DEFAULT (60u)
 #define BUDDY2_SPEED_MIN     (20u)
 /* Temporary barcode scan speed, on the same percentage scale. */
-#define BUDDY2_BARCODE_SPEED_PCT (10u)
+#define BUDDY2_BARCODE_SPEED_PCT (25u)
 
 /** How often buddy2_update() must be called. */
 #define BUDDY2_CONTROL_PERIOD_MS (20u)
@@ -163,6 +163,26 @@ bool buddy2_turn_left (float32_t angle_deg, int16_t max_pwm);
 /** @brief Start an in-place right (clockwise) turn.
  *  @return False if not initialised, max_pwm <= 0 or angle is 0. */
 bool buddy2_turn_right (float32_t angle_deg, int16_t max_pwm);
+
+/** @brief Turn left using the dashboard speed limit, without barcode slowing.
+ *
+ * The temporary barcode slowdown is intended for line travel while the
+ * barcode is being read.  This function deliberately ignores that temporary
+ * limit, but still honours the user-configured dashboard speed limit.
+ *
+ * @return False if not initialised, max_pwm <= 0 or angle is 0.
+ */
+bool buddy2_turn_left_at_speed_limit (float32_t angle_deg, int16_t max_pwm);
+
+/** @brief Turn right using the dashboard speed limit, without barcode slowing.
+ *
+ * The temporary barcode slowdown is intended for line travel while the
+ * barcode is being read.  This function deliberately ignores that temporary
+ * limit, but still honours the user-configured dashboard speed limit.
+ *
+ * @return False if not initialised, max_pwm <= 0 or angle is 0.
+ */
+bool buddy2_turn_right_at_speed_limit (float32_t angle_deg, int16_t max_pwm);
 
 /** @brief Tell whether a distance/turn move is still running. */
 bool buddy2_motion_active (void);

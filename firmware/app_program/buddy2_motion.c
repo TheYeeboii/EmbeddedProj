@@ -78,6 +78,8 @@
 #define BUDDY2_PERCENT_SQUARED (10000)
 /* speed_pct value meaning "use the global speed limit (g_speed_pct)". */
 #define BUDDY2_SPEED_USE_LIMIT (0u)
+/* Use the global speed limit but do not apply temporary barcode slowing. */
+#define BUDDY2_SPEED_USE_LIMIT_IGNORE_BARCODE (255u)
 #define BUDDY2_DEG_PER_TURN    (360.0f)
 #define BUDDY2_MS_PER_S        (1000.0f)
 /* Shortest time between two control steps.  The cyclic handler wakes the
@@ -285,9 +287,12 @@ uint8_t buddy2_get_speed_limit (void)
  * barcode override also limits explicit-speed commands and PID moves. */
 static uint8_t buddy2_effective_speed (uint8_t requested)
 {
-    uint8_t percent = (requested == BUDDY2_SPEED_USE_LIMIT) ?
-        g_speed_pct : requested;
-    if (g_barcode_slowdown && (percent > BUDDY2_BARCODE_SPEED_PCT))
+    bool b_ignore_barcode =
+        (BUDDY2_SPEED_USE_LIMIT_IGNORE_BARCODE == requested);
+    uint8_t percent = ((BUDDY2_SPEED_USE_LIMIT == requested) ||
+                       b_ignore_barcode) ? g_speed_pct : requested;
+    if (!b_ignore_barcode && g_barcode_slowdown &&
+        (percent > BUDDY2_BARCODE_SPEED_PCT))
     {
         percent = BUDDY2_BARCODE_SPEED_PCT;
     }
@@ -516,6 +521,26 @@ bool buddy2_turn_right (float32_t angle_deg, int16_t max_pwm)
 
     return buddy2_start_motion(distance, -distance, max_pwm,
                                BUDDY2_SPEED_USE_LIMIT);
+}
+
+bool buddy2_turn_left_at_speed_limit (float32_t angle_deg, int16_t max_pwm)
+{
+    float32_t distance =
+        (BUDDY2_PI * g_calibration.track_width_mm * buddy2_absf(angle_deg)) /
+        BUDDY2_DEG_PER_TURN;
+
+    return buddy2_start_motion(-distance, distance, max_pwm,
+                               BUDDY2_SPEED_USE_LIMIT_IGNORE_BARCODE);
+}
+
+bool buddy2_turn_right_at_speed_limit (float32_t angle_deg, int16_t max_pwm)
+{
+    float32_t distance =
+        (BUDDY2_PI * g_calibration.track_width_mm * buddy2_absf(angle_deg)) /
+        BUDDY2_DEG_PER_TURN;
+
+    return buddy2_start_motion(distance, -distance, max_pwm,
+                               BUDDY2_SPEED_USE_LIMIT_IGNORE_BARCODE);
 }
 
 bool buddy2_motion_active (void)

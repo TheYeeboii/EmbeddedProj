@@ -854,10 +854,12 @@ static void robot_junction_turn_step (void)
             g_turn_stage = ROBOT_TURN_STAGE_PIVOT;
             robot_ctl_enter(ROBOT_MODE_MOTION, ROBOT_CTL_RESUME_LINE);
             b_started = (BUDDY3_TURN_LEFT == g_turn_side)
-                            ? buddy2_turn_left(ROBOT_JUNCTION_TURN_DEG,
-                                               calibration.base_pwm)
-                            : buddy2_turn_right(ROBOT_JUNCTION_TURN_DEG,
-                                                calibration.base_pwm);
+                            ? buddy2_turn_left_at_speed_limit(
+                                  ROBOT_JUNCTION_TURN_DEG,
+                                  calibration.base_pwm)
+                            : buddy2_turn_right_at_speed_limit(
+                                  ROBOT_JUNCTION_TURN_DEG,
+                                  calibration.base_pwm);
             if (!b_started)
             {
                 robot_turn_abort("turn refused");

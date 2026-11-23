@@ -1191,7 +1191,7 @@ static void buddy3_decode_barcode (uint16_t sensor_value, uint16_t raw,
         {
             buddy2_set_barcode_slowdown(slow);
             tm_printf((UB *) "[barcode] %s\n",
-                slow ? "black: temporary speed 10%" :
+                slow ? "black: temporary speed 25%" :
                        "white over 3 seconds: normal speed restored");
         }
     }
