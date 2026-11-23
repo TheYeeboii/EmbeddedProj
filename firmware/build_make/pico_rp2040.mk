@@ -292,7 +292,7 @@ endif
 CFLAGS += -DBUDDY3_DEBUG=$(BUDDY3_DEBUG)
 
 # Diagnostic streams for the dashboard's tuning views (rover/actions,
-# rover/steering, rover/barcode, rover/ir; packed binary).  0 (default) leaves
+# rover/steering, rover/ir; packed binary).  0 (default) leaves
 # their five modules out and links app_program/robot_diagnostics_off.c
 # instead, so the robot sends only the packed binary messages of Change
 # Requirement 1.  DIAGNOSTICS=1 builds them back in for tuning.  The source

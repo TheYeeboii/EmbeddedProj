@@ -1,5 +1,8 @@
 # Barcode qualification and action mapping
 
+Historical notes for the retired wheel-distance reader. Subsystem 3 now reports
+barcode letters to the dashboard as scan results.
+
 While line following, a decoded letter sets the turn at the next junction:
 **A** turns left, **C** turns right, any other letter goes straight on (team
 mapping, `ROBOT_BARCODE_LETTER_LEFT` / `_RIGHT` in `robot_controller.c`). The

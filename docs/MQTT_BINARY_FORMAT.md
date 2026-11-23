@@ -114,7 +114,7 @@ bits and keep them. Drop counts and lags saturate at 16 bits. Distances
 |---|---|---|---|---|
 | `rover/actions` | 8 | header 8, state flag 1, seq 32, time 32, dropped 16, action 2, direction 2, source 2, PWM L/R 16 each | 16 B | ~139 B |
 | `rover/steering` | 9 | header 8, state flag 1, boot/seq/time 32 each, lag 16, dropped 16, owner 3, phase 4, direction 2, requested 2x16, applied 2x16, encoder time 32, distance 2x24, speed 2x16, faults 2, sample time 32, IR raw 2x12, norm 2x10, threshold 10, calibration 4x12, dark 2, has input 1 | 58 B | ~268 B |
-| `rover/barcode` | 10 | header 8, packet type 3, boot/seq/scan/time 32 each, dropped 16, lag 16, then by type: start (leading 24 + config 145), edges/samples (count 3, first index 5/9, up to 4 rows), progress/end/state (state 3, edges 5, samples 10, sample drops 16, partial 24, blocked 6; end adds reason 3, format 3, symbol 7, reversed 1, 5x24; state adds config 145 and readiness 135) | 22-87 B | up to ~405 B |
+| `rover/barcode` (legacy replay) | 10 | header 8, packet type 3, boot/seq/scan/time 32 each, dropped 16, lag 16, then by type: start (leading 24 + config 145), edges/samples (count 3, first index 5/9, up to 4 rows), progress/end/state (state 3, edges 5, samples 10, sample drops 16, partial 24, blocked 6; end adds reason 3, format 3, symbol 7, reversed 1, 5x24; state adds config 145 and readiness 135) | 22-87 B | up to ~405 B |
 | `rover/ir` | 11 | header 8, boot 32, lag 16, dropped 16, rows 3, first sequence 32 and time 32, then per row: time step 16 (rows 2-4), raw 12, normalized 10, black 1, distances 2x24, blocked 6, calibration 2x12, inverted 1 | 75 B (4 rows) | ~295-439 B |
 
 Barcode config (145 bits): raw endpoints 2x12, inversion 1, white/black
@@ -277,13 +277,9 @@ or command could ever be larger than its mailbox.
 
 ## Diagnostic streams: the `DIAGNOSTICS` build switch
 
-`rover/actions`, `rover/steering`, `rover/barcode` and `rover/ir` exist only
-for the dashboard's tuning views (packed binary, types 8-11 above).
-`rover/ir` alone sends about 25 batches a second. Their five modules
-(`robot_action_log`, `robot_steering_trace`, `robot_barcode_trace`,
-`robot_ir_stream`, and `robot_diagnostics_mqtt`, which publishes all four)
-only record what the robot did; no control code reads anything back from
-them.
+`rover/actions`, `rover/steering` and `rover/ir` feed the dashboard tuning views.
+`rover/ir` sends about 25 batches a second. The dashboard can replay archived
+type 10 barcode traces. Live barcode letters arrive on `rover/debug`.
 
 | Build | What is linked | MQTT |
 |---|---|---|

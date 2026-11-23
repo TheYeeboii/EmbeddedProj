@@ -15,7 +15,7 @@ bool ir_tuning_request (uint8_t sensor, uint16_t low, uint16_t high, bool invert
     {
         return false;
     }
-    if (BARCODE_DIGITAL_INPUT && (sensor == 0u) && (high != 0u))
+    if ((sensor == 0u) && (high != 0u))
     {
         return false;
     }
@@ -45,7 +45,7 @@ bool ir_tuning_sample (uint8_t sensor, uint16_t raw, bool legacy_black)
         g_pending[sensor] = false;
     }
     g_applied[sensor].raw = raw;
-    if (BARCODE_DIGITAL_INPUT && (sensor == 0u))
+    if ((sensor == 0u))
     {
         g_applied[sensor].enabled = false;
         g_applied[sensor].black = (raw == BARCODE_DIGITAL_BLACK_LEVEL);

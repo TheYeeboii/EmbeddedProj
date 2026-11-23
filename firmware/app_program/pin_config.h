@@ -61,20 +61,13 @@
 /* IR line sensors (analog) */
 #define IR_SENSOR_LEFT_PIN   (26u) /* ADC0 */
 #define IR_SENSOR_CENTER_PIN (27u) /* ADC1 */
-#define IR_SENSOR_RIGHT_PIN  (28u) /* ADC2 */
 
 #define IR_ADC_CHANNEL_LEFT   (0u)
 #define IR_ADC_CHANNEL_CENTER (1u)
-#define IR_ADC_CHANNEL_RIGHT  (2u)
 
-/* Barcode input mode. Wire the sensor's DO output to GP28 for digital
- * operation. Both front sensors remain on their analog outputs.
- * Override these with ROBOT_CFLAGS when changing wiring or polarity. */
-#ifndef BARCODE_DIGITAL_INPUT
-#define BARCODE_DIGITAL_INPUT (1)
-#endif
+/* Wire the barcode sensor DO to GP28. Override pin or polarity as needed. */
 #ifndef BARCODE_DIGITAL_PIN
-#define BARCODE_DIGITAL_PIN IR_SENSOR_RIGHT_PIN
+#define BARCODE_DIGITAL_PIN (28u)
 #endif
 #ifndef BARCODE_DIGITAL_BLACK_LEVEL
 #define BARCODE_DIGITAL_BLACK_LEVEL (1u)

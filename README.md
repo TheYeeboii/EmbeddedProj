@@ -34,19 +34,18 @@ the few deliberate deviations.
 | File | Buddy | What it does |
 |---|---|---|
 | `app_main.c/.h` | all | `usermain()`: initialises everything and creates the tasks |
-| `robot_controller.c/.h` | all | Vehicle controller: modes, dashboard commands, barcode turns at junctions, GP21 button, safety stops |
+| `robot_controller.c/.h` | all | Vehicle controller: modes, dashboard commands, GP21 button, safety stops |
 | `comms.c/.h` | 1 | Message buffers between robot tasks and the network |
 | `robot_mqtt.c/.h` | 1 | MQTT client (runs inside the kernel's Wi-Fi task) |
 | `robot_telemetry.c/.h` | 1 | Collects the values the dashboard shows |
 | `robot_wire.c/.h`, `robot_packed.c/.h` | 1 | Binary message layouts and bit packing |
 | `robot_fault.c/.h` | 1 | The shared fault byte |
-| `robot_diagnostics_mqtt.c/.h`, `robot_action_log`, `robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream` | 1 | Diagnostic streams for the dashboard's tuning views (`DIAGNOSTICS=1` builds) |
-| `robot_diagnostics_off.c` | 1 | Empty stand-ins for those five modules in the default `DIAGNOSTICS=0` build |
+| `robot_diagnostics_mqtt.c/.h`, `robot_action_log`, `robot_steering_trace`, `robot_ir_stream` | 1 | Diagnostic streams for the dashboard's tuning views (`DIAGNOSTICS=1` builds) |
+| `robot_diagnostics_off.c` | 1 | Empty stand-ins for the diagnostic modules in the default `DIAGNOSTICS=0` build |
 | `buddy2_motion.c/.h` | 2 | Motors, encoders, PID, `move_forward` / `turn_left` / ... |
 | `buddy3_ir.c/.h` | 3 | Front IR sensors, line following and line search |
 | `buddy3_steering.c/.h`, `buddy3_junction.c/.h` | 3 | Steering state machine; straight across junctions |
-| `barcode_reading.c/.h`, `code39.c/.h` | 3 | Side-sensor GPIO edge timing to a Code 39 letter, in either direction |
-| `buddy3_barcode.c/.h` | 3 | Wheel-distance barcode reader for analogue builds (`BARCODE_DIGITAL_INPUT=0`) |
+| `subsystem3/` | 3 | GP28 interrupt capture and Code 39 barcode decoding in either direction |
 | `buddy4_imu.c/.h`, `buddy4_processing.c/.h` | 4 | LSM303 IMU: heading, tilt, filtering, hump detection, lifted/overturned motor stop |
 | `buddy5_ultrasonic.c/.h` | 5 | Ultrasonic distance + scanning servo |
 | `buddy5_avoidance.c/.h` | 5 | Obstacle avoidance and return to the line |
@@ -64,7 +63,7 @@ the few deliberate deviations.
 | usb (kernel) | 3 | on demand | USB serial console |
 | cyw43 (kernel) | 4 | about every 2 ms | Wi-Fi + lwIP + MQTT (Wi-Fi builds only) |
 | motion | 5 | every 20 ms (cyclic handler) | Buddy 2 motor and encoder control |
-| line | 6 | every 10 ms (cyclic handler) | Buddy 3: line sensors and steering. Analogue barcode builds also sample the side sensor every 1 ms. |
+| line | 6 | every 10 ms (cyclic handler) | Buddy 3: front line sensors and steering |
 | controller | 7 | every 20 ms, or on command | commands, barcodes, GP21 button, safety |
 | barcode | 8 | on side GPIO edges | Decode each set of nine widths and publish a letter after both markers are confirmed |
 | imu | 9 | every 50 ms | Buddy 4 IMU and hump processing |
@@ -74,12 +73,10 @@ the few deliberate deviations.
 ### Buttons and testing
 
 - **GP21**: start/stop line following.
-- Barcodes are read while line following, or while driving straight forward
-  with W. While line following, **A** turns left and **C** turns right at the
-  next junction; any other letter goes straight on
-  ([BARCODE_ACTIONS.md](docs/BARCODE_ACTIONS.md)).
-- Distance/turn moves have no dashboard control; obstacle avoidance and the
-  barcode junction turns use them.
+- GP28 reads Code 39 in either direction while parked or driving. The
+  dashboard shows the letter after reading both `*` markers. Use
+  `BUDDY3_DEBUG=1` to print each character's nine widths after the scan.
+- Obstacle avoidance uses distance and turn moves.
 - Host tests (no robot needed): `CC=gcc sh tests/run_barcode_tests.sh` and
   `CC=gcc sh tests/run_ir_diagnostics_tests.sh`.
 
@@ -153,7 +150,7 @@ It is done when the prompt comes back with no `Error`. The result is
 which gives `mtk3pico_smp0_usb_cdc.uf2`.)
 
 Add `DIAGNOSTICS=1` to get the dashboard's tuning streams (`rover/actions`,
-`rover/steering`, `rover/barcode`, `rover/ir`); the default build sends only
+`rover/steering`, `rover/ir`); the default build sends only
 the main messages.
 
 **Windows without WSL**, in Git Bash, with the toolchain the Raspberry Pi
@@ -217,7 +214,7 @@ Every payload is packed binary; byte 0 tells the dashboard which message it is
 | `rover/debug` | robot → dashboard | Every 1 s: line-sensor detail, barcode letter, avoidance scan and status (25 B) |
 | `rover/heartbeat` | robot → dashboard | 1 byte every 10 s |
 | `rover/status` | robot → dashboard | Retained 1 byte: online, or the "offline" Last Will |
-| `rover/actions`, `rover/steering`, `rover/barcode`, `rover/ir` | robot → dashboard | Diagnostic streams, `DIAGNOSTICS=1` builds only |
+| `rover/actions`, `rover/steering`, `rover/ir` | robot → dashboard | Diagnostic streams, `DIAGNOSTICS=1` builds only |
 
 A raw drive command stops the motors if it is not refreshed within one second.
 

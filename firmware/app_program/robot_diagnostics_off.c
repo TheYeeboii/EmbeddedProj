@@ -3,21 +3,20 @@
  * @brief Buddy 1: empty stand-ins for the diagnostic streams.
  *
  * Built only with DIAGNOSTICS=0 (the default; see pico_rp2040.mk), in place
- * of the five modules behind the dashboard's tuning views:
+ * of the diagnostic modules behind the dashboard's tuning views:
  *   robot_action_log.c      (rover/actions)
  *   robot_steering_trace.c  (rover/steering)
- *   robot_barcode_trace.c   (rover/barcode)
  *   robot_ir_stream.c       (rover/ir)
- *   robot_diagnostics_mqtt.c (publishes all four)
+ *   robot_diagnostics_mqtt.c (publishes the streams)
  *
  * Those modules only record what the robot did and send it as packed
  * binary; no control code reads anything back from them.  So the motor, line
- * and barcode code keeps calling the same functions, and here they do nothing.
+ * code keeps calling the same functions, and here they do nothing.
  * The demo build then sends only the packed binary messages (Change
  * Requirement 1) and saves the trace buffers' RAM.  Build with
  * DIAGNOSTICS=1 to get the streams back for tuning.
  *
- * This file implements the five modules' headers instead of one of its own
+ * This file implements the diagnostic modules' headers instead of one of its own
  * (a documented deviation from BARR-C 4.2.a, docs/CODING_STANDARD.md).
  */
 #include <stdbool.h>
@@ -25,7 +24,6 @@
 
 #include "robot_action_log.h"
 #include "robot_diagnostics_mqtt.h"
-#include "robot_barcode_trace.h"
 #include "robot_ir_stream.h"
 #include "robot_steering_trace.h"
 
@@ -124,71 +122,11 @@ void robot_steering_publish (uint32_t now_ms)
     (void) now_ms;
 }
 
-/* ---- rover/barcode ---- */
-
-int32_t robot_barcode_scaled (float32_t value, float32_t scale)
-{
-    /* Only used to fill trace records, which are discarded here. */
-    (void) value;
-    (void) scale;
-
-    return 0;
-}
-
-void robot_barcode_trace_configure (const int32_t config[BARCODE_CONFIG_COUNT])
-{
-    (void) config;
-}
-
-void robot_barcode_trace_enable (bool enabled)
-{
-    (void) enabled;
-}
-
-void robot_barcode_trace_cancel (uint32_t now)
-{
-    (void) now;
-}
-
-void robot_barcode_trace_observe (
-    const buddy3_barcode_decoder_t *    p_decoder,
-    const robot_barcode_observation_t * p_observation, bool was_active,
-    float32_t unfinished_before, const buddy3_barcode_event_t * p_result)
-{
-    (void) p_decoder;
-    (void) p_observation;
-    (void) was_active;
-    (void) unfinished_before;
-    (void) p_result;
-}
-
-bool robot_barcode_packet_peek (robot_barcode_packet_t * p_packet, uint32_t now)
-{
-    (void) p_packet;
-    (void) now;
-
-    return false;
-}
-
-void robot_barcode_packet_ack (const robot_barcode_packet_t * p_packet)
-{
-    (void) p_packet;
-}
-
-void robot_barcode_publish (uint32_t now_ms)
-{
-    (void) now_ms;
-}
-
 /* ---- rover/ir ---- */
 
-void robot_ir_stream_record (const robot_barcode_observation_t * p_observation,
-                             uint16_t minimum, uint16_t maximum, bool inverted)
+void robot_ir_stream_record (const robot_ir_stream_sample_t * p_observation)
 {
     (void) p_observation;
-    (void) minimum;
-    (void) maximum;
-    (void) inverted;
 }
 
 bool robot_ir_stream_peek (robot_ir_stream_batch_t * p_batch)

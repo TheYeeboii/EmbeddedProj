@@ -14,4 +14,4 @@ assert.equal(h.frames[1].end.symbol,70);assert.equal(h.frames[1].end.reversed,1)
 assert.equal(h.frames[2].end.state,5);assert(h.frames[2].end.count>0);
 for(const f of h.frames){assert.equal(f.edges.filter(Boolean).length,f.end.count);assert.equal(f.samples.filter(Boolean).length,f.end.samples);assert(!f.gap);}
 assert.deepEqual(BarcodeHistory.read(h.export()),h.frames);
-console.log('PASS: real firmware packed barcode messages -> dashboard model, both orientations, rejected partial trace and lossless replay');
+console.log('PASS: archived firmware barcode packets -> dashboard model, both orientations, rejected partial trace and lossless replay');

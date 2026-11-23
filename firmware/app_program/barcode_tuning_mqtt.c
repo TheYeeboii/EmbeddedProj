@@ -12,14 +12,11 @@ void barcode_tuning_publish (uint32_t now)
     barcode_tuning_state_t state;
     robot_packed_writer_t writer;
     uint8_t payload[14];
-    bool slowdown;
-    uint8_t effective_speed;
     if ((now - last < 200u) || (COMMS_LINK_MQTT_UP != comms_get_link_state()))
     {
         return;
     }
     ir_tuning_get(sensor, &state);
-    buddy2_get_barcode_speed(&slowdown, &effective_speed);
     robot_packed_writer_init(&writer, payload, sizeof(payload));
     robot_packed_put(&writer, 0xC1u, 8u);
     robot_packed_put(&writer, now, 32u);
@@ -30,12 +27,12 @@ void barcode_tuning_publish (uint32_t now)
     robot_packed_put(&writer, state.inverted, 1u);
     robot_packed_put(&writer, state.black, 1u);
     robot_packed_put(&writer, sensor, 2u);
-    robot_packed_put(&writer, BARCODE_DIGITAL_INPUT && (sensor == 0u), 1u);
+    robot_packed_put(&writer, sensor == 0u, 1u);
     robot_packed_put(&writer, (sensor == 0u) ? BARCODE_DIGITAL_PIN : 0u, 5u);
     robot_packed_put(&writer, BARCODE_DIGITAL_BLACK_LEVEL, 1u);
     robot_packed_put(&writer, 0u, 16u); /* transport age, updated by MQTT */
-    robot_packed_put(&writer, slowdown, 1u);
-    robot_packed_put(&writer, effective_speed, 7u);
+    robot_packed_put(&writer, 0u, 1u); /* Reserved former slowdown flag. */
+    robot_packed_put(&writer, buddy2_get_speed_limit(), 7u);
     if (comms_publish(COMMS_TOPIC_DEBUG, payload, 14u))
     {
         last = now;

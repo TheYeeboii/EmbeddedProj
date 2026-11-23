@@ -1,10 +1,10 @@
 #include <assert.h>
+#include <stdarg.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "barcode_reading.h"
-#include "code39.h"
+#include "subsystem3/barcode_reading.h"
 #include "gpio_irq.h"
 #include "pin_config.h"
 #include <tm/tmonitor.h>
@@ -13,7 +13,8 @@ static gpio_irq_cb_t g_callback;
 static uint64_t g_now_us = UINT32_MAX - 3000u;
 static UINT g_pending;
 static unsigned int g_batch;
-static unsigned int g_lost;
+static unsigned int g_queue_full;
+static unsigned int g_paired_edges;
 static unsigned int g_widths;
 static char g_decoded[5];
 static size_t g_decoded_count;
@@ -40,9 +41,9 @@ int32_t gpio_irq_register(uint32_t pin, uint32_t events, gpio_irq_cb_t callback)
     return E_OK;
 }
 
-uint64_t hal_time_us(void)
+uint32_t hal_time_us32(void)
 {
-    return g_now_us;
+    return (uint32_t) g_now_us;
 }
 
 ER tk_set_flg(ID id, UINT pattern)
@@ -62,8 +63,8 @@ static void edge(bool black, uint32_t duration_us)
 static void character(uint16_t pattern, bool reversed)
 {
     edge(true, 1000u);
-    for (uint32_t i = 0u; i < CODE39_CHARACTER_ELEMENTS; ++i) {
-        const uint32_t bit = reversed ? i : CODE39_CHARACTER_ELEMENTS - 1u - i;
+    for (uint32_t i = 0u; i < 9u; ++i) {
+        const uint32_t bit = reversed ? i : 9u - 1u - i;
         const uint32_t width_us = (pattern & (1u << bit)) ? 2200u : 1000u;
         edge((i & 1u) != 0u, width_us + 20u * i);
     }
@@ -107,6 +108,9 @@ ER tk_wai_flg(ID id, UINT requested, UINT mode, UINT *received, int timeout)
             break;
         case 4:
             assert(timeout == 1500 && g_decoded_count == 2u);
+#if BUDDY3_DEBUG
+            assert(g_widths == 2u * 3u * 9u);
+#endif
             return E_TMOUT;
         case 5:
             assert(timeout == TMO_FEVR);
@@ -154,8 +158,17 @@ ER tk_wai_flg(ID id, UINT requested, UINT mode, UINT *received, int timeout)
 int tm_printf(const UB *format, ...)
 {
     if (strcmp((const char *) format,
-               "[barcode] Edge lost. Capture discarded.\n") == 0) {
-        ++g_lost;
+               "[barcode] Edge lost. Capture discarded (%s).\n") == 0) {
+        va_list args;
+        va_start(args, format);
+        const char *cause = va_arg(args, const char *);
+        va_end(args);
+        if (strcmp(cause, "queue full") == 0) {
+            ++g_queue_full;
+        } else {
+            assert(strcmp(cause, "rise + fall pending") == 0);
+            ++g_paired_edges;
+        }
     } else if (strcmp((const char *) format,
                       "[barcode] width[%u] %s=%u us\n") == 0) {
         ++g_widths;
@@ -170,9 +183,9 @@ int main(void)
         barcode_reading_task(0, NULL);
     }
     assert(strcmp(g_decoded, "APFF") == 0);
-    assert(g_lost == 2u);
+    assert(g_queue_full == 1u && g_paired_edges == 1u);
 #if BUDDY3_DEBUG
-    assert(g_widths == 16u * CODE39_CHARACTER_ELEMENTS);
+    assert(g_widths == 4u * 3u * 9u);
 #else
     assert(g_widths == 0u);
 #endif

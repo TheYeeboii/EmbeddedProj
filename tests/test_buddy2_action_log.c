@@ -1,6 +1,5 @@
 #include <assert.h>
 #include <stdio.h>
-#include "buddy3_barcode.h"
 #include "../firmware/app_program/robot_action_log.c"
 #include "../firmware/app_program/buddy2_motion.c"
 
@@ -137,99 +136,28 @@ static void test_action_hooks (void)
     assert(0 == g_left_applied_pwm && 0 == g_right_applied_pwm);
 }
 
-/* Reproduce the actual 20 ms motor / 10 ms IR cadence. Cached odometry jumps
- * by two ticks and cannot even accumulate the white lead-in with minimum=3
- * mm. Fresh snapshots recover each real intervening tick. */
-static void test_encoder_cadence (void)
+/* An encoder position read between motor updates includes intervening ticks. */
+static void test_encoder_position (void)
 {
-    buddy3_barcode_decoder_t cached          = {0};
-    buddy3_barcode_decoder_t fresh           = {0};
-    buddy3_barcode_config_t  config          = {3};
-    float32_t                previous_cached = 0.0f;
-    float32_t                previous_fresh  = 0.0f;
-    unsigned                 cached_reads    = 0u;
-    unsigned                 fresh_reads     = 0u;
-    const char *             groups[] = {"010010100", "001011000", "010010100"};
-    float32_t                boundaries[30];
+    buddy2_motion_state_t state;
+    buddy2_encoder_position_t position;
 
-    buddy2_stop();
-    buddy2_reset_encoders();
     buddy2_set_motor_pwm(10000, 10000);
-    boundaries[0] = 60;
-    for (unsigned index = 0; index < 29; ++index)
-    {
-        /* Gaps (elements 9 and 19) and narrow elements are 4 mm, wide
-         * elements 12 mm. */
-        float32_t width = 4.0f;
-
-        if ((9u != index) && (19u != index) &&
-            ('1' == groups[index / 10u][index % 10u]))
-        {
-            width = 12.0f;
-        }
-        boundaries[index + 1u] = boundaries[index] + width;
-    }
-    for (unsigned tick = 1; tick <= 650; ++tick)
-    {
-        uint32_t now = 1000 + tick * 10;
-        g_fake_us    = (uint64_t) now * 1000;
-        ++g_left_ticks;
-        ++g_right_ticks;
-        if (0u == (tick % 2u))
-        {
-            buddy2_update(now);
-        }
-        buddy2_motion_state_t     old;
-        buddy2_encoder_position_t position = {0};
-        buddy2_get_motion_state(&old);
-        buddy2_get_encoder_position(&position);
-        assert(old.left_ticks ==
-               g_state.left_ticks); // Snapshot does not advance control state.
-        assert(position.left_distance_mm >= old.left_distance_mm);
-        if (tick % 2)
-        {
-            assert(position.left_distance_mm > old.left_distance_mm);
-        }
-        bool b_black = false;
-        for (unsigned index = 0; index < 29; ++index)
-        {
-            if (position.left_distance_mm >= boundaries[index] &&
-                position.left_distance_mm < boundaries[index + 1])
-            {
-                b_black = (0u == (index % 2u));
-            }
-        }
-        buddy3_barcode_event_t event;
-        if (buddy3_barcode_step(&cached, &config, b_black,
-                                old.left_distance_mm - previous_cached, now,
-                                true, &event) &&
-            B3BC_VALID == event.kind)
-        {
-            ++cached_reads;
-        }
-        if (buddy3_barcode_step(&fresh, &config, b_black,
-                                position.left_distance_mm - previous_fresh, now,
-                                true, &event) &&
-            B3BC_VALID == event.kind)
-        {
-            assert('F' == event.decoded.symbol);
-            ++fresh_reads;
-        }
-        previous_cached = old.left_distance_mm;
-        previous_fresh  = position.left_distance_mm;
-    }
-    assert(0 == cached_reads && 1 == fresh_reads);
+    buddy2_update(7000u);
+    ++g_left_ticks;
+    buddy2_get_encoder_position(&position);
+    buddy2_get_motion_state(&state);
+    assert(position.left_distance_mm > state.left_distance_mm);
+    assert(state.timestamp_ms == 7000u);
 }
 
-/* The kernel tick is 1 ms, so a wake-up held back by a higher-priority task
- * is followed by an on-time one only 19 ms later.  That step must still run
- * (with its real 19 ms), while a queued wake-up that runs 1 ms after a late
- * one is skipped. */
+/* A late motor update must not skip the next on-time update. */
 static void test_update_jitter (void)
 {
     buddy2_motion_state_t state = {0};
 
     buddy2_stop();
+    buddy2_set_motor_pwm(10000, 10000);
     buddy2_update(8000u); /* On time. */
     buddy2_update(8021u); /* Held back 1 ms. */
     g_left_ticks += 10;
@@ -247,64 +175,13 @@ static void test_update_jitter (void)
     assert(8060u == state.timestamp_ms);
 }
 
-static void test_barcode_speed (void)
-{
-    bool active;
-    uint8_t effective;
-    buddy2_stop();
-    buddy2_set_trim(100, 100);
-    assert(buddy2_set_speed_limit(60));
-    buddy2_set_motor_pwm(10000, 20000);
-    assert(g_left_applied_pwm == 6000 && g_right_applied_pwm == 12000);
-    buddy2_set_barcode_slowdown(true);
-    buddy2_get_barcode_speed(&active, &effective);
-    assert(active && effective == 10 && buddy2_get_speed_limit() == 60);
-    assert(g_left_applied_pwm == 1000 && g_right_applied_pwm == 2000);
-    /* Subsequent steering/junction commands cannot bypass the override. */
-    buddy2_set_motor_pwm(20000, 10000);
-    assert(g_left_applied_pwm == 2000 && g_right_applied_pwm == 1000);
-    buddy2_set_motor_pwm_at_speed(16000, -16000, 30);
-    assert(g_left_applied_pwm == 1600 && g_right_applied_pwm == -1600);
-    assert(buddy2_set_speed_limit(40));
-    buddy2_set_barcode_slowdown(false);
-    assert(g_left_applied_pwm == 4800 && g_right_applied_pwm == -4800);
-    buddy2_set_motor_pwm(12000, 12000);
-    assert(g_left_applied_pwm == 4800 && g_right_applied_pwm == 4800);
-    buddy2_set_barcode_slowdown(true);
-    assert(g_left_applied_pwm == 1200);
-    buddy2_stop();
-    buddy2_set_barcode_slowdown(false);
-    assert(g_left_applied_pwm == 0 && g_right_applied_pwm == 0);
-    assert(buddy2_set_speed_limit(60));
-    assert(buddy2_move_forward(100, 20000));
-    assert(g_motion.max_pwm == 12000);
-    g_motion.left_integral = 50.0f;
-    buddy2_set_barcode_slowdown(true);
-    assert(g_motion.b_active && g_motion.target_distance_mm == 100);
-    assert(g_motion.max_pwm == 2000 && g_left_applied_pwm == 2000);
-    assert(g_motion.left_integral == 0.0f);
-    buddy2_set_barcode_slowdown(false);
-    assert(g_motion.max_pwm == 12000 && g_left_applied_pwm == 12000);
-    buddy2_stop();
-    buddy2_set_barcode_slowdown(true);
-    assert(buddy2_turn_left(90, 12000));
-    assert(g_motion.max_pwm == 1200);
-    buddy2_stop();
-    buddy2_set_barcode_slowdown(false);
-    assert(!g_motion.b_active && g_left_applied_pwm == 0 && g_right_applied_pwm == 0);
-    puts("PASS: barcode speed 10 overrides ongoing/new steering and PID, preserves configured speeds, and never restarts stopped motors");
-}
-
 int main (void)
 {
     test_action_hooks();
-    test_encoder_cadence();
+    test_encoder_position();
     test_update_jitter();
-    test_barcode_speed();
     puts("PASS: a late wake-up does not cost the next 20 ms control step; a "
          "queued one is skipped");
-    puts("PASS: real 20ms/10ms encoder cadence: cached reader fails; fresh "
-         "snapshot decodes F without changing motor control");
     puts("PASS: real Buddy 2 hooks capture accepted steering, preserve "
          "trim/calibration, ignore straight PID, and log completion/fault "
          "stops");

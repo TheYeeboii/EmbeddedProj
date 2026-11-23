@@ -17,10 +17,6 @@
 
 /* Front sensors, line following and IR diagnostics share this interval. */
 #define BUDDY3_SAMPLE_PERIOD_MS (10u)
-/* Analogue builds sample faster to resolve narrow bars while moving. */
-#define BUDDY3_BARCODE_PERIOD_MS (1u)
-
-#include "buddy3_barcode.h"
 
 /* TODO: Give the structures below names that start with buddy3_. */
 
@@ -77,13 +73,9 @@ typedef struct
     bool line_seen;
     /* Both front sensors pass the junction threshold (not proof of one). */
     bool junction_seen;
-    /* A reader event is waiting to be consumed. */
-    bool barcode_ready;
-    /* Compatibility field: ASCII letter on a valid read, otherwise 0. */
-    uint8_t barcode_command;
 } buddy3_ir_state_t;
 
-/** @brief Set up the ADC pins, clear the state and configure the reader. */
+/** @brief Set up the front ADC pins and clear the line sensor state. */
 void buddy3_init (void);
 
 /**
@@ -103,8 +95,6 @@ void buddy3_get_calibration (buddy3_calibration_t * p_calibration);
 
 /**
  * @brief Read the sensors and update steering every BUDDY3_SAMPLE_PERIOD_MS.
- *        Analogue barcode builds call this at BUDDY3_BARCODE_PERIOD_MS to
- *        feed their reader between steering updates. Digital builds use GPIO IRQs.
  * @param now_ms Current time in milliseconds.
  */
 void buddy3_update (uint32_t now_ms);
@@ -117,20 +107,6 @@ void buddy3_stop_line_follow (void);
 
 /** @brief Tell whether line following is on. */
 bool buddy3_line_following (void);
-
-/**
- * @brief Let the analogue barcode reader run while the robot is driven by hand.
- *
- * Without line following the reader is normally suspended.  The controller
- * calls this with true while a manual drive goes straight forward, so a
- * barcode can be read by driving over it.  The same checks still apply:
- * forward travel, healthy encoders and a small heading change.  The change
- * takes effect at the IR task's next sample, which also restarts the reader,
- * so only the IR task ever resets it.
- *
- * @param b_enabled True while a manual forward drive is running.
- */
-void buddy3_set_manual_barcode (bool b_enabled);
 
 /**
  * @brief Select the steering stage: 0 = original integration, 1 = micro,
@@ -163,25 +139,13 @@ void buddy3_clear_line_seen_event (void);
  */
 bool buddy3_take_line_seen_event (void);
 
-/**
- * @brief Take the side (barcode) sensor's present reading as white.  The IR
- *        task averages its next samples and makes them the sensor's white
- *        level, so the surface under it reads 0.  Ignored when that reading
- *        is too close to black to be paper.  Runs at power-up as well.
- */
-void buddy3_zero_barcode_white (void);
-
 /* Sensors buddy3_set_ir_levels() can set (dashboard numbering). */
-#define BUDDY3_LEVELS_BARCODE (0u)
 #define BUDDY3_LEVELS_LEFT    (1u)
 #define BUDDY3_LEVELS_RIGHT   (2u)
 
 /**
- * @brief Set one IR sensor's white and black raw levels by hand.  The IR
- *        task applies them at its next line step (the barcode sensor's not
- *        in the middle of reading a barcode).  For the barcode sensor this
- *        also replaces any pending white zero.
- * @param sensor BUDDY3_LEVELS_BARCODE, _LEFT or _RIGHT.
+ * @brief Set one front sensor's white and black raw levels at the next line step.
+ * @param sensor BUDDY3_LEVELS_LEFT or BUDDY3_LEVELS_RIGHT.
  * @param white  Raw reading of white paper, 0..4095.
  * @param black  Raw reading of black, up to 4095 and at least
  *               BUDDY3_LEVEL_MIN_SPAN above white.
@@ -194,52 +158,8 @@ bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black);
 /* Largest 12-bit ADC reading. */
 #define BUDDY3_RAW_MAX (4095u)
 
-/* Turns a barcode letter can request at the next junction. */
-#define BUDDY3_TURN_NONE  (0u)
-#define BUDDY3_TURN_LEFT  (1u)
-#define BUDDY3_TURN_RIGHT (2u)
-
 /**
- * @brief Request a turn at the next junction while line following.  When the
- *        junction is confirmed, line following stops on it instead of
- *        crossing straight, and buddy3_take_junction_turn() reports the turn.
- *        A later call replaces the request; starting line following clears
- *        it.
- * @param turn BUDDY3_TURN_NONE, _LEFT or _RIGHT; other values are ignored.
- */
-void buddy3_set_junction_turn (uint8_t turn);
-
-/**
- * @brief Take the turn reached at a junction.
- * @param p_turn Receives BUDDY3_TURN_LEFT or BUDDY3_TURN_RIGHT.
- * @return True when line following stopped on a junction for a turn.
- */
-bool buddy3_take_junction_turn (uint8_t * p_turn);
-
-/**
- * @brief Take an unread barcode event for the controller. The digital build
- *        delivers the latest confirmed letter and retains it for telemetry.
- * @param p_event Receives the event.
- * @return True when an event was waiting.
- */
-bool buddy3_take_barcode (buddy3_barcode_event_t * p_event);
-
-/**
- * @brief Configure the analogue barcode reader; only while stopped. Rejects
- *        uncalibrated or low-resolution odometry.  The minimum element is the
- *        smallest resolvable stripe, not a fixed cell width; the reader
- *        infers the actual narrow/wide widths per frame.
- * @param min_element_mm Smallest stripe in mm; 0 disables the reader.
- * @param offset_left_mm Sideways sensor offset, left positive.
- * @return True when the reader is configured and enabled.
- */
-bool buddy3_configure_barcode (uint16_t min_element_mm, int16_t offset_left_mm);
-
-/** @brief Tell whether the barcode reader is configured. */
-bool buddy3_barcode_calibrated (void);
-
-/**
- * @brief Report which sensors see black.  All pointers must be non-NULL.
+ * @brief Report which sensors see black.  A NULL pointer skips that sensor.
  * @param p_left_black  Front-left sensor.
  * @param p_right_black Front-right sensor.
  * @param p_side_black  Side (barcode) sensor.

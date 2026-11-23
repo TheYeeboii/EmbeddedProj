@@ -2,24 +2,11 @@
 #include "barcode_tuning.h"
 int main(void) {
     barcode_tuning_state_t state;
-    assert(!barcode_tuning_sample(100,false));
-    assert(barcode_tuning_request(220,260,false));
+    assert(!barcode_tuning_request(220, 260, false));
+    assert(!barcode_tuning_sample(0, true));
+    assert(barcode_tuning_sample(1, false));
     barcode_tuning_get(&state);
-    assert(!state.enabled);
-    assert(!barcode_tuning_sample(240,true));
-    assert(barcode_tuning_sample(260,false));
-    assert(barcode_tuning_sample(240,false));
-    assert(!barcode_tuning_sample(220,true));
-    assert(!barcode_tuning_request(300,200,false));
-    assert(!barcode_tuning_request(0,4096,false));
-    assert(barcode_tuning_request(220,260,true));
-    assert(barcode_tuning_sample(220,false));
-    assert(barcode_tuning_sample(240,false));
-    assert(!barcode_tuning_sample(260,true));
-    assert(barcode_tuning_request(0,0,false));
-    assert(barcode_tuning_sample(100,true));
-    barcode_tuning_get(&state);
-    assert(!state.enabled);
+    assert(!state.enabled && state.black && state.raw == 1u);
     /* Independent front-sensor thresholds, opposite polarities. */
     assert(ir_tuning_request(1, 220, 260, false));
     assert(ir_tuning_request(2, 900, 1000, true));

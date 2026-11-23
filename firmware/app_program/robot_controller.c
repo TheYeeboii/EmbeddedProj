@@ -27,9 +27,7 @@
 #include "buddy4_imu.h"
 #include "buddy5_ultrasonic.h"
 #include "pin_config.h"
-#if BARCODE_DIGITAL_INPUT
-#include "barcode_reading.h"
-#endif
+#include "subsystem3/barcode_reading.h"
 #include "robot_controller.h"
 #include "robot_fault.h"
 #include "robot_steering_trace.h"
@@ -62,22 +60,6 @@
 #define ROBOT_LINE_STAGE_MAX       (3)
 #define ROBOT_BARCODE_MODE_MAX     (1)
 #define ROBOT_BARCODE_MODE_OBSERVE (1u)
-#define ROBOT_BARCODE_ELEMENT_MAX  (1000)
-#define ROBOT_BARCODE_OFFSET_MAX   (500)
-
-/* Barcode letters that turn at the next junction (team mapping); any other
- * valid letter means straight on. */
-#define ROBOT_BARCODE_LETTER_LEFT  ('A')
-#define ROBOT_BARCODE_LETTER_RIGHT ('C')
-/* At the junction the front sensors are on it but the wheels are behind:
- * drive the front-sensor-to-axle distance first so the car pivots on the
- * junction, then turn.  Measure on the robot. */
-#define ROBOT_JUNCTION_AXLE_MM  (100.0f)
-#define ROBOT_JUNCTION_TURN_DEG (90.0f)
-/* Barcode junction turn stages (g_turn_stage). */
-#define ROBOT_TURN_STAGE_NONE    (0u)
-#define ROBOT_TURN_STAGE_FORWARD (1u)
-#define ROBOT_TURN_STAGE_PIVOT   (2u)
 
 #define ROBOT_BUTTON_DEBOUNCE_STEPS (3u) /* 3 x 20 ms = 60 ms */
 /* Team decision: line following stops once Wi-Fi has been lost this long. */
@@ -96,25 +78,19 @@ typedef enum
 
 /* Packed controller state (Change Requirement 1): one byte.
  *   bits 0-2  mode (robot_mode_t, 5 values)
- *   bit  3    resume line following when a motion move ends
  *   bit  4    resume line following when obstacle avoidance ends
  *   bit  5    the manual drive is forwards (watched for obstacles)
- *   bit  6    the motion move is forwards (watched for obstacles)
  *   bit  7    the GP21 button was pressed at the last step
  * Written by the controller task AND the Buddy 5 avoidance task (the
  * robot_controller_*_obstacle_avoidance() calls), so every change is a
  * read-modify-write inside DI()/EI() (robot_ctl_update); a read is one byte
  * load and needs no lock. */
 #define ROBOT_CTL_MODE_MASK      (0x07u)
-#define ROBOT_CTL_RESUME_LINE    (0x08u)
 #define ROBOT_CTL_AVOID_RESUME   (0x10u)
 #define ROBOT_CTL_DRIVE_FORWARD  (0x20u)
-#define ROBOT_CTL_MOTION_FORWARD (0x40u)
 #define ROBOT_CTL_BUTTON_WAS     (0x80u)
 /* Flags that describe the current run; every mode change rewrites them. */
-#define ROBOT_CTL_RUN_FLAGS                                                    \
-    (ROBOT_CTL_RESUME_LINE | ROBOT_CTL_AVOID_RESUME |                          \
-     ROBOT_CTL_DRIVE_FORWARD | ROBOT_CTL_MOTION_FORWARD)
+#define ROBOT_CTL_RUN_FLAGS (ROBOT_CTL_AVOID_RESUME | ROBOT_CTL_DRIVE_FORWARD)
 #define ROBOT_CTL_ALL (0xFFu)
 
 static volatile uint8_t g_controller_state = (uint8_t) ROBOT_MODE_IDLE;
@@ -125,9 +101,6 @@ static uint32_t         g_last_drive_ms    = 0u;
 static uint8_t g_line_button_count = 0u;
 /* 0 = off, 1 = read: log letters and turn on A/C (1 bit used). */
 static uint8_t g_barcode_mode = ROBOT_BARCODE_MODE_OBSERVE;
-/* Controller task only: barcode junction turn in progress. */
-static uint8_t g_turn_stage = ROBOT_TURN_STAGE_NONE;
-static uint8_t g_turn_side  = BUDDY3_TURN_NONE;
 /* Controller task only: Wi-Fi-loss safety stop (robot_check_link_loss). */
 static bool     g_b_link_seen  = false;
 static bool     g_b_link_lost  = false;
@@ -158,12 +131,6 @@ static bool     robot_run_simple (uint8_t opcode);
 static void     robot_drive_preset (int32_t preset, uint32_t now_ms);
 static void     robot_run_valued (const robot_wire_command_t * p_command,
                                   uint32_t                     now_ms);
-static void     robot_log_barcode (const buddy3_barcode_event_t * p_event);
-#if !BARCODE_DIGITAL_INPUT
-static void     robot_barcode_turn (const buddy3_barcode_event_t * p_event);
-#endif
-static void     robot_junction_turn_step (void);
-static void     robot_turn_abort (const char * p_reason);
 static void     robot_check_link_loss (uint32_t now_ms);
 static void     robot_check_lifted (void);
 
@@ -201,26 +168,19 @@ void robot_controller_handle_command (const uint8_t * p_data, uint32_t length,
 
 void robot_controller_step (uint32_t now_ms)
 {
-    buddy3_barcode_event_t barcode      = {0};
-    bool                   b_button_now = false;
-    bool                   b_moving     = buddy2_motion_active();
+    static uint32_t last_barcode_sequence;
+    barcode_reading_result_t barcode;
+    bool b_button_now = false;
 
-    /* Consume outside the sensor task. Letters never imply numeric motions. */
-    if (buddy3_take_barcode(&barcode) &&
-        (ROBOT_BARCODE_MODE_OBSERVE == g_barcode_mode))
+    if (barcode_reading_latest(&barcode) && barcode.sequence != last_barcode_sequence)
     {
-        robot_log_barcode(&barcode);
-#if !BARCODE_DIGITAL_INPUT
-        robot_barcode_turn(&barcode);
-#endif
+        last_barcode_sequence = barcode.sequence;
+        if (ROBOT_BARCODE_MODE_OBSERVE == g_barcode_mode)
+        {
+            tm_printf((UB *) "[barcode] Decoded: %c (%s, GPIO timing)\n",
+                      barcode.symbol, barcode.reversed ? "reverse" : "forward");
+        }
     }
-    robot_junction_turn_step();
-    if ((ROBOT_MODE_MOTION == robot_ctl_mode()) && !b_moving &&
-        !robot_ctl_flag(ROBOT_CTL_RESUME_LINE))
-    {
-        robot_ctl_enter(ROBOT_MODE_IDLE, 0u);
-    }
-
     /* GP21 button: toggle line following (on press, not while held).
      * Debounced: the pin must read "pressed" for 3 steps in a row, so one
      * press can never toggle twice because of contact bounce. */
@@ -288,16 +248,12 @@ uint8_t robot_controller_get_mode (void)
 
 bool robot_controller_obstacle_watch_enabled (void)
 {
-    /* Watched: forward manual drive, line following, and the forward move
-     * of a future mapped barcode action.  The monitor only takes over when
-     * the forward-facing ultrasonic sensor reports an actual close echo, so
-     * an idle rover never starts an avoidance move. */
+    /* The forward-facing sensor can take over while driving forward or
+     * following a line. */
     return (
         ((ROBOT_MODE_DRIVE == robot_ctl_mode()) &&
          robot_ctl_flag(ROBOT_CTL_DRIVE_FORWARD)) ||
-        ((ROBOT_MODE_LINE == robot_ctl_mode()) && buddy3_line_following()) ||
-        ((ROBOT_MODE_MOTION == robot_ctl_mode()) &&
-         robot_ctl_flag(ROBOT_CTL_MOTION_FORWARD)));
+        ((ROBOT_MODE_LINE == robot_ctl_mode()) && buddy3_line_following()));
 }
 
 bool robot_controller_begin_obstacle_avoidance (void)
@@ -307,12 +263,9 @@ bool robot_controller_begin_obstacle_avoidance (void)
 
     if (b_begun)
     {
-        /* This also stops line following so it cannot overwrite a turn;
-         * avoidance turns would spoil a manual barcode read too. */
-        buddy3_set_manual_barcode(false);
+        /* Release line steering before giving the wheels to avoidance. */
         buddy3_stop_line_follow();
         buddy2_stop();
-        g_turn_stage  = ROBOT_TURN_STAGE_NONE;
         g_drive_left  = 0u;
         g_drive_right = 0u;
         robot_steering_owner(TRACE_AVOIDANCE);
@@ -400,7 +353,6 @@ static void robot_stop_all (void)
     buddy2_stop();
     g_drive_left  = 0u;
     g_drive_right = 0u;
-    g_turn_stage  = ROBOT_TURN_STAGE_NONE;
     robot_ctl_enter(ROBOT_MODE_IDLE, 0u);
 }
 
@@ -415,15 +367,11 @@ static void robot_drive (uint32_t left, uint32_t right, int32_t sign,
         buddy4_clear_lift(); /* Driving again: the rover is on the ground. */
     }
 
-    /* Only stop line following when it is running: a held key re-sends this
-     * command every 300 ms, and stopping again would restart the barcode
-     * reader in the middle of a barcode. */
+    /* A held key re-sends this command every 300 ms. */
     if (buddy3_line_following())
     {
         buddy3_stop_line_follow();
     }
-    /* Both wheels forward: let the side sensor read barcodes by hand. */
-    buddy3_set_manual_barcode(b_forward);
     buddy2_stop();
     /* A manual sonar test may have left the scanner looking sideways. Any
      * drive command must restore the forward view before motion begins. */
@@ -526,7 +474,6 @@ static void robot_start_line (void)
     g_drive_left  = 0u;
     g_drive_right = 0u;
     buddy5_set_servo_angle(ROBOT_SERVO_FORWARD_ANGLE);
-    buddy3_set_manual_barcode(false); /* Line following reads them itself. */
     buddy3_start_line_follow();
     robot_steering_owner(TRACE_TRACKING);
     robot_ctl_enter(ROBOT_MODE_LINE, 0u);
@@ -565,9 +512,7 @@ static void robot_set_barcode_mode (int32_t mode)
     else
     {
         g_barcode_mode = (uint8_t) mode; /* 0 or 1 checked above. */
-#if BARCODE_DIGITAL_INPUT
         barcode_reading_set_enabled(0 != mode);
-#endif
         tm_printf((UB *) "[barcode] mode=%d (0 off, 1 read)\n", (INT) mode);
     }
 }
@@ -612,7 +557,6 @@ static void robot_reset_all (void)
     (void) ir_tuning_request(0u, 0u, 0u, false);
     (void) ir_tuning_request(1u, 0u, 0u, false);
     (void) ir_tuning_request(2u, 0u, 0u, false);
-    buddy3_set_manual_barcode(false);
     robot_stop_all();
     buddy2_reset_encoders(); /* odometry + latched encoder faults */
     (void) buddy2_set_trim((uint8_t) BUDDY2_TRIM_DEFAULT_LEFT,
@@ -623,15 +567,7 @@ static void robot_reset_all (void)
                          ROBOT_LINE_TURN_DEFAULT_PCT);
     buddy4_reset_run();
     g_barcode_mode = ROBOT_BARCODE_MODE_OBSERVE;
-#if BARCODE_DIGITAL_INPUT
     barcode_reading_reset();
-#else
-    /* The defaults are small whole millimetres, so they fit the types. */
-    (void) buddy3_configure_barcode((uint16_t) BUDDY3_BARCODE_MIN_ELEMENT_MM,
-                                    (int16_t) BUDDY3_BARCODE_OFFSET_LEFT_MM);
-    /* Whatever is under the side sensor now is white. */
-    buddy3_zero_barcode_white();
-#endif
     tm_printf((UB *) "[cmd] reset_all: stopped; faults, odometry and IMU "
                      "cleared; defaults restored\n");
 }
@@ -739,20 +675,7 @@ static void robot_run_valued (const robot_wire_command_t * p_command,
         break;
 
         case ROBOT_WIRE_OP_BARCODE_CONFIG:
-            /* Ranges are checked before the casts. */
-            if ((p_values[0] >= 0) &&
-                (p_values[0] <= ROBOT_BARCODE_ELEMENT_MAX) &&
-                (p_values[1] >= -ROBOT_BARCODE_OFFSET_MAX) &&
-                (p_values[1] <= ROBOT_BARCODE_OFFSET_MAX))
-            {
-                (void) buddy3_configure_barcode((uint16_t) p_values[0],
-                                                (int16_t) p_values[1]);
-            }
-            else
-            {
-                tm_printf((UB *) "[cmd] barcode config rejected: %d %d\n",
-                          (INT) p_values[0], (INT) p_values[1]);
-            }
+            tm_printf((UB *) "[barcode] IRQ reader uses timing; distance settings unavailable\n");
         break;
 
         case ROBOT_WIRE_OP_LINE_STAGE:
@@ -767,136 +690,6 @@ static void robot_run_valued (const robot_wire_command_t * p_command,
             /* robot_wire_decode_command() accepts no other opcode. */
         break;
     }
-}
-
-/* Print a decoded or rejected barcode (observe mode only). */
-static void robot_log_barcode (const buddy3_barcode_event_t * p_event)
-{
-#if BARCODE_DIGITAL_INPUT
-    tm_printf((UB *) "[barcode] Decoded: %c (%s, GPIO timing)\n",
-              p_event->decoded.symbol,
-              p_event->decoded.reversed ? "reverse" : "forward");
-#else
-    if (B3BC_VALID == p_event->kind)
-    {
-        /* Widths are small positive millimetre values, so x100 fits UINT. */
-        tm_printf((UB *) "[barcode] Decoded: %c (%s), narrow=%u/100 mm "
-                         "ratio=%u/100 ts=%u dropped=%u\n",
-                  p_event->decoded.symbol,
-                  p_event->decoded.reversed ? "reverse" : "forward",
-                  (UINT) (p_event->decoded.narrow_width * 100.0f),
-                  (UINT) (p_event->decoded.wide_ratio * 100.0f),
-                  (UINT) p_event->ts_ms, (UINT) p_event->dropped);
-    }
-    else
-    {
-        tm_printf((UB *) "[barcode] rejected: %s (%s) ts=%u dropped=%u\n",
-                  buddy3_barcode_event_name(p_event->kind),
-                  (B3BC_FORMAT == p_event->kind)
-                      ? code39_status_name(p_event->format_status)
-                      : "capture",
-                  (UINT) p_event->ts_ms, (UINT) p_event->dropped);
-    }
-#endif
-}
-
-#if !BARCODE_DIGITAL_INPUT
-/* A valid letter read while line following sets the turn for the next
- * junction: A left, C right, any other letter straight on.  The latest
- * letter wins. */
-static void robot_barcode_turn (const buddy3_barcode_event_t * p_event)
-{
-    uint8_t turn = BUDDY3_TURN_NONE;
-
-    if ((B3BC_VALID == p_event->kind) && (ROBOT_MODE_LINE == robot_ctl_mode()))
-    {
-        if (ROBOT_BARCODE_LETTER_LEFT == p_event->decoded.symbol)
-        {
-            turn = BUDDY3_TURN_LEFT;
-        }
-        else if (ROBOT_BARCODE_LETTER_RIGHT == p_event->decoded.symbol)
-        {
-            turn = BUDDY3_TURN_RIGHT;
-        }
-        else
-        {
-            /* Any other letter: straight on. */
-        }
-        buddy3_set_junction_turn(turn);
-        tm_printf(
-            (UB *) "[barcode] %c: %s at the next junction\n",
-            p_event->decoded.symbol,
-            (BUDDY3_TURN_LEFT == turn)
-                ? "turn left"
-                : ((BUDDY3_TURN_RIGHT == turn) ? "turn right" : "straight on"));
-    }
-}
-#endif
-
-/* Barcode junction turn: Buddy 3 stops on the junction, then the car drives
- * its sensor-to-axle distance, pivots 90 degrees and follows the line
- * again.  Runs in the controller task. */
-static void robot_junction_turn_step (void)
-{
-    buddy3_calibration_t  calibration = {0};
-    buddy2_motion_state_t motion      = {0};
-    uint8_t               turn        = BUDDY3_TURN_NONE;
-    bool                  b_started   = false;
-
-    buddy3_get_calibration(&calibration);
-    if ((ROBOT_MODE_LINE == robot_ctl_mode()) &&
-        buddy3_take_junction_turn(&turn))
-    {
-        g_turn_side  = turn;
-        g_turn_stage = ROBOT_TURN_STAGE_FORWARD;
-        robot_steering_owner(TRACE_JUNCTION);
-        robot_ctl_enter(ROBOT_MODE_MOTION,
-                        ROBOT_CTL_RESUME_LINE | ROBOT_CTL_MOTION_FORWARD);
-        if (!buddy2_move_forward(ROBOT_JUNCTION_AXLE_MM, calibration.base_pwm))
-        {
-            robot_turn_abort("move refused");
-        }
-    }
-    else if ((ROBOT_MODE_MOTION == robot_ctl_mode()) &&
-             robot_ctl_flag(ROBOT_CTL_RESUME_LINE) &&
-             (ROBOT_TURN_STAGE_NONE != g_turn_stage) && !buddy2_motion_active())
-    {
-        buddy2_get_motion_state(&motion);
-        if (motion.left_encoder_fault || motion.right_encoder_fault)
-        {
-            robot_turn_abort("encoder fault");
-        }
-        else if (ROBOT_TURN_STAGE_FORWARD == g_turn_stage)
-        {
-            g_turn_stage = ROBOT_TURN_STAGE_PIVOT;
-            robot_ctl_enter(ROBOT_MODE_MOTION, ROBOT_CTL_RESUME_LINE);
-            b_started = (BUDDY3_TURN_LEFT == g_turn_side)
-                            ? buddy2_turn_left(ROBOT_JUNCTION_TURN_DEG,
-                                               calibration.base_pwm)
-                            : buddy2_turn_right(ROBOT_JUNCTION_TURN_DEG,
-                                                calibration.base_pwm);
-            if (!b_started)
-            {
-                robot_turn_abort("turn refused");
-            }
-        }
-        else
-        {
-            g_turn_stage = ROBOT_TURN_STAGE_NONE;
-            robot_start_line();
-        }
-    }
-    else
-    {
-        /* No junction turn to run or advance. */
-    }
-}
-
-/* Stop a barcode junction turn that cannot continue. */
-static void robot_turn_abort (const char * p_reason)
-{
-    robot_stop_all();
-    tm_printf((UB *) "[junction] barcode turn stopped: %s\n", p_reason);
 }
 
 /* Wi-Fi-loss safety stop (Change Requirement 1 fault mask, team decision):

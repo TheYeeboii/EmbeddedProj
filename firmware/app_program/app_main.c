@@ -12,14 +12,14 @@
  *   motion         5  20 ms (cyclic)    buddy2_update(): PID, moves  2
  *   line           6  10 ms (digital)  buddy3_update(): front IR     3
  *   controller     7  20 ms             commands, barcodes, buttons  all
+ *   barcode        8  GPIO IRQ          Subsystem 3 barcode reader   3
  *   imu            9  50 ms target      IMU + hump processing         4
  *   sensors       10  100 ms            ultrasonic + avoidance        5
  *   telemetry     15  1 s               console + MQTT reports       1
  *
  * Lower number = higher priority.  (usb) and (cyw43) are created by the
  * kernel itself; (cyw43) only exists in Wi-Fi builds.  The line task reads
- * the front sensors every 10 ms. The analogue barcode fallback also samples
- * the side sensor every 1 ms.
+ * the front sensors every 10 ms. Subsystem 3 captures the side sensor edges.
  */
 
 #include <tk/tkernel.h>
@@ -41,13 +41,10 @@
 #include "robot_telemetry.h"
 #include "robot_action_log.h"
 #include "robot_steering_trace.h"
-#include "robot_barcode_trace.h"
 #include "robot_ir_stream.h"
 #include "robot_diagnostics_mqtt.h"
 #include "usb_console_compat.h"
-#if BARCODE_DIGITAL_INPUT
-#include "barcode_reading.h"
-#endif
+#include "subsystem3/subsystem3.h"
 
 /* ------------------------------------------------------------------ *
  *  Configuration
@@ -58,12 +55,6 @@
 #define APP_PRI_MOTION     (5)
 #define APP_PRI_LINE       (6)
 #define APP_PRI_CONTROLLER (7)
-#if BARCODE_DIGITAL_INPUT
-#define APP_PRI_BARCODE     (8)
-#define APP_LINE_PERIOD_MS BUDDY3_SAMPLE_PERIOD_MS
-#else
-#define APP_LINE_PERIOD_MS BUDDY3_BARCODE_PERIOD_MS
-#endif
 #define APP_PRI_IMU        (9)
 #define APP_PRI_SENSORS    (10)
 #define APP_PRI_TELEMETRY  (15)
@@ -233,9 +224,6 @@ static void controller_task (INT stacd, void * p_exinf)
         barcode_tuning_publish(app_now_ms());
         robot_action_publish(app_now_ms());
         robot_steering_publish(app_now_ms());
-#if !BARCODE_DIGITAL_INPUT
-        robot_barcode_publish(app_now_ms());
-#endif
         robot_ir_stream_publish(app_now_ms());
     }
 }
@@ -377,8 +365,7 @@ static void app_print_banner (void)
     tm_printf((UB *) " Diagnostic streams: off (build with DIAGNOSTICS=1 "
                      "for the tuning views)\n");
 #else
-    tm_printf((UB *) " Diagnostic streams: on (rover/actions, steering, "
-                     "barcode, ir)\n");
+    tm_printf((UB *) " Diagnostic streams: on (rover/actions, steering, ir)\n");
 #endif
     if (BUDDY3_DEBUG)
     {
@@ -487,9 +474,6 @@ static T_CTSK g_ctsk_controller = APP_TASK(controller_task, APP_PRI_CONTROLLER);
 static T_CTSK g_ctsk_imu        = APP_TASK(buddy4_task, APP_PRI_IMU);
 static T_CTSK g_ctsk_sensors = APP_TASK(buddy5_avoidance_task, APP_PRI_SENSORS);
 static T_CTSK g_ctsk_telemetry = APP_TASK(telemetry_task, APP_PRI_TELEMETRY);
-#if BARCODE_DIGITAL_INPUT
-static T_CTSK g_ctsk_barcode = APP_TASK(barcode_reading_task, APP_PRI_BARCODE);
-#endif
 
 static T_CCYC g_ccyc_motion = {
     .exinf  = &g_motion_task_id,
@@ -503,8 +487,8 @@ static T_CCYC g_ccyc_line = {
     .exinf  = &g_line_task_id,
     .cycatr = TA_HLNG | TA_STA,
     .cychdr = app_wake_isr,
-    .cyctim = APP_LINE_PERIOD_MS,
-    .cycphs = APP_LINE_PERIOD_MS,
+    .cyctim = BUDDY3_SAMPLE_PERIOD_MS,
+    .cycphs = BUDDY3_SAMPLE_PERIOD_MS,
 };
 
 /**
@@ -578,12 +562,10 @@ EXPORT INT usermain (void)
     }
     robot_diagnostics_init(hal_diagnostic_boot_id());
     buddy3_init();
-#if BARCODE_DIGITAL_INPUT
-    if (!app_check("barcode init", barcode_reading_init()))
+    if (!app_check("subsystem3 init", subsystem3_init()))
     {
-        app_fail_forever("barcode init");
+        app_fail_forever("subsystem3 init");
     }
-#endif
     buddy5_init();
     robot_controller_init();
     if (!buddy4_init())
@@ -605,13 +587,10 @@ EXPORT INT usermain (void)
         app_fail_forever("line cyclic");
     }
     (void) app_start_task("controller task", &g_ctsk_controller);
-#if BARCODE_DIGITAL_INPUT
-#if TK_SUPPORT_SMP
-    g_ctsk_barcode.tskatr |= TA_ASSPRC;
-    g_ctsk_barcode.assprc = TP_PRC1;
-#endif
-    (void) app_start_task("barcode task", &g_ctsk_barcode);
-#endif
+    if (!app_check("subsystem3 start", subsystem3_start()))
+    {
+        app_fail_forever("subsystem3 start");
+    }
     (void) app_start_task("IMU task", &g_ctsk_imu);
     (void) app_start_task("sensor task", &g_ctsk_sensors);
     (void) app_start_task("telemetry task", &g_ctsk_telemetry);

@@ -101,7 +101,6 @@ void buddy4_update (uint32_t now_ms)
     bool                  b_forward          = false;
     bool                  b_left_black       = false;
     bool                  b_right_black      = false;
-    bool                  b_side_black       = false;
     buddy2_motion_state_t motion             = {0};
     UINT                  interrupt_state    = 0u;
 
@@ -127,12 +126,11 @@ void buddy4_update (uint32_t now_ms)
     b_odometry_fresh = ((now_ms - motion.timestamp_ms) <= BUDDY4_STALE_MS);
     b_forward        = b_odometry_fresh && (motion.left_speed_mm_s > 0.0f) &&
                        (motion.right_speed_mm_s > 0.0f);
-    /* GP28 sees the printed barcode in digital builds. Use the front
+    /* GP28 sees the printed barcode. Use the front
      * sensors as floor evidence for the lift latch. */
-    buddy3_get_colors(&b_left_black, &b_right_black, &b_side_black);
+    buddy3_get_colors(&b_left_black, &b_right_black, NULL);
     buddy4_processor_set_floor(
-        &g_processor, !(b_left_black && b_right_black &&
-                        (BARCODE_DIGITAL_INPUT || b_side_black)));
+        &g_processor, !(b_left_black && b_right_black));
     buddy4_process(&g_processor, now_ms, b_mag_read, mag, b_accel_read, accel,
                    (motion.left_distance_mm + motion.right_distance_mm) * 0.5f,
                    (motion.right_distance_mm - motion.left_distance_mm) * 0.5f,

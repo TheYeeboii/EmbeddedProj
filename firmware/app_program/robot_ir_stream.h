@@ -8,7 +8,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "robot_barcode_trace.h"
 #include "buddy3_ir.h"
 
 #define ROBOT_IR_STREAM_CAPACITY  256u
@@ -43,13 +42,12 @@ typedef struct
  * @brief Queue one observation.  Always observes the barcode input, independently of
  *        decoder enable, framing or movement.  Fixed-size queue only; no
  *        formatting, allocation or network work happens here.
- * @param p_observation Decoder observation to copy.
- * @param minimum       Current calibration minimum.
- * @param maximum       Current calibration maximum.
- * @param inverted      True when the calibration is inverted.
+ * @param p_observation Sample to copy.
  */
-void robot_ir_stream_record (const robot_barcode_observation_t * p_observation,
-                             uint16_t minimum, uint16_t maximum, bool inverted);
+void robot_ir_stream_record (const robot_ir_stream_sample_t * p_observation);
+
+/** Encode wheel position in tenths of a millimetre. */
+int32_t robot_ir_stream_position (float32_t distance_mm);
 
 /**
  * @brief Copy the oldest samples without removing them.

@@ -1,6 +1,6 @@
 /** @file robot_diagnostics_mqtt.h
  *
- * @brief Buddy 1: publishes the four diagnostic streams as packed binary.
+ * @brief Buddy 1: publishes the diagnostic streams as packed binary.
  *
  * Called every controller step (app_main.c).  Built only with
  * DIAGNOSTICS=1; robot_diagnostics_off.c provides empty versions otherwise.
@@ -23,12 +23,6 @@ void robot_action_publish (uint32_t now_ms);
  * @param now_ms Current time in milliseconds.
  */
 void robot_steering_publish (uint32_t now_ms);
-
-/**
- * @brief Publish up to two queued barcode packets on rover/barcode.
- * @param now_ms Current time in milliseconds.
- */
-void robot_barcode_publish (uint32_t now_ms);
 
 /**
  * @brief Publish up to two queued IR batches on rover/ir.

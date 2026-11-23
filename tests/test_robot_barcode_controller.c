@@ -8,23 +8,14 @@
 
 static bool     g_b_following;
 static bool     g_b_motion;
-static bool     g_b_accept_move = true;
-static bool     g_b_calibrated  = true;
 static bool     g_b_button_high = true;
 static bool     g_b_encoder_fault;
-static bool     g_b_manual_scan;
 static uint8_t  g_stage = 1;
 static uint8_t  g_event;
 static uint8_t  g_servo_angle = 90;
 static char     g_serial_log[4096];
 static unsigned g_starts;
 static unsigned g_stops;
-static unsigned g_lefts;
-static unsigned g_rights;
-static unsigned g_forwards;
-static uint8_t  g_turn_request;
-static uint8_t  g_turn_reached;
-#if BARCODE_DIGITAL_INPUT
 static unsigned g_barcode_resets;
 
 void barcode_reading_set_enabled (bool enabled)
@@ -35,8 +26,8 @@ void barcode_reading_set_enabled (bool enabled)
 void barcode_reading_reset (void)
 {
     ++g_barcode_resets;
+    g_event = 0u;
 }
-#endif
 int             tm_printf (const unsigned char * fmt, ...)
 {
     /* Keep every line since the last clear: one step can print twice. */
@@ -119,30 +110,6 @@ void buddy5_set_servo_angle (uint8_t angle)
 {
     g_servo_angle = angle;
 }
-bool buddy2_turn_left (float32_t angle_deg, int16_t pwm)
-{
-    assert(90.0f == angle_deg);
-    (void) pwm;
-    ++g_lefts;
-    g_b_motion = g_b_accept_move;
-    return g_b_motion;
-}
-bool buddy2_turn_right (float32_t angle_deg, int16_t pwm)
-{
-    assert(90.0f == angle_deg);
-    (void) pwm;
-    ++g_rights;
-    g_b_motion = g_b_accept_move;
-    return g_b_motion;
-}
-bool buddy2_move_forward (float32_t distance_mm, int16_t pwm)
-{
-    assert(ROBOT_JUNCTION_AXLE_MM == distance_mm);
-    (void) pwm;
-    ++g_forwards;
-    g_b_motion = g_b_accept_move;
-    return g_b_motion;
-}
 void buddy3_start_line_follow (void)
 {
     g_b_following = true;
@@ -153,34 +120,30 @@ void buddy3_stop_line_follow (void)
     g_b_following = false;
     g_event       = 0;
 }
+bool barcode_reading_latest (barcode_reading_result_t *result)
+{
+    static uint32_t sequence;
+    if (g_event == 0u)
+    {
+        return false;
+    }
+    *result = (barcode_reading_result_t) {
+        .sequence = ++sequence, .symbol = (char) g_event, .reversed = true,
+    };
+    g_event = 0u;
+    return true;
+}
+
 bool buddy3_line_following (void)
 {
     return g_b_following;
 }
-void buddy3_set_manual_barcode (bool b_enabled)
-{
-    g_b_manual_scan = b_enabled;
-}
-bool buddy3_take_barcode (buddy3_barcode_event_t * p_event)
-{
-    buddy3_barcode_event_t empty  = {0};
-    *p_event                      = empty;
-    p_event->kind                 = 1 == g_event ? B3BC_FORMAT : B3BC_VALID;
-    p_event->decoded.symbol       = (char) g_event;
-    p_event->decoded.reversed     = true;
-    p_event->decoded.narrow_width = 5;
-    p_event->decoded.wide_ratio   = 3;
-    bool result = g_event != 0 && (!BARCODE_DIGITAL_INPUT || g_event != 1u);
-    g_event                       = 0;
-    return result;
-}
-static unsigned g_zeros;
 static uint8_t  g_level_sensor;
 static uint16_t g_white_level;
 static uint16_t g_black_level;
 bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black)
 {
-    bool b_ok = (sensor <= 2u) && (white < black) &&
+    bool b_ok = (sensor > 0u && sensor <= 2u) && (white < black) &&
                 (((uint32_t) black - white) >= 200u);
 
     if (b_ok)
@@ -191,22 +154,6 @@ bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black)
     }
     return b_ok;
 }
-void buddy3_zero_barcode_white (void)
-{
-    ++g_zeros;
-}
-void buddy3_set_junction_turn (uint8_t turn)
-{
-    g_turn_request = turn;
-}
-bool buddy3_take_junction_turn (uint8_t * p_turn)
-{
-    bool b_taken = (0u != g_turn_reached);
-
-    *p_turn        = g_turn_reached;
-    g_turn_reached = 0u;
-    return b_taken;
-}
 void buddy3_set_test_stage (uint8_t stage)
 {
     g_stage = stage;
@@ -214,21 +161,6 @@ void buddy3_set_test_stage (uint8_t stage)
 uint8_t buddy3_test_stage (void)
 {
     return g_stage;
-}
-bool buddy3_barcode_calibrated (void)
-{
-    return g_b_calibrated;
-}
-bool buddy3_configure_barcode (uint16_t min_element_mm, int16_t offset_left_mm)
-{
-    (void) min_element_mm;
-    (void) offset_left_mm;
-    return g_b_calibrated;
-}
-void buddy3_get_calibration (buddy3_calibration_t * p_cal)
-{
-    buddy3_calibration_t calibration = {0};
-    *p_cal                           = calibration;
 }
 static int16_t   g_line_base_pwm;
 static float32_t g_line_gain;
@@ -244,18 +176,14 @@ static void reset (void)
     robot_controller_init();
     g_barcode_mode      = 1;
     g_stage             = 1;
-    g_b_calibrated      = true;
-    g_b_accept_move     = true;
     g_b_button_high     = true;
     g_line_button_count = 0;
     g_b_link_seen       = false;
     g_b_link_lost       = false;
     g_b_lifted          = false;
     robot_fault_update(ROBOT_FAULT_ALL, 0u);
-    g_starts = g_stops = g_lefts = g_rights = g_forwards = 0;
+    g_starts = g_stops = 0;
     g_event                                              = 0;
-    g_turn_request                                       = 0;
-    g_turn_reached                                       = 0;
     g_b_encoder_fault                                    = false;
     g_servo_angle                                        = 90;
     g_serial_log[0]                                      = 0;
@@ -331,13 +259,9 @@ static void test_line_speed (void)
     assert(13106 == g_line_base_pwm);
     command("line_speed 40 61", 0); /* Above the 60 % curve limit. */
     assert((g_line_gain > 3.27f) && (g_line_gain < 3.28f));
-#if BARCODE_DIGITAL_INPUT
     const unsigned barcode_resets = g_barcode_resets;
-#endif
     command("reset_all", 0);
-#if BARCODE_DIGITAL_INPUT
     assert(g_barcode_resets == barcode_resets + 1u);
-#endif
     assert(19660 == g_line_base_pwm); /* 60 % */
     assert((g_line_gain > 8.84f) && (g_line_gain < 8.85f));
 }
@@ -356,34 +280,6 @@ static void test_packed_state (void)
     assert(!robot_controller_obstacle_watch_enabled());
     command("stop", 20);
     assert((uint8_t) ROBOT_MODE_IDLE == (g_controller_state & 0x7Fu));
-}
-
-/* Manual barcode reading: on only while both wheels drive forward, and a
- * held key (the same drive command again) keeps it on without restarting. */
-static void test_manual_barcode (void)
-{
-    reset();
-    command("preset 0", 0); /* forward */
-    assert(g_b_manual_scan && !g_b_following);
-    command("preset 0", 300); /* key held: same drive again */
-    assert(g_b_manual_scan);
-    command("preset 2", 600); /* left: one wheel stopped, not straight */
-    assert(!g_b_manual_scan);
-    command("preset 0", 900);
-    command("preset 1", 1200); /* reverse */
-    assert(!g_b_manual_scan);
-    command("preset 0", 1500);
-    command("stop", 1600); /* releasing W only pauses the scan */
-    assert(g_b_manual_scan);
-    g_zeros = 0u;
-    command("reset_all", 1650);
-    assert(!g_b_manual_scan);
-    assert((BARCODE_DIGITAL_INPUT ? 0u : 1u) == g_zeros);
-    command("preset 0", 1700);
-    command("line_follow", 1800); /* line following reads barcodes itself */
-    assert(!g_b_manual_scan && g_b_following);
-    command("preset 0", 1900); /* driving by hand stops line following */
-    assert(g_b_manual_scan && !g_b_following);
 }
 
 /* Team decision: Wi-Fi loss stops line following after a 2 s grace, but
@@ -455,16 +351,14 @@ static void test_barcode_levels (void)
     g_white_level = g_black_level = 0u;
     command("line_follow", 0);
     command("barcode_mode 1 0 1300 3900", 10);
-    assert(0u == g_level_sensor && 1300u == g_white_level &&
-           3900u == g_black_level);
+    assert(0u == g_white_level && 0u == g_black_level);
     assert(g_b_following && 1 == g_barcode_mode); /* Run not disturbed. */
     command("barcode_mode 1", 20);
-    assert(1300u == g_white_level && 3900u == g_black_level);
+    assert(0u == g_white_level && 0u == g_black_level);
     command("barcode_mode 1 2 250 3000", 25); /* Right line sensor. */
     assert(2u == g_level_sensor && 250u == g_white_level);
-    g_white_level = 1300u;
     command("barcode_mode 1 0 3000 3100", 30);
-    assert(1300u == g_white_level && strstr(g_serial_log, "rejected"));
+    assert(250u == g_white_level && strstr(g_serial_log, "rejected"));
     /* A mode change still needs the rover stopped. */
     command("barcode_mode 0", 40);
     assert(1 == g_barcode_mode);
@@ -473,91 +367,12 @@ static void test_barcode_levels (void)
     assert(0 == g_barcode_mode);
 }
 
-/* Barcode letters: A turns left and C right at the next junction; any
- * other letter means straight on, and the latest letter wins. */
-static void test_barcode_turns (void)
-{
-    reset();
-    command("line_follow", 0);
-    g_event = 'A';
-    robot_controller_step(10);
-    if (BARCODE_DIGITAL_INPUT)
-    {
-        assert(strstr(g_serial_log, "Decoded: A"));
-        g_event = 'C';
-        robot_controller_step(20);
-        assert(strstr(g_serial_log, "Decoded: C"));
-        assert(g_b_following && BUDDY3_TURN_NONE == g_turn_request);
-        assert(0u == (g_lefts + g_rights + g_forwards));
-        return;
-    }
-    assert(BUDDY3_TURN_LEFT == g_turn_request &&
-           strstr(g_serial_log, "A: turn left"));
-    g_event = 'F';
-    robot_controller_step(20);
-    assert(BUDDY3_TURN_NONE == g_turn_request);
-    g_event = 'C';
-    robot_controller_step(30);
-    assert(BUDDY3_TURN_RIGHT == g_turn_request);
-    assert(0u == (g_lefts + g_rights + g_forwards)); /* Nothing until then. */
-
-    /* Buddy 3 stops on the junction and hands over the turn. */
-    g_b_following  = false;
-    g_turn_reached = BUDDY3_TURN_RIGHT;
-    robot_controller_step(40);
-    assert(1u == g_forwards && (ROBOT_MODE_MOTION == robot_ctl_mode()));
-    robot_controller_step(50); /* Still moving: nothing new. */
-    assert(1u == g_forwards && 0u == g_rights);
-    g_b_motion = false; /* Wheels now over the junction. */
-    robot_controller_step(60);
-    assert(1u == g_rights && 0u == g_lefts && 1u == g_starts);
-    g_b_motion = false; /* Turn done: line following again. */
-    robot_controller_step(70);
-    assert(2u == g_starts && g_b_following &&
-           (ROBOT_MODE_LINE == robot_ctl_mode()));
-    robot_controller_step(80);
-    assert(2u == g_starts && 1u == g_rights);
-
-    /* Left turn; an encoder fault after the forward move stops it. */
-    reset();
-    command("line_follow", 0);
-    g_b_following  = false;
-    g_turn_reached = BUDDY3_TURN_LEFT;
-    robot_controller_step(10);
-    g_b_motion        = false;
-    g_b_encoder_fault = true;
-    robot_controller_step(20);
-    assert(0u == g_lefts && (ROBOT_MODE_IDLE == robot_ctl_mode()));
-    assert(strstr(g_serial_log, "encoder fault"));
-
-    /* Letters read outside line following never set a turn. */
-    reset();
-    command("preset 0", 0);
-    g_event = 'A';
-    robot_controller_step(10);
-    assert(BUDDY3_TURN_NONE == g_turn_request);
-
-    /* GP21 stop during the turn ends it. */
-    reset();
-    command("line_follow", 0);
-    g_b_following  = false;
-    g_turn_reached = BUDDY3_TURN_LEFT;
-    robot_controller_step(10);
-    command("stop", 20);
-    g_b_motion = false;
-    robot_controller_step(30);
-    assert(0u == g_lefts && 1u == g_starts &&
-           (ROBOT_MODE_IDLE == robot_ctl_mode()));
-}
-
 int main (void)
 {
     test_line_speed();
     test_packed_state();
-    test_manual_barcode();
     test_link_loss();
     test_lifted_stop();
-    test_barcode_turns();
     test_barcode_levels();
     reset();
     command("servo_angle 135", 0);
@@ -585,8 +400,7 @@ int main (void)
         assert(g_b_following);
         g_event = (uint8_t) letter;
         robot_controller_step(90);
-        assert(g_b_following && 1 == g_starts &&
-               (0u == (g_lefts + g_rights + g_forwards)));
+        assert(g_b_following && 1 == g_starts);
         assert(strstr(g_serial_log, "Decoded:") &&
                strstr(g_serial_log, "reverse"));
         robot_controller_step(110);
@@ -598,32 +412,19 @@ int main (void)
         assert(!g_b_following && !g_b_motion); /* GP21 still stops. */
     }
     reset();
-    command("line_follow", 0);
-    g_event = 1;
-    robot_controller_step(10);
-    assert(g_b_following && (0u == (g_lefts + g_rights + g_forwards)));
-    assert((strstr(g_serial_log, "rejected") != NULL) == !BARCODE_DIGITAL_INPUT);
-    reset();
     command("barcode_mode 0", 0);
     command("line_follow", 0);
     g_serial_log[0] = 0;
     g_event         = 'F';
     robot_controller_step(10);
     assert(!g_event && !strstr(g_serial_log, "Decoded:"));
-    assert(g_b_following && (0u == (g_lefts + g_rights + g_forwards)));
+    assert(g_b_following);
     command("stop", 20);
     assert(!g_b_following);
     reset();
     command("line_follow", 0);
     assert(robot_controller_begin_obstacle_avoidance());
     assert(!g_b_following && robot_controller_obstacle_avoidance_active());
-    puts(BARCODE_DIGITAL_INPUT ? "PASS: digital A/C scans are logged without turns; button, Wi-Fi and lift stops still work" :
-         "PASS: letters move nothing until a junction, rejection logs, mode "
-         "gate, servo commands, GP21 start/stop, avoidance handoff, "
-         "packed state, manual barcode, Wi-Fi-loss stop, A/C junction "
-         "turns, sensor levels, line speed");
+    puts("PASS: decoded letters leave drive alone; button, Wi-Fi and lift stops still work");
     return 0;
 }
-
-/*** end of file ***/
-

@@ -101,6 +101,11 @@ uint32_t hal_diagnostic_boot_id (void)
     return value;
 }
 
+uint32_t hal_time_us32 (void)
+{
+    return timer_hw->timerawl;
+}
+
 uint64_t hal_time_us (void)
 {
     return time_us_64();

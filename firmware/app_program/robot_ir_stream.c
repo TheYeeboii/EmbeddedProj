@@ -1,6 +1,6 @@
 /** @file robot_ir_stream.c
  *
- * @brief Fixed-size queue of continuous barcode-sensor (ADC2) samples, filled
+ * @brief Fixed-size queue of continuous barcode-sensor (GPIO) samples, filled
  *        by the line task and drained by the MQTT publisher.
  */
 #include <tk/tkernel.h>
@@ -12,22 +12,25 @@ static uint32_t                 g_count    = 0u;
 static uint32_t                 g_sequence = 0u;
 static uint32_t                 g_dropped  = 0u;
 
-void robot_ir_stream_record (const robot_barcode_observation_t * p_observation,
-                             uint16_t minimum, uint16_t maximum, bool inverted)
+int32_t robot_ir_stream_position (float32_t distance_mm)
 {
-    UINT                     lock   = 0u;
-    robot_ir_stream_sample_t sample = {0};
+    const float32_t scaled = distance_mm * 10.0f;
+    if (scaled >= 2147480000.0f)
+    {
+        return INT32_MAX;
+    }
+    if (scaled <= -2147480000.0f)
+    {
+        return -INT32_MAX;
+    }
+    /* NaN also fails this comparison. */
+    return scaled >= -2147480000.0f ? (int32_t) scaled : 0;
+}
 
-    sample.ts_ms      = p_observation->ts_ms;
-    sample.raw        = p_observation->raw;
-    sample.normalized = p_observation->normalized;
-    sample.black      = p_observation->black;
-    sample.blocked    = p_observation->blocked;
-    sample.left_x10   = p_observation->left_x10;
-    sample.right_x10  = p_observation->right_x10;
-    sample.minimum    = minimum;
-    sample.maximum    = maximum;
-    sample.inverted   = inverted;
+void robot_ir_stream_record (const robot_ir_stream_sample_t * p_observation)
+{
+    UINT lock;
+    robot_ir_stream_sample_t sample = *p_observation;
 
     DI(lock);
     if (ROBOT_IR_STREAM_CAPACITY == g_count)

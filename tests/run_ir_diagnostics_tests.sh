@@ -9,30 +9,26 @@ run() {
     "$compiler" -std=c11 -Wall -Wextra -Werror -Itests/stubs -Ifirmware/app_program -Ifirmware/config "$@" -lm -o "$build_dir/$name"
     "$build_dir/$name"
 }
-run slowdown tests/test_barcode_slowdown.c firmware/app_program/barcode_slowdown.c
 run mqtt-backpressure -Itests/mqtt_stubs tests/test_mqtt_backpressure.c firmware/app_program/robot_packed.c firmware/app_program/robot_wire_transport.c
-run steering-trace tests/test_robot_steering_trace.c firmware/app_program/robot_action_log.c firmware/app_program/robot_barcode_trace.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_ir_stream.c
-run motor-observer tests/test_buddy2_action_log.c firmware/app_program/robot_steering_trace.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_fault.c
-run ir -DBARCODE_DIGITAL_INPUT=0 tests/test_buddy3_ir_junction.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_barcode_trace.c firmware/app_program/robot_ir_stream.c firmware/app_program/barcode_tuning.c firmware/app_program/barcode_slowdown.c
-run ir_digital tests/test_buddy3_ir_digital.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/robot_ir_stream.c firmware/app_program/barcode_tuning.c
-run controller -DBARCODE_DIGITAL_INPUT=0 tests/test_robot_barcode_controller.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_packed.c firmware/app_program/robot_wire.c firmware/app_program/robot_fault.c firmware/app_program/barcode_tuning.c
-run actions tests/test_robot_action_log.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_barcode_trace.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_ir_stream.c
+run steering-trace tests/test_robot_steering_trace.c firmware/app_program/robot_action_log.c firmware/app_program/robot_ir_stream.c
+run motor-observer tests/test_buddy2_action_log.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_fault.c
+run ir tests/test_buddy3_ir_junction.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/robot_ir_stream.c firmware/app_program/barcode_tuning.c
+run controller tests/test_robot_barcode_controller.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_packed.c firmware/app_program/robot_wire.c firmware/app_program/robot_fault.c firmware/app_program/barcode_tuning.c
+run actions tests/test_robot_action_log.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_ir_stream.c
 run steering tests/test_buddy3_steering.c firmware/app_program/buddy3_steering.c
 run junction tests/test_buddy3_junction.c firmware/app_program/buddy3_junction.c
 node --check dashboard/app.js
 node --check dashboard/steering-view.js
 node tests/test_dashboard_actions.cjs
 node tests/test_steering_history.cjs
-"$compiler" -std=c11 -Wall -Wextra -Werror -Itests/stubs -Ifirmware/app_program -Ifirmware/config tests/test_robot_barcode_trace.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c firmware/app_program/robot_action_log.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_ir_stream.c -lm -o "$build_dir/barcode-trace"
-"$build_dir/barcode-trace" "$build_dir/barcode-wire.ndjson"
 node tests/test_barcode_history.cjs
-node tests/test_barcode_wire.cjs "$build_dir/barcode-wire.ndjson"
+node tests/test_barcode_wire.cjs tests/data/barcode-wire.ndjson
 node --check dashboard/barcode-view.js
 node --check dashboard/barcode-config.js
 node tests/test_barcode_config.cjs
 node --check dashboard/ir-stream-model.js
 node --check dashboard/ir-stream-view.js
 node tests/test_ir_stream_history.cjs
-"$compiler" -std=c11 -Wall -Wextra -Werror -Itests/stubs -Ifirmware/app_program -Ifirmware/config tests/test_robot_ir_stream.c firmware/app_program/robot_action_log.c firmware/app_program/robot_steering_trace.c firmware/app_program/robot_barcode_trace.c firmware/app_program/buddy3_barcode.c firmware/app_program/code39.c -lm -o "$build_dir/ir-stream"
+"$compiler" -std=c11 -Wall -Wextra -Werror -Itests/stubs -Ifirmware/app_program -Ifirmware/config tests/test_robot_ir_stream.c firmware/app_program/robot_action_log.c firmware/app_program/robot_steering_trace.c -lm -o "$build_dir/ir-stream"
 "$build_dir/ir-stream" "$build_dir/ir-stream.ndjson"
 node tests/test_ir_stream_wire.cjs "$build_dir/ir-stream.ndjson"

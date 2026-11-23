@@ -4,7 +4,6 @@
  *
  *   rover/actions   type 8   Buddy 2 motor actions    (robot_action_log)
  *   rover/steering  type 9   steering decisions       (robot_steering_trace)
- *   rover/barcode   type 10  barcode scans            (robot_barcode_trace)
  *   rover/ir        type 11  continuous IR samples    (robot_ir_stream)
  *
  * Each publisher sends at most two queued records per call, from the
@@ -24,7 +23,6 @@
 
 #include "comms.h"
 #include "robot_action_log.h"
-#include "robot_barcode_trace.h"
 #include "robot_diagnostics_mqtt.h"
 #include "robot_ir_stream.h"
 #include "robot_packed.h"
@@ -45,18 +43,7 @@
 #define DIAG_BITS_NORM    (10u)
 #define DIAG_BITS_PTYPE   (3u)
 #define DIAG_BITS_COUNT   (3u) /* rows in one packet, 1..4 */
-#define DIAG_BITS_EDGE    (5u) /* edge index, 0..28 */
-#define DIAG_BITS_SAMPLE  (9u) /* sample index, 0..511 */
-#define DIAG_BITS_STATE   (3u)
-#define DIAG_BITS_EDGES   (5u)  /* edges in a scan, 0..29 */
-#define DIAG_BITS_SAMPLES (10u) /* samples in a scan, 0..512 */
 #define DIAG_BITS_BLOCKED (6u)
-#define DIAG_BITS_REASON  (3u)
-#define DIAG_BITS_FORMAT  (3u)
-#define DIAG_BITS_SYMBOL  (7u)
-#define DIAG_BITS_ELEMENT (17u) /* min element x100, up to 1000 mm */
-#define DIAG_BITS_OFFSET  (14u) /* left offset x10, +/-500 mm */
-#define DIAG_BITS_GEOM    (16u) /* geometry x10 */
 #define DIAG_BITS_DT      (16u) /* ms between IR rows, saturating */
 
 /* ---- rover/actions ---- */
@@ -66,9 +53,6 @@
 /* ---- rover/steering ---- */
 #define STEERING_PACKETS_PER_CALL 2u
 #define STEERING_SNAPSHOT_MS      1000u
-
-/* ---- rover/barcode ---- */
-#define BARCODE_PACKETS_PER_CALL 2u
 
 /* ---- rover/ir ---- */
 /* At most this many packets per call, so the network task is not starved. */
@@ -84,15 +68,6 @@ static uint32_t action_pack (uint8_t *                    p_payload,
 static uint32_t steering_pack (uint8_t *                      p_payload,
                                const robot_steering_event_t * p_event,
                                bool b_queued, uint32_t now);
-static uint32_t barcode_pack (uint8_t *                      p_payload,
-                              const robot_barcode_packet_t * p_packet,
-                              uint32_t                       now);
-static void     barcode_put_config (robot_packed_writer_t *        p_writer,
-                                    const robot_barcode_packet_t * p_packet);
-static void     barcode_put_rows (robot_packed_writer_t *        p_writer,
-                                  const robot_barcode_packet_t * p_packet);
-static void     barcode_put_summary (robot_packed_writer_t *        p_writer,
-                                     const robot_barcode_packet_t * p_packet);
 static uint32_t ir_pack (uint8_t *                       p_payload,
                          const robot_ir_stream_batch_t * p_batch, uint32_t now);
 static uint32_t diag_lag (uint32_t now, uint32_t ts_ms);
@@ -149,35 +124,6 @@ void robot_steering_publish (uint32_t now_ms)
                 last_snapshot   = now_ms;
                 b_have_snapshot = true;
                 b_more          = false;
-            }
-        }
-    }
-}
-
-void robot_barcode_publish (uint32_t now_ms)
-{
-    static uint8_t         payload[ROBOT_WIRE_DIAG_MESSAGE_MAX];
-    robot_barcode_packet_t packet = {0};
-    uint32_t               sent   = 0u;
-    uint32_t               length = 0u;
-    bool b_more = (COMMS_LINK_MQTT_UP == comms_get_link_state());
-
-    for (sent = 0u; b_more && (sent < BARCODE_PACKETS_PER_CALL); ++sent)
-    {
-        if (!robot_barcode_packet_peek(&packet, now_ms))
-        {
-            b_more = false;
-        }
-        else
-        {
-            length = barcode_pack(payload, &packet, now_ms);
-            if (comms_publish(COMMS_TOPIC_BARCODE, payload, length))
-            {
-                robot_barcode_packet_ack(&packet);
-            }
-            else
-            {
-                b_more = false;
             }
         }
     }
@@ -362,149 +308,6 @@ static uint32_t steering_pack (uint8_t *                      p_payload,
     robot_packed_put(&writer, p_event->has_input ? 1u : 0u, DIAG_BITS_FLAG);
 
     return robot_packed_length(&writer);
-}
-
-/* ---- rover/barcode: type 10 ---- */
-/* Common header, then the part that depends on the packet type. */
-static uint32_t barcode_pack (uint8_t *                      p_payload,
-                              const robot_barcode_packet_t * p_packet,
-                              uint32_t                       now)
-{
-    robot_packed_writer_t writer = {NULL, 0u, 0u, false};
-    uint32_t              index  = 0u;
-
-    diag_writer_start(&writer, p_payload, ROBOT_WIRE_TYPE_BARCODE);
-    robot_packed_put(&writer, p_packet->type, DIAG_BITS_PTYPE);
-    robot_packed_put(&writer, robot_diagnostics_session(), DIAG_BITS_U32);
-    robot_packed_put(&writer, p_packet->seq, DIAG_BITS_U32);
-    robot_packed_put(&writer, p_packet->scan, DIAG_BITS_U32);
-    robot_packed_put(&writer, p_packet->ts_ms, DIAG_BITS_U32);
-    robot_packed_put(&writer, p_packet->dropped, DIAG_BITS_SAT16);
-    robot_packed_put(&writer, diag_lag(now, p_packet->ts_ms), DIAG_BITS_SAT16);
-
-    if (BC_PACKET_START == p_packet->type)
-    {
-        robot_packed_put_signed(&writer, p_packet->leading, DIAG_BITS_DIST);
-        barcode_put_config(&writer, p_packet);
-    }
-    else if ((BC_PACKET_EDGES == p_packet->type) ||
-             (BC_PACKET_SAMPLES == p_packet->type))
-    {
-        barcode_put_rows(&writer, p_packet);
-    }
-    else
-    {
-        barcode_put_summary(&writer, p_packet);
-    }
-
-    if (BC_PACKET_STATE == p_packet->type)
-    {
-        barcode_put_config(&writer, p_packet);
-        /* Side-sensor raw, normalized, black, then four signed distances. */
-        robot_packed_put(&writer, (uint32_t) p_packet->readiness[0],
-                         DIAG_BITS_RAW);
-        robot_packed_put(&writer, (uint32_t) p_packet->readiness[1],
-                         DIAG_BITS_NORM);
-        robot_packed_put(&writer, (uint32_t) p_packet->readiness[2],
-                         DIAG_BITS_FLAG);
-        for (index = 3u; index < BARCODE_READINESS_COUNT; index++)
-        {
-            robot_packed_put_signed(&writer, p_packet->readiness[index],
-                                    DIAG_BITS_DIST);
-        }
-        robot_packed_put(&writer, p_packet->rejected_steps, DIAG_BITS_SAT16);
-    }
-
-    return robot_packed_length(&writer);
-}
-
-/* The eleven reader settings (robot_barcode_trace_configure order). */
-static void barcode_put_config (robot_packed_writer_t *        p_writer,
-                                const robot_barcode_packet_t * p_packet)
-{
-    /* Raw endpoints, inversion and thresholds are never negative; the casts
-     * keep the bit pattern of values already inside their fields. */
-    robot_packed_put(p_writer, (uint32_t) p_packet->config[0], DIAG_BITS_RAW);
-    robot_packed_put(p_writer, (uint32_t) p_packet->config[1], DIAG_BITS_RAW);
-    robot_packed_put(p_writer, (uint32_t) p_packet->config[2], DIAG_BITS_FLAG);
-    robot_packed_put(p_writer, (uint32_t) p_packet->config[3], DIAG_BITS_NORM);
-    robot_packed_put(p_writer, (uint32_t) p_packet->config[4], DIAG_BITS_NORM);
-    /* Minimum element x100: 0 (unconfigured) up to 100000 (1000 mm). */
-    robot_packed_put(p_writer, (uint32_t) p_packet->config[5],
-                     DIAG_BITS_ELEMENT);
-    robot_packed_put_signed(p_writer, p_packet->config[6], DIAG_BITS_OFFSET);
-    robot_packed_put_signed(p_writer, p_packet->config[7], DIAG_BITS_GEOM);
-    robot_packed_put_signed(p_writer, p_packet->config[8], DIAG_BITS_GEOM);
-    robot_packed_put_signed(p_writer, p_packet->config[9], DIAG_BITS_GEOM);
-    robot_packed_put_signed(p_writer, p_packet->config[10], DIAG_BITS_GEOM);
-}
-
-/* Edge or sample rows; row numbers are the offset plus the row index. */
-static void barcode_put_rows (robot_packed_writer_t *        p_writer,
-                              const robot_barcode_packet_t * p_packet)
-{
-    uint32_t row = 0u;
-
-    robot_packed_put(p_writer, p_packet->count, DIAG_BITS_COUNT);
-    if (BC_PACKET_EDGES == p_packet->type)
-    {
-        robot_packed_put(p_writer, p_packet->offset, DIAG_BITS_EDGE);
-        for (row = 0u; row < p_packet->count; ++row)
-        {
-            const robot_barcode_edge_t * p_edge = &p_packet->edges[row];
-
-            robot_packed_put(p_writer, p_edge->ts_ms, DIAG_BITS_U32);
-            robot_packed_put_signed(p_writer, p_edge->width_x100,
-                                    DIAG_BITS_DIST);
-            robot_packed_put_signed(p_writer, p_edge->left_x10, DIAG_BITS_DIST);
-            robot_packed_put_signed(p_writer, p_edge->right_x10,
-                                    DIAG_BITS_DIST);
-        }
-    }
-    else
-    {
-        robot_packed_put(p_writer, p_packet->offset, DIAG_BITS_SAMPLE);
-        for (row = 0u; row < p_packet->count; ++row)
-        {
-            const robot_barcode_sample_t * p_sample = &p_packet->samples[row];
-
-            robot_packed_put(p_writer, p_sample->ts_ms, DIAG_BITS_U32);
-            robot_packed_put(p_writer, p_sample->raw, DIAG_BITS_RAW);
-            robot_packed_put(p_writer, p_sample->normalized, DIAG_BITS_NORM);
-            robot_packed_put_signed(p_writer, p_sample->left_x10,
-                                    DIAG_BITS_DIST);
-            robot_packed_put_signed(p_writer, p_sample->right_x10,
-                                    DIAG_BITS_DIST);
-            robot_packed_put_signed(p_writer, p_sample->position_x100,
-                                    DIAG_BITS_DIST);
-            robot_packed_put(p_writer, p_sample->black, DIAG_BITS_FLAG);
-        }
-    }
-}
-
-/* Scan summary for progress, end and state packets. */
-static void barcode_put_summary (robot_packed_writer_t *        p_writer,
-                                 const robot_barcode_packet_t * p_packet)
-{
-    robot_packed_put(p_writer, p_packet->state, DIAG_BITS_STATE);
-    robot_packed_put(p_writer, p_packet->total_edges, DIAG_BITS_EDGES);
-    robot_packed_put(p_writer, p_packet->total_samples, DIAG_BITS_SAMPLES);
-    robot_packed_put(p_writer, p_packet->sample_drops, DIAG_BITS_SAT16);
-    robot_packed_put_signed(p_writer, p_packet->partial, DIAG_BITS_DIST);
-    robot_packed_put(p_writer, p_packet->blocked, DIAG_BITS_BLOCKED);
-
-    if (BC_PACKET_END == p_packet->type)
-    {
-        robot_packed_put(p_writer, p_packet->reason, DIAG_BITS_REASON);
-        robot_packed_put(p_writer, p_packet->format, DIAG_BITS_FORMAT);
-        robot_packed_put(p_writer, p_packet->symbol, DIAG_BITS_SYMBOL);
-        robot_packed_put(p_writer, p_packet->reversed, DIAG_BITS_FLAG);
-        robot_packed_put_signed(p_writer, p_packet->leading, DIAG_BITS_DIST);
-        robot_packed_put_signed(p_writer, p_packet->trailing, DIAG_BITS_DIST);
-        robot_packed_put_signed(p_writer, p_packet->narrow, DIAG_BITS_DIST);
-        robot_packed_put_signed(p_writer, p_packet->ratio, DIAG_BITS_DIST);
-        robot_packed_put_signed(p_writer, p_packet->max_gap, DIAG_BITS_DIST);
-    }
 }
 
 /* ---- rover/ir: type 11, 75 bytes for four rows ---- */

@@ -1,13 +1,13 @@
-#include "pin_config.h"
-
-#if BARCODE_DIGITAL_INPUT
+#include "../pin_config.h"
 #include "barcode_reading.h"
-#include "code39.h"
-#include "gpio_irq.h"
-#include "robot_debug.h"
-#include "robot_hal.h"
+#include "../gpio_irq.h"
+#include "../robot_debug.h"
+#include "../robot_hal.h"
 #include <tm/tmonitor.h>
 
+#define CHARACTER_WIDTHS 9u
+#define LOST_QUEUE_FULL 1u
+#define LOST_PAIRED_EDGE 2u
 #define EDGE_QUEUE_SIZE 32u
 #define EDGE_PENDING    1u
 #define RESET_CAPTURE   2u
@@ -32,7 +32,11 @@ typedef enum
 
 typedef struct
 {
-    float32_t widths[CODE39_CHARACTER_ELEMENTS];
+    uint32_t widths[CHARACTER_WIDTHS];
+#if BUDDY3_DEBUG
+    uint32_t frame_widths[3][CHARACTER_WIDTHS];
+    bool frame_ready;
+#endif
     uint32_t previous_edge_us;
     uint8_t width_count;
     barcode_stage_t stage;
@@ -45,14 +49,14 @@ static ID g_edge_flag;
 static barcode_edge_t g_edges[EDGE_QUEUE_SIZE];
 static uint8_t g_read_index;
 static uint8_t g_write_index;
-static bool g_edge_lost;
+static uint8_t g_edge_loss;
 static uint32_t g_enabled = 1u;
 /* The reader writes this word. Controller and telemetry may read either core. */
 static uint32_t g_latest;
 
 static void barcode_pin_changed (uint32_t pin, uint32_t events)
 {
-    const uint32_t timestamp_us = (uint32_t) hal_time_us();
+    const uint32_t timestamp_us = hal_time_us32();
     const uint8_t next = (g_write_index + 1u) % EDGE_QUEUE_SIZE;
     (void) pin;
 
@@ -60,10 +64,13 @@ static void barcode_pin_changed (uint32_t pin, uint32_t events)
     {
         return;
     }
-    if (next == g_read_index ||
-        (events != HAL_GPIO_EDGE_RISE && events != HAL_GPIO_EDGE_FALL))
+    if (events != HAL_GPIO_EDGE_RISE && events != HAL_GPIO_EDGE_FALL)
     {
-        g_edge_lost = true;
+        g_edge_loss |= LOST_PAIRED_EDGE;
+    }
+    else if (next == g_read_index)
+    {
+        g_edge_loss |= LOST_QUEUE_FULL;
     }
     else
     {
@@ -128,16 +135,16 @@ bool barcode_reading_latest (barcode_reading_result_t * p_result)
     return true;
 }
 
-static bool take_edge (barcode_edge_t * p_edge, bool * p_lost)
+static bool take_edge (barcode_edge_t * p_edge, uint8_t * p_lost)
 {
     UINT interrupt_state;
     DI(interrupt_state);
     /* The GPIO handler and consumer both run on core 0. */
-    *p_lost = g_edge_lost;
+    *p_lost = g_edge_loss;
     if (*p_lost)
     {
         g_read_index = g_write_index;
-        g_edge_lost = false;
+        g_edge_loss = 0u;
     }
     const bool available = g_read_index != g_write_index;
     if (available)
@@ -149,26 +156,102 @@ static bool take_edge (barcode_edge_t * p_edge, bool * p_lost)
     return available;
 }
 
+static bool classify_widths(const uint32_t widths_us[9], char pattern[10])
+{
+  bool widths_valid = true;
+
+  for (unsigned int i = 0; i < 9u; ++i) {
+    // Mark zero widths invalid and keep building the diagnostic pattern.
+    if (widths_us[i] == 0u) {
+      widths_valid = false;
+    }
+    pattern[i] = '0';
+  }
+  pattern[9] = '\0';
+
+  for (unsigned int colour = 0; colour < 2u; ++colour) {
+    const unsigned int wide_count = colour == 0u ? 2u : 1u;
+    uint32_t smallest_wide = 0;
+
+    // Mark the widest elements of this colour in their original positions.
+    for (unsigned int pick = 0; pick < wide_count; ++pick) {
+      unsigned int widest = 9u;
+      for (unsigned int i = colour; i < 9u; i += 2u) {
+        if (pattern[i] == '0' &&
+            (widest == 9u || widths_us[i] > widths_us[widest])) {
+          widest = i;
+        }
+      }
+      pattern[widest] = '1';
+      smallest_wide = widths_us[widest];
+    }
+
+    uint64_t narrow_sum = 0;
+    for (unsigned int i = colour; i < 9u; i += 2u) {
+      if (pattern[i] == '0') {
+        narrow_sum += widths_us[i];
+      }
+    }
+
+    // Require the smallest wide element to be at least 1.4 times the
+    // average of the three narrow elements of this colour.
+    if (15u * (uint64_t)smallest_wide < 7u * narrow_sum) {
+      widths_valid = false;
+    }
+  }
+
+  return widths_valid;
+}
+
+static char decode_character(const char pattern[10], bool reverse_order)
+{
+  static const uint16_t letter_patterns[] = {
+    0x109u, 0x049u, 0x148u, 0x019u, 0x118u, 0x058u, 0x00du,
+    0x10cu, 0x04cu, 0x01cu, 0x103u, 0x043u, 0x142u, 0x013u,
+    0x112u, 0x052u, 0x007u, 0x106u, 0x046u, 0x016u, 0x181u,
+    0x0c1u, 0x1c0u, 0x091u, 0x190u, 0x0d0u,
+  };
+
+  uint16_t bits = 0;
+  for (unsigned int i = 0; i < 9u; ++i) {
+    const unsigned int index = reverse_order ? 8u - i : i;
+    bits = (uint16_t)((bits << 1u) | (pattern[index] == '1'));
+  }
+
+  // The opening and closing markers use the same pattern.
+  if (bits == 0x094u) {
+    return '*';
+  }
+
+  for (unsigned int i = 0; i < sizeof(letter_patterns) / sizeof(letter_patterns[0]); ++i) {
+    if (bits == letter_patterns[i]) {
+      return (char)('A' + i);
+    }
+  }
+
+  return '\0';
+}
+
 static void finish_character (barcode_capture_t * p_capture)
 {
-    uint16_t pattern = 0u;
-    const bool valid = code39_character_pattern(p_capture->widths, &pattern);
+    char pattern[10];
+    const bool valid = classify_widths(p_capture->widths, pattern);
     const bool finding_start = p_capture->stage == FIND_START;
-    char symbol = valid ? code39_character_symbol(
+    char symbol = valid ? decode_character(
         pattern, !finding_start && p_capture->reversed) : '\0';
 
     if (finding_start)
     {
         const bool reversed = valid && symbol != '*' &&
-                              code39_character_symbol(pattern, true) == '*';
+                              decode_character(pattern, true) == '*';
         if (symbol != '*' && !reversed)
         {
             /* Try the next black bar without throwing away a partial marker. */
-            for (uint32_t i = 2u; i < CODE39_CHARACTER_ELEMENTS; ++i)
+            for (uint32_t i = 2u; i < CHARACTER_WIDTHS; ++i)
             {
                 p_capture->widths[i - 2u] = p_capture->widths[i];
             }
-            p_capture->width_count = CODE39_CHARACTER_ELEMENTS - 2u;
+            p_capture->width_count = CHARACTER_WIDTHS - 2u;
             return;
         }
         symbol = '*';
@@ -176,13 +259,16 @@ static void finish_character (barcode_capture_t * p_capture)
     }
 
 #if BUDDY3_DEBUG
-    for (uint32_t i = 0u; i < CODE39_CHARACTER_ELEMENTS; ++i)
+    if (finding_start ||
+        (p_capture->stage == READ_LETTER && symbol >= 'A' && symbol <= 'Z') ||
+        (p_capture->stage == READ_STOP && symbol == '*'))
     {
-        tm_printf((const UB *) "[barcode] width[%u] %s=%u us\n", (UINT) i,
-                  (i % 2u == 0u) ? "black" : "white",
-                  (UINT) p_capture->widths[i]);
+        for (uint8_t i = 0u; i < CHARACTER_WIDTHS; ++i)
+        {
+            p_capture->frame_widths[p_capture->stage][i] = p_capture->widths[i];
+        }
+        p_capture->frame_ready = p_capture->stage == READ_STOP;
     }
-    tm_printf((const UB *) "[barcode] character=%c\n", symbol ? symbol : '?');
 #endif
     p_capture->capturing = false;
     if (finding_start)
@@ -235,9 +321,9 @@ static void capture_edge (barcode_capture_t * p_capture, const barcode_edge_t * 
     }
 
     p_capture->widths[p_capture->width_count++] =
-        (float32_t) (p_edge->timestamp_us - p_capture->previous_edge_us);
+        p_edge->timestamp_us - p_capture->previous_edge_us;
     p_capture->previous_edge_us = p_edge->timestamp_us;
-    if (p_capture->width_count == CODE39_CHARACTER_ELEMENTS)
+    if (p_capture->width_count == CHARACTER_WIDTHS)
     {
         finish_character(p_capture);
     }
@@ -272,7 +358,7 @@ void barcode_reading_task (INT start_code, void * p_context)
             UINT interrupt_state;
             DI(interrupt_state);
             g_read_index = g_write_index;
-            g_edge_lost = false;
+            g_edge_loss = 0u;
             EI(interrupt_state);
             capture = (barcode_capture_t) {0};
         }
@@ -284,16 +370,35 @@ void barcode_reading_task (INT start_code, void * p_context)
         }
 
         barcode_edge_t edge;
-        bool lost;
+        uint8_t lost;
         while (take_edge(&edge, &lost))
         {
             capture_edge(&capture, &edge);
         }
-        if (lost)
+        if (lost != 0u)
         {
             capture = (barcode_capture_t) {0};
-            tm_printf((const UB *) "[barcode] Edge lost. Capture discarded.\n");
+            tm_printf((const UB *) "[barcode] Edge lost. Capture discarded (%s).\n",
+                lost == (LOST_PAIRED_EDGE | LOST_QUEUE_FULL) ? "paired GPIO edges and queue full" :
+                (lost & LOST_PAIRED_EDGE) != 0u ? "rise + fall pending" : "queue full");
         }
+#if BUDDY3_DEBUG
+        if (capture.frame_ready && !capture.capturing && capture.stage == FIND_START)
+        {
+            // tm_printf masks interrupts. Print only after the complete frame is captured.
+            capture.frame_ready = false;
+            for (uint8_t character = 0u; character < 3u; ++character)
+            {
+                const char symbol = character == 1u ? capture.letter : '*';
+                tm_printf((const UB *) "[barcode] character=%c\n", symbol);
+                for (uint8_t i = 0u; i < CHARACTER_WIDTHS; ++i)
+                {
+                    tm_printf((const UB *) "[barcode] width[%u] %s=%u us\n",
+                              (UINT) i, (i % 2u == 0u) ? "black" : "white",
+                              (UINT) capture.frame_widths[character][i]);
+                }
+            }
+        }
+#endif
     }
 }
-#endif

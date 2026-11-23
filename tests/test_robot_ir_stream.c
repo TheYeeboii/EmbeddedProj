@@ -44,7 +44,7 @@ bool comms_publish (uint32_t topic, const uint8_t * p_data, uint32_t length)
 }
 int main (int argc, char ** argv)
 {
-    robot_barcode_observation_t observation = {0};
+    robot_ir_stream_sample_t observation = { .minimum = 2000, .maximum = 2500 };
 
     robot_diagnostics_init(123); /* real steering-trace session id */
     observation.blocked =
@@ -60,7 +60,7 @@ int main (int argc, char ** argv)
         observation.black      = 1 == index || 2 == index;
         observation.normalized = observation.black ? 1000 : 0;
         observation.raw        = observation.black ? 2500 : 2000;
-        robot_ir_stream_record(&observation, 2000, 2500, false);
+        robot_ir_stream_record(&observation);
     }
     robot_ir_stream_batch_t batch;
     assert(robot_ir_stream_peek(&batch) && 4 == batch.count);
@@ -76,7 +76,7 @@ int main (int argc, char ** argv)
         observation.normalized = 1000;
         observation.raw        = 2500;
         observation.blocked    = 32;
-        robot_ir_stream_record(&observation, 2000, 2500, false);
+        robot_ir_stream_record(&observation);
     }
     robot_ir_stream_publish(1030);
     assert(!g_count && 2 == g_published);
@@ -87,7 +87,7 @@ int main (int argc, char ** argv)
     }
     // A short final batch is flushed within 40ms, not held forever.
     observation.ts_ms = 1100;
-    robot_ir_stream_record(&observation, 2000, 2500, false);
+    robot_ir_stream_record(&observation);
     robot_ir_stream_publish(1100);
     assert(1 == g_count);
     g_b_online = false;
@@ -102,12 +102,12 @@ int main (int argc, char ** argv)
     assert(0 == g_count);
     // Overflow does not permit a stale ack to consume unrelated newer rows.
     observation.ts_ms = 1300;
-    robot_ir_stream_record(&observation, 2000, 2500, false);
+    robot_ir_stream_record(&observation);
     assert(robot_ir_stream_peek(&batch));
     for (unsigned index = 0; index < ROBOT_IR_STREAM_CAPACITY + 8; ++index)
     {
         observation.ts_ms += 10;
-        robot_ir_stream_record(&observation, 2000, 2500, false);
+        robot_ir_stream_record(&observation);
     }
     assert(g_dropped > 0 && ROBOT_IR_STREAM_CAPACITY == g_count);
     robot_ir_stream_ack(&batch);
@@ -127,9 +127,12 @@ int main (int argc, char ** argv)
     observation.normalized = 1000;
     observation.black      = 1;
     observation.blocked    = 63;
+    observation.minimum    = 4095;
+    observation.maximum    = 4095;
+    observation.inverted   = true;
     for (unsigned index = 0; index < 4; ++index)
     {
-        robot_ir_stream_record(&observation, 4095, 4095, true);
+        robot_ir_stream_record(&observation);
     }
     robot_ir_stream_publish(UINT32_MAX - 1);
     assert(0 == g_count);

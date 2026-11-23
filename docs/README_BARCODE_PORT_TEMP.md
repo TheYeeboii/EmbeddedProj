@@ -4,12 +4,12 @@ Port the timing scanner from `Pico-W-Line-Tracing-Car/app_program/subsystem3/bar
 
 ## Bring over
 
-- [x] Replace the placeholder in `firmware/app_program/barcode_reading.c` with the edge record, 32-slot FIFO, edge-loss reset, and one nine-width capture buffer. Add `barcode_reading.h` for the init and task entry declarations.
-- [x] Use the rover's `gpio_irq_register()`, `hal_time_us()`, `BARCODE_DIGITAL_PIN`, and `BARCODE_DIGITAL_BLACK_LEVEL`. Register both edges on the side sensor and create the event flag before arming the pin. The digital build defaults to GP28 with black high.
-- [x] Reuse `code39.c/.h` to decode each character as soon as nine widths are available. Search for an opening marker in either direction, then require a letter and a closing marker in that direction. Skip the white gaps. Enable `BUDDY3_DEBUG=1` for the nine width lines per character on the console.
-- [x] Wire the reader into `app_main.c` after GPIO IRQ and Buddy 3 setup. Pin the worker to core 0 on SMP builds so it can copy FIFO entries with local interrupts disabled. Keep the callback limited to capturing and signalling.
-- [x] Use the IRQ reader by default. Remove legacy polling, wheel-distance decoding, and automatic barcode slowdown from the digital path. Keep the wheel-distance reader for builds that explicitly select `BARCODE_DIGITAL_INPUT=0`.
-- [x] Retain the latest confirmed letter for `rover/debug`. During digital scan testing, decoded letters do not request junction turns and GP28 does not feed floor detection.
+- [x] Replace the placeholder in `firmware/app_program/subsystem3/barcode_reading.c` with the edge record, 32-slot FIFO, edge-loss reset, and one nine-width capture buffer. Add `barcode_reading.h` for the init and task entry declarations.
+- [x] Use the rover's `gpio_irq_register()`, `hal_time_us32()`, `BARCODE_DIGITAL_PIN`, and `BARCODE_DIGITAL_BLACK_LEVEL`. Register both edges on the side sensor and create the event flag before arming the pin. The reader defaults to GP28 with black high.
+- [x] Use the Pico Line Tracing Subsystem 3 integer classifier to decode each set of nine widths. Search for an opening marker in either direction, then require a letter and a closing marker in that direction. Skip the white gaps. Enable `BUDDY3_DEBUG=1` to print all nine widths per character after a complete frame.
+- [x] Wire `subsystem3_init()` and `subsystem3_start()` into `app_main.c` after shared GPIO IRQ setup. Pin the worker to core 0 on SMP builds so it can copy FIFO entries with local interrupts disabled. Keep the callback limited to capturing and signalling.
+- [x] Use Subsystem 3 as the only live barcode reader. Remove legacy polling, wheel-distance decoding and automatic barcode slowdown.
+- [x] Retain the latest confirmed letter for `rover/debug`. The reader reports letters independently of steering and floor detection.
 
 ## Verify
 
