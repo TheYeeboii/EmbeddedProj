@@ -174,12 +174,12 @@
           </section>
 
           <section id="barcode-letter" data-widget="barcode-letter" class="card barcode-letter-card" aria-labelledby="barcode-letter-title" data-result="none">
-            <header class="card-header"><h2 id="barcode-letter-title">Barcode letter</h2><span data-letter="reader" class="badge" data-tone="muted">Reader: waiting…</span></header>
+            <header class="card-header"><h2 id="barcode-letter-title">Barcode letter</h2><span data-letter="reader" class="badge" data-tone="muted">Reader: waiting for telemetry</span></header>
             <div class="barcode-letter-body">
               <span data-letter="symbol" class="barcode-letter-symbol num" aria-live="polite">–</span>
               <div class="barcode-letter-info">
                 <strong data-letter="headline">No barcode read yet</strong>
-                <p data-letter="detail" class="muted small">Press GP21 to line follow, or drive forward with W, over the whole barcode.</p>
+                <p data-letter="detail" class="muted small">Waiting for barcode telemetry from the rover.</p>
                 <p data-letter="latest" class="muted small"></p>
               </div>
             </div>
@@ -598,10 +598,10 @@
 
     <section id="tab-buddy3" class="buddy-panel" data-tab-panel="buddy3" role="tabpanel" aria-labelledby="tab-btn-buddy3" hidden>
       <div class="buddy-grid">
-        <div class="tab-slot buddy-wide" data-slot="ir-threshold-editor"></div>
+        <div class="tab-slot buddy-wide" data-slot="barcode-letter"></div>
         <div class="tab-slot" data-slot="line-sensor"></div>
-        <div class="tab-slot" data-slot="barcode-letter"></div>
         <div class="tab-slot" data-slot="line-follow"></div>
+        <div class="tab-slot buddy-wide" data-slot="ir-threshold-editor"></div>
         <div class="tab-slot buddy-wide" data-slot="ir-evidence"></div>
         <section class="card buddy-wide" aria-labelledby="levels-title" data-widget="ir-levels">
           <header class="card-header">
@@ -782,14 +782,14 @@
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
   <script src="action-log.js?v=2"></script>
   <script src="steering-view.js?v=3"></script>
-  <script src="barcode-model.js?v=3"></script>
-  <script src="barcode-view.js?v=9"></script>
+  <script src="barcode-model.js?v=4"></script>
+  <script src="barcode-view.js?v=10"></script>
   <script src="barcode-config.js?v=2"></script>
   <script src="ir-stream-model.js?v=4"></script>
   <script src="ir-stream-view.js?v=6"></script>
   <script src="tabs-view.js?v=1"></script>
-  <script src="rover-wire.js?v=10"></script>
+  <script src="rover-wire.js?v=11"></script>
   <script src="ir-threshold-view.js?v=5"></script>
-  <script src="app.js?v=41"></script>
+  <script src="app.js?v=42"></script>
 </body>
 </html>
