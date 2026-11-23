@@ -69,10 +69,16 @@ const DEBUG = bytes('21 ff f0 01 00 0f a0 00 7d 20 c5 b4 00 c8 57 1f 1c 1f 00 02
     return fields.get(key);
   };
   const card = {querySelector: find, dataset: {}};
-  const context = {RoverBarcode: {}, document: {getElementById: () => card}};
+  const RoverBarcode = require('../dashboard/barcode-model.js');
+  const context = {RoverBarcode, document: {getElementById: () => card}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dashboard/barcode-view.js'), 'utf8'), context);
   const view = Object.create(context.RoverBarcodeView.prototype);
-  Object.assign(view, {find, interruptResult: null, history: {frames: [], unavailable() {}}});
+  Object.assign(view, {find, interruptResult: null, history: new RoverBarcode.BarcodeHistory()});
+  view.renderLive();
+  assert.equal(find('[data-letter="reader"]').textContent, 'Reader: waiting for telemetry');
+  view.history.state = 0;
+  view.renderLive();
+  assert.equal(find('[data-letter="reader"]').textContent, 'Reader: off');
   view.showInterruptResult(result.barcode_irq, String.fromCharCode(result.command));
   assert.equal(find('[data-letter="symbol"]').textContent, 'Z');
   assert.equal(find('outcome').textContent, 'Latest confirmed letter: Z');

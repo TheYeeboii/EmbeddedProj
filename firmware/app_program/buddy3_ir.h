@@ -109,7 +109,7 @@ void buddy3_get_calibration (buddy3_calibration_t * p_calibration);
  */
 void buddy3_update (uint32_t now_ms);
 
-/** @brief Start line following (resets steering, junction and reader). */
+/** @brief Start line following and reset steering and junction state. */
 void buddy3_start_line_follow (void);
 
 /** @brief Stop line following and the motors. */

@@ -47,7 +47,7 @@
     return {narrow:sorted.slice(0,6).reduce((a,b)=>a+b,0)/6,wide:sorted.slice(6).reduce((a,b)=>a+b,0)/3};
   }
   class BarcodeHistory {
-    constructor() { this.frames=[];this.last=null;this.retired=[];this.pendingGap=false;this.state=0;this.receivedAt=0;this.evicted=0;this.readiness=null; }
+    constructor() { this.frames=[];this.last=null;this.retired=[];this.pendingGap=false;this.state=null;this.receivedAt=0;this.evicted=0;this.readiness=null; }
     unavailable(){this.pendingGap=true;this.state=null;}
     accept(input,now=Date.now()) {
       if(!valid(input))return false;

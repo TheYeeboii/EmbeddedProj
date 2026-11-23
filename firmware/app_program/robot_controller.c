@@ -159,7 +159,9 @@ static void     robot_drive_preset (int32_t preset, uint32_t now_ms);
 static void     robot_run_valued (const robot_wire_command_t * p_command,
                                   uint32_t                     now_ms);
 static void     robot_log_barcode (const buddy3_barcode_event_t * p_event);
+#if !BARCODE_DIGITAL_INPUT
 static void     robot_barcode_turn (const buddy3_barcode_event_t * p_event);
+#endif
 static void     robot_junction_turn_step (void);
 static void     robot_turn_abort (const char * p_reason);
 static void     robot_check_link_loss (uint32_t now_ms);
@@ -208,7 +210,9 @@ void robot_controller_step (uint32_t now_ms)
         (ROBOT_BARCODE_MODE_OBSERVE == g_barcode_mode))
     {
         robot_log_barcode(&barcode);
+#if !BARCODE_DIGITAL_INPUT
         robot_barcode_turn(&barcode);
+#endif
     }
     robot_junction_turn_step();
     if ((ROBOT_MODE_MOTION == robot_ctl_mode()) && !b_moving &&
@@ -387,12 +391,8 @@ static uint32_t robot_clamp_legacy (int32_t value)
 
 static void robot_stop_all (void)
 {
-    /* A manual barcode scan survives a stop: releasing W between presses
-     * only pauses it (bars are measured by distance, not time).  It ends on
-     * the white after the barcode, a turn, reverse, line following,
-     * avoidance, reset, or the reader's own 1.5 s stall limit.  Stopping
-     * line following would also restart the reader, so only do it when it
-     * is running. */
+    /* Stop line following only if it owns the wheels. The digital barcode
+     * reader tracks its own capture timeout independently of the motors. */
     if (buddy3_line_following())
     {
         buddy3_stop_line_follow();
@@ -521,11 +521,6 @@ static void robot_set_line_speed (int32_t base_pct, int32_t turn_pct)
 
 static void robot_start_line (void)
 {
-#if BARCODE_DIGITAL_INPUT
-    // Discard any unread turn from before this run, while retaining the dashboard letter.
-    buddy3_barcode_event_t previous;
-    (void) buddy3_take_barcode(&previous);
-#endif
     buddy4_clear_lift(); /* Starting again: the rover is on the ground. */
     buddy2_stop();
     g_drive_left  = 0u;
@@ -565,8 +560,7 @@ static void robot_set_barcode_mode (int32_t mode)
     if ((mode < 0) || (mode > ROBOT_BARCODE_MODE_MAX) ||
         (ROBOT_MODE_IDLE != robot_ctl_mode()))
     {
-        tm_printf((UB *) "[barcode] stop first; use 0=off or 1=read "
-                         "(A turns left, C right at the next junction)\n");
+        tm_printf((UB *) "[barcode] stop first; use 0=off or 1=read\n");
     }
     else
     {
@@ -806,6 +800,7 @@ static void robot_log_barcode (const buddy3_barcode_event_t * p_event)
 #endif
 }
 
+#if !BARCODE_DIGITAL_INPUT
 /* A valid letter read while line following sets the turn for the next
  * junction: A left, C right, any other letter straight on.  The latest
  * letter wins. */
@@ -836,6 +831,7 @@ static void robot_barcode_turn (const buddy3_barcode_event_t * p_event)
                 : ((BUDDY3_TURN_RIGHT == turn) ? "turn right" : "straight on"));
     }
 }
+#endif
 
 /* Barcode junction turn: Buddy 3 stops on the junction, then the car drives
  * its sensor-to-axle distance, pivots 90 degrees and follows the line

@@ -9,14 +9,14 @@ Port the timing scanner from `Pico-W-Line-Tracing-Car/app_program/subsystem3/bar
 - [x] Reuse `code39.c/.h` to decode each character as soon as nine widths are available. Search for an opening marker in either direction, then require a letter and a closing marker in that direction. Skip the white gaps. Enable `BUDDY3_DEBUG=1` for the nine width lines per character on the console.
 - [x] Wire the reader into `app_main.c` after GPIO IRQ and Buddy 3 setup. Pin the worker to core 0 on SMP builds so it can copy FIFO entries with local interrupts disabled. Keep the callback limited to capturing and signalling.
 - [x] Use the IRQ reader by default. Remove legacy polling, wheel-distance decoding, and automatic barcode slowdown from the digital path. Keep the wheel-distance reader for builds that explicitly select `BARCODE_DIGITAL_INPUT=0`.
-- [x] Feed the existing junction command path and retain the latest confirmed letter for `rover/debug`. Display that letter on the dashboard without depending on the old distance trace stream.
+- [x] Retain the latest confirmed letter for `rover/debug`. During digital scan testing, decoded letters do not request junction turns and GP28 does not feed floor detection.
 
 ## Verify
 
 - [x] Run the host tests for both scan directions, queue loss, timeout, controller delivery, and the dashboard letter.
 - [x] Build the default firmware and the SMP USB Wi-Fi/MQTT profile. Use a clean build when changing `ROBOT_CFLAGS` because that variable is not part of the build profile.
 - [ ] With the rover idle, slide `*A*` past GP28 both ways and confirm the dashboard shows `A`. Scan another letter and try an incomplete scan. With width logging enabled, check the nine durations per character on USB.
-- [ ] Drive the rover over the print and check the dashboard updates and the expected A/C turns at the next junction.
+- [ ] Drive the rover over the print and check that it continues line following and reports the letter after the closing marker.
 
 Example USB and MQTT build from the firmware build directory, after setting local Wi-Fi and broker configuration:
 

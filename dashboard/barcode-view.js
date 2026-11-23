@@ -83,7 +83,7 @@
       const card=document.getElementById('barcode-letter');if(!card)return;
       const pick=name=>card.querySelector(`[data-letter="${name}"]`);
       const reader=pick('reader');
-      reader.textContent=state===null?'Reader: offline':state===0?'Reader: off':'Reader: '+label;
+      reader.textContent=state===null?'Reader: waiting for telemetry':state===0?'Reader: off':'Reader: '+label;
       reader.dataset.tone=state===null?'muted':state===0?'warning':state===2||state===3?'accent':'success';
       const ended=this.history.frames.filter(f=>f.end);
       const latest=ended[ended.length-1],good=[...ended].reverse().find(f=>f.end.reason===1);
@@ -96,8 +96,8 @@
       }else{
         pick('symbol').textContent='–';
         pick('headline').textContent=latest?'No letter decoded yet':'No barcode read yet';
-        pick('detail').textContent=state===0||state===null?
-          'Reader off. Enable it in IR / barcode → Tools → Reader setup.':
+        pick('detail').textContent=state===null?'Waiting for barcode telemetry from the rover.':
+          state===0?'Reader off. Enable it in IR / barcode → Tools → Reader setup.':
           'Press GP21 to line follow, or drive forward with W, over the whole barcode.';
       }
       const rejected=latest&&latest.end.reason!==1;

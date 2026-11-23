@@ -18,7 +18,6 @@ ER barcode_reading_init (void);
 /** Consume the GPIO IRQ FIFO on core 0. */
 void barcode_reading_task (INT start_code, void * p_context);
 
-void barcode_reading_reset (void);
 void barcode_reading_set_enabled (bool enabled);
 bool barcode_reading_latest (barcode_reading_result_t * p_result);
 

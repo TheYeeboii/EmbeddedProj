@@ -5,17 +5,11 @@
 
 static bool digital_pin_initialized;
 static barcode_reading_result_t latest;
-static unsigned int reset_count;
 
 bool barcode_reading_latest (barcode_reading_result_t *result)
 {
     *result = latest;
     return latest.sequence != 0u;
-}
-
-void barcode_reading_reset (void)
-{
-    ++reset_count;
 }
 
 void hal_gpio_input_pullup (uint32_t pin)
@@ -72,10 +66,7 @@ int main (void)
     assert(state.barcode_ready && state.barcode_command == 'A');
 
     buddy3_set_test_stage(3);
-    const unsigned int previous_resets = reset_count;
     buddy3_start_line_follow();
-    assert(reset_count == previous_resets + 1u);
-    g_test_last_phase = B3_TRACK;
     latest = (barcode_reading_result_t) { .sequence = 2u, .symbol = 'C', .reversed = true };
     assert(buddy3_take_barcode(&event) && event.decoded.reversed);
 
@@ -86,10 +77,19 @@ int main (void)
     g_adc[2] = 1u;
     buddy3_update(1000u);
     assert(!g_test_barcode_slowdown);
+    assert(g_left_pwm > 0 && g_right_pwm > 0);
     latest = (barcode_reading_result_t) { .sequence = 3u, .symbol = 'F' };
-    assert(!buddy3_take_barcode(&event));
+    assert(buddy3_take_barcode(&event) && event.decoded.symbol == 'F');
     buddy3_get_state(&state);
     assert(state.barcode_ready && state.barcode_command == 'F');
-    puts("PASS: GPIO results feed controller once and remain visible to telemetry, without polling or slowing for bars");
+
+    /* A change on GP28 cannot start or clear the all-black stop timer. */
+    assert(!buddy3_dark_surface_stop(&g_state, 1000u));
+    g_state.black[BUDDY3_SIDE_SENSOR] = false;
+    assert(buddy3_dark_surface_stop(&g_state, 4001u));
+    g_state.black[BUDDY3_FRONT_LEFT] = false;
+    g_state.black[BUDDY3_SIDE_SENSOR] = true;
+    assert(!buddy3_dark_surface_stop(&g_state, 4011u));
+    puts("PASS: GP28 does not control motion; confirmed scans are delivered even during junctions");
     return 0;
 }

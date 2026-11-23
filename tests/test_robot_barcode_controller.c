@@ -24,6 +24,12 @@ static unsigned g_rights;
 static unsigned g_forwards;
 static uint8_t  g_turn_request;
 static uint8_t  g_turn_reached;
+#if BARCODE_DIGITAL_INPUT
+void barcode_reading_set_enabled (bool enabled)
+{
+    assert(enabled == (g_barcode_mode != 0u));
+}
+#endif
 int             tm_printf (const unsigned char * fmt, ...)
 {
     /* Keep every line since the last clear: one step can print twice. */
@@ -157,7 +163,7 @@ bool buddy3_take_barcode (buddy3_barcode_event_t * p_event)
     p_event->decoded.reversed     = true;
     p_event->decoded.narrow_width = 5;
     p_event->decoded.wide_ratio   = 3;
-    bool result                   = g_event != 0;
+    bool result = g_event != 0 && (!BARCODE_DIGITAL_INPUT || g_event != 1u);
     g_event                       = 0;
     return result;
 }
@@ -359,7 +365,7 @@ static void test_manual_barcode (void)
     g_zeros = 0u;
     command("reset_all", 1650);
     assert(!g_b_manual_scan);
-    assert(1u == g_zeros); /* Reset takes the present surface as white. */
+    assert((BARCODE_DIGITAL_INPUT ? 0u : 1u) == g_zeros);
     command("preset 0", 1700);
     command("line_follow", 1800); /* line following reads barcodes itself */
     assert(!g_b_manual_scan && g_b_following);
@@ -462,6 +468,16 @@ static void test_barcode_turns (void)
     command("line_follow", 0);
     g_event = 'A';
     robot_controller_step(10);
+    if (BARCODE_DIGITAL_INPUT)
+    {
+        assert(strstr(g_serial_log, "Decoded: A"));
+        g_event = 'C';
+        robot_controller_step(20);
+        assert(strstr(g_serial_log, "Decoded: C"));
+        assert(g_b_following && BUDDY3_TURN_NONE == g_turn_request);
+        assert(0u == (g_lefts + g_rights + g_forwards));
+        return;
+    }
     assert(BUDDY3_TURN_LEFT == g_turn_request &&
            strstr(g_serial_log, "A: turn left"));
     g_event = 'F';
@@ -572,8 +588,8 @@ int main (void)
     command("line_follow", 0);
     g_event = 1;
     robot_controller_step(10);
-    assert(g_b_following && (0u == (g_lefts + g_rights + g_forwards)) &&
-           strstr(g_serial_log, "rejected"));
+    assert(g_b_following && (0u == (g_lefts + g_rights + g_forwards)));
+    assert((strstr(g_serial_log, "rejected") != NULL) == !BARCODE_DIGITAL_INPUT);
     reset();
     command("barcode_mode 0", 0);
     command("line_follow", 0);
@@ -588,7 +604,8 @@ int main (void)
     command("line_follow", 0);
     assert(robot_controller_begin_obstacle_avoidance());
     assert(!g_b_following && robot_controller_obstacle_avoidance_active());
-    puts("PASS: letters move nothing until a junction, rejection logs, mode "
+    puts(BARCODE_DIGITAL_INPUT ? "PASS: digital A/C scans are logged without turns; button, Wi-Fi and lift stops still work" :
+         "PASS: letters move nothing until a junction, rejection logs, mode "
          "gate, servo commands, GP21 start/stop, avoidance handoff, "
          "packed state, manual barcode, Wi-Fi-loss stop, A/C junction "
          "turns, sensor levels, line speed");

@@ -76,9 +76,8 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS <= 255u,
 #define BUDDY3_FRONT_RIGHT (0u)
 #define BUDDY3_FRONT_LEFT  (1u)
 #define BUDDY3_SIDE_SENSOR (2u) /* the barcode sensor on the side arm */
-/* All three sensors on black for this long = the car was lifted or put on
- * a dark surface (the side sensor is normally on white): stop.  Longer than
- * the time needed to drive off the black start box. */
+/* Stop after sustained black on the floor sensors. Leave time to drive off
+ * the black start box. */
 #define BUDDY3_ALL_BLACK_STOP_MS (3000u)
 /* Our line is 18 mm, narrower than the gap between the front sensors, so
  * "both on floor" is NORMAL (line between them) - it only means "lost" if
@@ -537,9 +536,7 @@ void buddy3_update (uint32_t now_ms)
 
 void buddy3_start_line_follow (void)
 {
-#if BARCODE_DIGITAL_INPUT
-    barcode_reading_reset();
-#else
+#if !BARCODE_DIGITAL_INPUT
     robot_barcode_trace_cancel(g_last_update_ms);
     buddy3_colour_reset();
     buddy3_barcode_reset(&g_barcode_decoder);
@@ -779,19 +776,6 @@ bool buddy3_take_barcode (buddy3_barcode_event_t * p_event)
         return false;
     }
     consumed_sequence = result.sequence;
-
-    // Keep barcode turns out of junctions, recovery, and encoder faults.
-    if (g_b_line_following)
-    {
-        buddy2_encoder_position_t motion = {0};
-        buddy2_get_encoder_position(&motion);
-        if (buddy3_junction_active(&g_junction) ||
-            (g_test_last_phase != B3_TRACK && g_test_last_phase != B3_MICRO) ||
-            motion.left_encoder_fault || motion.right_encoder_fault)
-        {
-            return false;
-        }
-    }
 
     *p_event = (buddy3_barcode_event_t) {
         .kind = B3BC_VALID,
@@ -1537,9 +1521,7 @@ static void buddy3_stop_observed (bool b_disable)
 
 static void buddy3_stop_with_input (const robot_steering_input_t * p_input)
 {
-#if BARCODE_DIGITAL_INPUT
-    barcode_reading_reset();
-#else
+#if !BARCODE_DIGITAL_INPUT
     robot_barcode_trace_cancel(g_last_update_ms);
     buddy3_barcode_reset(&g_barcode_decoder);
     g_b_barcode_ready       = false;
@@ -1819,14 +1801,15 @@ static void buddy3_log_side (uint8_t side, uint32_t now_ms)
  *  Safety - sustained all-black stop
  * ------------------------------------------------------------------ */
 
-/* Lifted / dark surface: every sensor reads "black".  Returns true when the
- * car was stopped for it. */
+/* Lifted or dark surface: the floor sensors read black. */
 static bool buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
                                       uint32_t                      now_ms)
 {
     bool b_stopped = false;
 
-    if (p_next->black[0] && p_next->black[1] && p_next->black[2])
+    /* GP28 reads bars, so only the front sensors indicate floor in this build. */
+    if (p_next->black[BUDDY3_FRONT_LEFT] && p_next->black[BUDDY3_FRONT_RIGHT] &&
+        (BARCODE_DIGITAL_INPUT || p_next->black[BUDDY3_SIDE_SENSOR]))
     {
         if (0u == g_all_black_since_ms)
         {
@@ -1838,7 +1821,7 @@ static bool buddy3_dark_surface_stop (const ir_processing_state_t * p_next,
             buddy3_stop_observed(false);
             if (!g_b_reported_black)
             {
-                tm_printf((UB *) "[line] all sensors black - lifted or dark "
+                tm_printf((UB *) "[line] floor sensors black - lifted or dark "
                                  "surface? stopped\n");
                 g_b_reported_black = true;
             }

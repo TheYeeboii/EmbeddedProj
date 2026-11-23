@@ -94,18 +94,13 @@ ER barcode_reading_init (void)
     return result;
 }
 
-void barcode_reading_reset (void)
+void barcode_reading_set_enabled (bool enabled)
 {
+    __atomic_store_n(&g_enabled, enabled ? 1u : 0u, __ATOMIC_RELAXED);
     if (g_edge_flag > 0)
     {
         (void) tk_set_flg(g_edge_flag, RESET_CAPTURE);
     }
-}
-
-void barcode_reading_set_enabled (bool enabled)
-{
-    __atomic_store_n(&g_enabled, enabled ? 1u : 0u, __ATOMIC_RELAXED);
-    barcode_reading_reset();
 }
 
 bool barcode_reading_latest (barcode_reading_result_t * p_result)
