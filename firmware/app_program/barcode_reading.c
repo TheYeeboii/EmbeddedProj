@@ -11,6 +11,7 @@
 #define EDGE_QUEUE_SIZE 32u
 #define EDGE_PENDING    1u
 #define RESET_CAPTURE   2u
+#define RESET_RESULT    4u
 #define EDGE_TIMEOUT_MS 1500u
 #define SYMBOL_MASK     0x7fu
 #define RESULT_REVERSED 0x80u
@@ -103,10 +104,19 @@ void barcode_reading_set_enabled (bool enabled)
     }
 }
 
+void barcode_reading_reset (void)
+{
+    __atomic_store_n(&g_enabled, 1u, __ATOMIC_RELAXED);
+    if (g_edge_flag > 0)
+    {
+        (void) tk_set_flg(g_edge_flag, RESET_RESULT);
+    }
+}
+
 bool barcode_reading_latest (barcode_reading_result_t * p_result)
 {
     const uint32_t latest = __atomic_load_n(&g_latest, __ATOMIC_ACQUIRE);
-    if (p_result == NULL || latest == 0u)
+    if (p_result == NULL || (latest & SYMBOL_MASK) == 0u)
     {
         return false;
     }
@@ -244,7 +254,8 @@ void barcode_reading_task (INT start_code, void * p_context)
         UINT flags;
         const TMO timeout = capture.capturing || capture.stage != FIND_START
                             ? (TMO) EDGE_TIMEOUT_MS : TMO_FEVR;
-        const ER result = tk_wai_flg(g_edge_flag, EDGE_PENDING | RESET_CAPTURE,
+        const ER result = tk_wai_flg(g_edge_flag,
+                                    EDGE_PENDING | RESET_CAPTURE | RESET_RESULT,
                                     TWF_ORW | TWF_BITCLR, &flags, timeout);
         if (result == E_TMOUT)
         {
@@ -256,7 +267,7 @@ void barcode_reading_task (INT start_code, void * p_context)
         }
 
         // A new operating mode invalidates edges captured under the old mode.
-        if ((flags & RESET_CAPTURE) != 0u)
+        if ((flags & (RESET_CAPTURE | RESET_RESULT)) != 0u)
         {
             UINT interrupt_state;
             DI(interrupt_state);
@@ -264,6 +275,12 @@ void barcode_reading_task (INT start_code, void * p_context)
             g_edge_lost = false;
             EI(interrupt_state);
             capture = (barcode_capture_t) {0};
+        }
+        if ((flags & RESET_RESULT) != 0u)
+        {
+            /* Keep the sequence so a repeat of the same letter is a new read. */
+            const uint32_t latest = __atomic_load_n(&g_latest, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_latest, latest & ~0xffu, __ATOMIC_RELEASE);
         }
 
         barcode_edge_t edge;

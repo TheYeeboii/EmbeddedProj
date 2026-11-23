@@ -624,7 +624,7 @@ static void robot_reset_all (void)
     buddy4_reset_run();
     g_barcode_mode = ROBOT_BARCODE_MODE_OBSERVE;
 #if BARCODE_DIGITAL_INPUT
-    barcode_reading_set_enabled(true);
+    barcode_reading_reset();
 #else
     /* The defaults are small whole millimetres, so they fit the types. */
     (void) buddy3_configure_barcode((uint16_t) BUDDY3_BARCODE_MIN_ELEMENT_MM,

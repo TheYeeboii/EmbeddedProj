@@ -19,6 +19,8 @@ ER barcode_reading_init (void);
 void barcode_reading_task (INT start_code, void * p_context);
 
 void barcode_reading_set_enabled (bool enabled);
+/** Restore the enabled default and clear the current capture and result. */
+void barcode_reading_reset (void);
 bool barcode_reading_latest (barcode_reading_result_t * p_result);
 
 #endif

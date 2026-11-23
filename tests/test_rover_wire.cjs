@@ -83,6 +83,11 @@ const DEBUG = bytes('21 ff f0 01 00 0f a0 00 7d 20 c5 b4 00 c8 57 1f 1c 1f 00 02
   assert.equal(find('[data-letter="symbol"]').textContent, 'Z');
   assert.equal(find('outcome').textContent, 'Latest confirmed letter: Z');
   assert.equal(card.dataset.result, 'ok');
+  view.showInterruptResult(result.barcode_irq, '');
+  assert.equal(find('[data-letter="symbol"]').textContent, '–');
+  assert.equal(find('[data-letter="reader"]').textContent, 'Reader: GPIO interrupts');
+  view.showInterruptResult(result.barcode_irq, String.fromCharCode(result.command));
+  assert.equal(find('[data-letter="symbol"]').textContent, 'Z');
   view.unavailable();
   assert.equal(find('[data-letter="symbol"]').textContent, '–');
 }

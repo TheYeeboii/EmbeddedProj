@@ -25,9 +25,16 @@ static unsigned g_forwards;
 static uint8_t  g_turn_request;
 static uint8_t  g_turn_reached;
 #if BARCODE_DIGITAL_INPUT
+static unsigned g_barcode_resets;
+
 void barcode_reading_set_enabled (bool enabled)
 {
     assert(enabled == (g_barcode_mode != 0u));
+}
+
+void barcode_reading_reset (void)
+{
+    ++g_barcode_resets;
 }
 #endif
 int             tm_printf (const unsigned char * fmt, ...)
@@ -324,7 +331,13 @@ static void test_line_speed (void)
     assert(13106 == g_line_base_pwm);
     command("line_speed 40 61", 0); /* Above the 60 % curve limit. */
     assert((g_line_gain > 3.27f) && (g_line_gain < 3.28f));
+#if BARCODE_DIGITAL_INPUT
+    const unsigned barcode_resets = g_barcode_resets;
+#endif
     command("reset_all", 0);
+#if BARCODE_DIGITAL_INPUT
+    assert(g_barcode_resets == barcode_resets + 1u);
+#endif
     assert(19660 == g_line_base_pwm); /* 60 % */
     assert((g_line_gain > 8.84f) && (g_line_gain < 8.85f));
 }

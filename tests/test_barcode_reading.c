@@ -15,7 +15,7 @@ static UINT g_pending;
 static unsigned int g_batch;
 static unsigned int g_lost;
 static unsigned int g_widths;
-static char g_decoded[4];
+static char g_decoded[5];
 static size_t g_decoded_count;
 static uint32_t g_last_sequence;
 static jmp_buf g_finished;
@@ -128,6 +128,19 @@ ER tk_wai_flg(ID id, UINT requested, UINT mode, UINT *received, int timeout)
         case 9:
             barcode_reading_set_enabled(true);
             break;
+        case 10:
+            assert(barcode_reading_latest(&result) && result.symbol == 'F');
+            character(0x094u, false);
+            character(0x058u, false);
+            break;
+        case 11:
+            assert(timeout == 1500);
+            barcode_reading_reset();
+            break;
+        case 12:
+            assert(timeout == TMO_FEVR && !barcode_reading_latest(&result));
+            frame(0x058u, false); // The same letter can be read again after reset.
+            break;
         default:
             longjmp(g_finished, 1);
         }
@@ -156,13 +169,13 @@ int main(void)
     if (setjmp(g_finished) == 0) {
         barcode_reading_task(0, NULL);
     }
-    assert(strcmp(g_decoded, "APF") == 0);
+    assert(strcmp(g_decoded, "APFF") == 0);
     assert(g_lost == 2u);
 #if BUDDY3_DEBUG
-    assert(g_widths == 11u * CODE39_CHARACTER_ELEMENTS);
+    assert(g_widths == 16u * CODE39_CHARACTER_ELEMENTS);
 #else
     assert(g_widths == 0u);
 #endif
-    puts("PASS: GPIO barcode frames in both directions, timeout, edge loss and disable");
+    puts("PASS: GPIO barcode frames in both directions, timeout, edge loss, disable and rescan after reset");
     return 0;
 }
