@@ -224,6 +224,14 @@ void robot_mqtt_poll (struct netif * p_netif)
         !netif_is_link_up(p_netif))
     {
         comms_set_link_state(COMMS_LINK_OFFLINE);
+        /* Wi-Fi dropped: close the old session now so a fresh one starts as
+         * soon as the link is back, instead of waiting for TCP to fail. */
+        if ((NULL != g_p_client) && mqtt_client_is_connected(g_p_client))
+        {
+            mqtt_disconnect(g_p_client);
+            g_b_connecting    = false;
+            g_next_attempt_us = 0u;
+        }
     }
     else
     {

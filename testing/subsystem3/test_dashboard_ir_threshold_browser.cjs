@@ -12,7 +12,8 @@ const assert=require('node:assert/strict');
  });
  await page.goto(process.env.DASHBOARD_URL || 'http://127.0.0.1:8765');
  await page.locator('[data-tab="buddy3"]').click();
- const ids=['ir-threshold-editor','ir-threshold-editor-left','ir-threshold-editor-right'];
+ const ids=[null,'ir-threshold-editor-left','ir-threshold-editor-right'];
+ assert.equal(await page.locator('#ir-threshold-editor').count(),0); // barcode sensor is digital: no editor
  const report=async(sensor,low,high,raw,inverted=false,enabled=true)=>page.evaluate(({sensor,low,high,raw,inverted,enabled})=>{
   const writer=new RoverWire.Writer(11);
   writer.put(0xc1,8).put(1000,32).put(low,12).put(high,12).put(raw,12).put(enabled?1:0,1).put(inverted?1:0,1).put(1,1).put(sensor,2);
@@ -20,7 +21,7 @@ const assert=require('node:assert/strict');
  },{sensor,low,high,raw,inverted,enabled});
  for(let sensor=0;sensor<3;sensor++) await report(sensor,0,0,200+sensor*100,false,false);
  await page.waitForTimeout(300);
- for(let sensor=0;sensor<3;sensor++) {
+ for(let sensor=1;sensor<3;sensor++) {
   const form=page.locator('#'+ids[sensor]);
   assert(await form.isVisible());
   assert(await form.locator('[data-threshold="apply"]').isEnabled());
@@ -42,7 +43,7 @@ const assert=require('node:assert/strict');
  await left.locator('[data-threshold="low-range"]').focus();
  await page.keyboard.press('ArrowRight');
  assert.equal(await left.locator('[data-threshold="low-number"]').inputValue(),'321');
- assert.equal(await page.locator('#'+ids[0]+' [data-threshold="low-number"]').inputValue(),'220');
+ assert.equal(await page.locator('#'+ids[2]+' [data-threshold="low-number"]').inputValue(),'420');
  assert.equal(await page.evaluate(()=>window.sent.length),1);
  const slider=left.locator('[data-threshold="high-range"]');
  const bounds=await slider.boundingBox();
@@ -55,11 +56,11 @@ const assert=require('node:assert/strict');
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.locator('.ir-threshold-panels').screenshot({path:'/private/tmp/ir-three-mobile.png'});
  // Each status has independent freshness.
- await report(0,220,260,250);
+ await report(2,420,460,450);
  await page.waitForTimeout(1100);
- await report(0,220,260,250);
+ await report(2,420,460,450);
  await page.waitForTimeout(650);
- assert(await page.locator('#'+ids[0]+' [data-threshold="apply"]').isEnabled());
+ assert(await page.locator('#'+ids[2]+' [data-threshold="apply"]').isEnabled());
  assert(await left.locator('[data-threshold="apply"]').isDisabled());
  assert.match(await left.locator('[data-threshold="live"]').innerText(), /Delayed.*last Raw 350/i);
  assert.match(await left.locator('[data-threshold="status"]').innerText(), /Last report.*old/);
@@ -67,7 +68,7 @@ const assert=require('node:assert/strict');
  await report(1,320,360,350);
  await left.locator('[data-threshold="apply"]').click();
  await page.evaluate(()=>{
-   const pending = irThresholdViews[1].pending;
+   const pending = irThresholdViews[0].pending;
    const status = new RoverWire.Writer(13).put(0xc1,8).put(2000,32)
      .put(pending.low,12).put(pending.high,12).put(350,12).put(1,1)
      .put(pending.inverted ? 1 : 0,1).put(1,1)
@@ -78,8 +79,8 @@ const assert=require('node:assert/strict');
  assert.match(await left.locator('[data-threshold="live"]').innerText(), /Delayed.*350/);
  assert(!/Confirmed by/.test(await left.locator('[data-threshold="status"]').innerText()));
  // Let the request expire while reports are delayed.
- await page.evaluate(()=>{irThresholdViews[1].pending.at = Date.now()-5000;irThresholdViews[1].refresh();});
- assert.equal(await page.evaluate(()=>irThresholdViews[1].pending),null);
+ await page.evaluate(()=>{irThresholdViews[0].pending.at = Date.now()-5000;irThresholdViews[0].refresh();});
+ assert.equal(await page.evaluate(()=>irThresholdViews[0].pending),null);
  await report(1,320,360,350);
  assert(await left.locator('[data-threshold="apply"]').isEnabled());
  assert(!/Delayed/.test(await left.locator('[data-threshold="live"]').innerText()));
@@ -92,17 +93,8 @@ const assert=require('node:assert/strict');
  });
  await report(1,320,360,350);
  await page.waitForFunction(()=>!document.querySelector('#ir-threshold-editor-left [data-threshold="apply"]').disabled);
- const barcode=page.locator('#'+ids[0]);
- assert(await barcode.locator('[data-threshold="apply"]').isDisabled());
  assert(await page.locator('[data-ir-levels="barcode"] [data-ir-apply]').isDisabled());
  assert(await page.locator('[data-ir-levels="left"] [data-ir-apply]').isEnabled());
- assert(await barcode.locator('[data-threshold="low-number"]').isDisabled());
- assert(!(await barcode.locator('[data-threshold="strip"]').isVisible()));
- assert.match(await barcode.locator('[data-threshold="active"]').innerText(),/Digital input.*GP28.*HIGH/);
- assert.match(await barcode.locator('[data-threshold="live"]').innerText(),/HIGH.*BLACK/);
- const sentBefore=await page.evaluate(()=>window.sent.length);
- await page.evaluate(()=>document.querySelector('#ir-threshold-editor').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
- assert.equal(await page.evaluate(()=>window.sent.length),sentBefore);
  assert(await left.locator('[data-threshold="low-number"]').isEnabled());
  assert(await left.locator('[data-threshold="apply"]').isEnabled());
  await page.evaluate(()=>{
@@ -115,19 +107,7 @@ const assert=require('node:assert/strict');
  assert(await page.locator('[data-ir="strip"] [data-color="black"]').count()>0);
  await page.locator('.ir-threshold-panels').screenshot({path:'/private/tmp/ir-digital-editor.png'});
 
- for (const slowdown of [true,false]) {
-  await page.evaluate(slowdown=>{
-   const status = new RoverWire.Writer(14).put(0xc1,8).put(3000,32)
-     .put(0,12).put(0,12).put(slowdown?1:0,12).put(0,1).put(0,1).put(slowdown?1:0,1)
-     .put(0,2).put(1,1).put(28,5).put(1,1).put(0,16)
-     .put(slowdown?1:0,1).put(slowdown?10:60,7).bytes;
-   window.handlers.message('rover/debug',status);
-  },slowdown);
-  const speed = barcode.locator('[data-threshold="speed"]');
-  assert(await speed.isVisible());
-  assert.match(await speed.innerText(),slowdown?/barcode slowdown 10%/:/normal setting 60%/);
- }
  assert.deepEqual(errors,[]);
- console.log('PASS: three visible editors, independent drafts/commands/confirmation/live data/staleness, drag, keyboard safety, polarity and mobile layout');
+ console.log('PASS: two front-sensor editors (no barcode editor), independent drafts/commands/confirmation/live data/staleness, drag, keyboard safety, polarity and mobile layout');
  await browser.close();
 })().catch(error=>{console.error(error);process.exit(1)});

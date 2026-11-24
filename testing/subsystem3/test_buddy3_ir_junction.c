@@ -209,7 +209,7 @@ static unsigned scan_barcode (unsigned how, uint32_t step_ms, float32_t step_mm)
         g_adc[0] = g_sensor_configs[0].minimum;
         /* While line following, the left sensor brushes the line edge before
          * and after the barcode, as on a real run (otherwise the end-of-line
-         * stop would end the run after 300 mm). */
+         * stop would end the run after 600 mm). */
         g_adc[1] = ((SCAN_LINE_FOLLOW == how) &&
                     (((pos >= 20.0f) && (pos < 30.0f)) ||
                      ((pos >= 280.0f) && (pos < 290.0f))))
@@ -419,22 +419,49 @@ static void test_front_raw_tuning (void)
     buddy3_read_sensors(&next, 6030u);
 }
 
-/* End of the line: no front-sensor touch for 300 mm of travel stops the run;
+/* End of the line: no front-sensor touch for 600 mm of travel stops the run;
  * a touch restarts the count; without encoders a 3 s limit is used. */
 static void test_end_of_line_stop (void)
 {
+    uint8_t turn = BUDDY3_TURN_NONE;
+
     reset();
     observe(0, 10, 0, 0);
-    observe(0, 20, 290, 290);
-    assert(buddy3_line_following() && g_left_pwm > 0); /* 290 mm: still on */
-    observe(1, 30, 295, 295);                           /* touch */
-    observe(0, 40, 590, 590);
-    assert(buddy3_line_following()); /* 295 mm since the touch */
-    observe(0, 50, 600, 600);
+    observe(0, 20, 300, 300);
+    assert(buddy3_line_following() && g_left_pwm > 0); /* old 300 mm limit */
+    observe(0, 25, 590, 590);
+    assert(buddy3_line_following() && g_left_pwm > 0); /* 590 mm: still on */
+    observe(1, 30, 595, 595);                           /* touch */
+    observe(0, 40, 1190, 1190);
+    assert(buddy3_line_following()); /* 595 mm since the touch */
+    observe(0, 50, 1200, 1200);
     assert(!buddy3_line_following() && 0 == g_left_pwm && 0 == g_right_pwm);
     assert(TRACE_STOP == g_trace_phase);
-    observe(0, 60, 610, 610);
+    observe(0, 60, 1210, 1210);
     assert(!buddy3_line_following() && 0 == g_left_pwm); /* stays stopped */
+
+    /* A barcode movement waits for its junction: a long straight with no
+     * touch (as after the barcode on the track) keeps going, and the
+     * junction then hands the movement over. */
+    reset();
+    observe(0, 10, 0, 0);
+    buddy3_set_junction_turn(BUDDY3_TURN_LEFT);
+    observe(0, 20, 1400, 1400);
+    assert(buddy3_line_following() && g_left_pwm > 0);
+    observe(3, 30, 1402, 1402);
+    observe(3, 60, 1405, 1405);
+    assert(!buddy3_line_following() && 0 == g_left_pwm);
+    assert(buddy3_take_junction_turn(&turn) && BUDDY3_TURN_LEFT == turn);
+
+    /* ...but it still stops if the line really ends before a junction. */
+    reset();
+    observe(0, 10, 0, 0);
+    buddy3_set_junction_turn(BUDDY3_TURN_RIGHT);
+    observe(0, 20, 1500, 1500);
+    assert(buddy3_line_following());
+    observe(0, 30, 1510, 1510);
+    assert(!buddy3_line_following() && 0 == g_left_pwm);
+    assert(!buddy3_take_junction_turn(&turn)); /* No junction reached. */
 
     /* Failed encoder: travel unknown, so time decides. */
     reset();
@@ -461,7 +488,8 @@ int main (void)
          "overrides prior turn, hands barcode turns over at the junction, "
          "ignores junction "
          "branches, resumes micro steering, stops on encoder faults/stall, "
-         "stops at the end of the line (300 mm without a touch), no "
+         "stops at the end of the line (600 mm without a touch, 1500 mm "
+         "while a barcode turn waits for its junction), no "
          "15s cutoff");
     return 0;
 }

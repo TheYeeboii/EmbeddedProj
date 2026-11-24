@@ -8,6 +8,7 @@
 
 static bool     g_b_following;
 static bool     g_b_motion;
+static bool     g_b_front_black; /* a front sensor sees the line */
 static bool     g_b_accept_move = true;
 static bool     g_b_calibrated  = true;
 static bool     g_b_button_high = true;
@@ -108,7 +109,9 @@ void buddy5_set_servo_angle (uint8_t angle)
 }
 bool buddy2_turn_left_at_speed_limit (float32_t angle_deg, int16_t pwm)
 {
-    assert((90.0f == angle_deg) || (180.0f == angle_deg)); /* 180 = U-turn */
+    /* 180 = U-turn, then up to ROBOT_UTURN_SEEK_DEG more to find the line. */
+    assert((90.0f == angle_deg) || (180.0f == angle_deg) ||
+           (ROBOT_UTURN_SEEK_DEG == angle_deg));
     g_last_angle = angle_deg;
     (void) pwm;
     ++g_lefts;
@@ -179,6 +182,13 @@ bool buddy3_set_ir_levels (uint8_t sensor, uint16_t white, uint16_t black)
     }
     return b_ok;
 }
+void buddy3_get_colors (bool * p_left_black, bool * p_right_black,
+                        bool * p_side_black)
+{
+    *p_left_black  = g_b_front_black;
+    *p_right_black = false;
+    *p_side_black  = false;
+}
 void buddy3_set_junction_turn (uint8_t turn)
 {
     g_turn_request = turn;
@@ -232,6 +242,7 @@ static void reset (void)
     g_turn_request                                       = 0;
     g_turn_reached                                       = 0;
     g_b_encoder_fault                                    = false;
+    g_b_front_black                                      = false;
     g_servo_angle                                        = 90;
     g_serial_log[0]                                      = 0;
 }
@@ -498,7 +509,8 @@ static void test_barcode_turns (void)
     robot_controller_step(80);
     assert(2u == g_starts && 1u == g_rights);
 
-    /* U-turn: the same advance, then a 180 degree pivot. */
+    /* U-turn: the same advance, then a 180 degree pivot.  Ending on the
+     * line, line following takes over at once. */
     reset();
     command("line_follow", 0);
     g_b_following  = false;
@@ -508,9 +520,65 @@ static void test_barcode_turns (void)
     g_b_motion = false;
     robot_controller_step(20);
     assert(1u == g_lefts && 180.0f == g_last_angle);
+    g_b_motion      = false;
+    g_b_front_black = true;
+    robot_controller_step(30);
+    assert(1u == g_lefts); /* No extra turn needed. */
+    assert(g_b_following && (ROBOT_MODE_LINE == robot_ctl_mode()));
+
+    /* Pivot slip leaves the U-turn short (front sensors on white): it keeps
+     * turning left until a front sensor finds the line, then follows it. */
+    reset();
+    command("line_follow", 0);
+    g_b_following  = false;
+    g_turn_reached = BUDDY3_TURN_UTURN;
+    robot_controller_step(10);
+    g_b_motion = false;
+    robot_controller_step(20);
+    assert(1u == g_lefts && 180.0f == g_last_angle);
+    g_b_motion = false; /* Pivot done, but short of the line. */
+    robot_controller_step(30);
+    assert(2u == g_lefts && ROBOT_UTURN_SEEK_DEG == g_last_angle);
+    assert(!g_b_following && (ROBOT_MODE_MOTION == robot_ctl_mode()));
+    robot_controller_step(40); /* Still turning, still white. */
+    assert(2u == g_lefts && !g_b_following && g_b_motion);
+    unsigned starts = g_starts;
+    g_b_front_black = true; /* The line comes under the front sensor. */
+    robot_controller_step(50);
+    assert(!g_b_motion && g_b_following && (starts + 1u) == g_starts);
+    assert(ROBOT_MODE_LINE == robot_ctl_mode());
+    assert(strstr(g_serial_log, "U-turn found the line"));
+    robot_controller_step(60);
+    assert(2u == g_lefts && (starts + 1u) == g_starts); /* Done once. */
+
+    /* The seek limit reached without seeing the line: line following takes
+     * over (and stops by itself if there is no line). */
+    reset();
+    command("line_follow", 0);
+    g_b_following  = false;
+    g_turn_reached = BUDDY3_TURN_UTURN;
+    robot_controller_step(10);
+    g_b_motion = false;
+    robot_controller_step(20);
     g_b_motion = false;
     robot_controller_step(30);
-    assert(g_b_following && (ROBOT_MODE_LINE == robot_ctl_mode()));
+    assert(2u == g_lefts);
+    g_b_motion = false; /* Seek finished, still white. */
+    robot_controller_step(40);
+    assert(2u == g_lefts && g_b_following &&
+           (ROBOT_MODE_LINE == robot_ctl_mode()));
+
+    /* A 90 degree left turn never seeks. */
+    reset();
+    command("line_follow", 0);
+    g_b_following  = false;
+    g_turn_reached = BUDDY3_TURN_LEFT;
+    robot_controller_step(10);
+    g_b_motion = false;
+    robot_controller_step(20);
+    g_b_motion = false;
+    robot_controller_step(30);
+    assert(1u == g_lefts && 90.0f == g_last_angle && g_b_following);
 
     /* Left turn; an encoder fault after the forward move stops it. */
     reset();
@@ -613,7 +681,8 @@ int main (void)
     assert(!g_b_following && robot_controller_obstacle_avoidance_active());
     puts("PASS: letters move nothing until a junction, rejection logs, mode "
          "gate, servo commands, GP21 start/stop, avoidance handoff, "
-         "packed state, manual barcode, Wi-Fi-loss stop, A/C junction "
+         "packed state, manual barcode, Wi-Fi-loss stop, U-turn line seek, "
+         "A/C junction "
          "turns, sensor levels, line speed");
     return 0;
 }

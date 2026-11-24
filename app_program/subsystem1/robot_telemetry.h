@@ -54,6 +54,8 @@ void robot_telemetry_set_avoidance_scan_values (uint32_t ultra_left_cm,
 #define ROBOT_AVOID_STATUS_FORWARD         (9u)
 #define ROBOT_AVOID_STATUS_RECOVERING      (10u)
 #define ROBOT_AVOID_STATUS_REVERSING       (11u)
+#define ROBOT_AVOID_STATUS_PASSING         (12u) /* driving past it */
+#define ROBOT_AVOID_STATUS_REJOINING       (13u) /* back onto the line */
 /** Avoidance state, heading change and target sent to rover/debug. */
 void robot_telemetry_set_avoidance_status (uint8_t  status,
                                            int16_t  heading_change_x10,

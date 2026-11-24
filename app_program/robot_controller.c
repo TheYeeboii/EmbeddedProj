@@ -69,11 +69,18 @@
 #define ROBOT_JUNCTION_AXLE_MM  (100.0f)
 #define ROBOT_JUNCTION_TURN_DEG (90.0f)
 #define ROBOT_JUNCTION_UTURN_DEG (180.0f)
+/* A pivot slips, so the 180 degrees measured by the encoders turned the car
+ * only about 140-160 degrees on the track (24 Nov).  After the U-turn pivot
+ * the car keeps turning the same way, at most this far, until a front
+ * sensor finds the line it came in on.  Kept below 90 so it cannot reach
+ * the junction's other side branch. */
+#define ROBOT_UTURN_SEEK_DEG     (70.0f)
 #define ROBOT_LETTER_COUNT       (26)
 /* Barcode junction turn stages (g_turn_stage). */
 #define ROBOT_TURN_STAGE_NONE    (0u)
 #define ROBOT_TURN_STAGE_FORWARD (1u)
 #define ROBOT_TURN_STAGE_PIVOT   (2u)
+#define ROBOT_TURN_STAGE_SEEK    (3u)
 
 #define ROBOT_BUTTON_DEBOUNCE_STEPS (3u) /* 3 x 20 ms = 60 ms */
 /* Team decision: line following stops once Wi-Fi has been lost this long. */
@@ -163,6 +170,7 @@ static void     robot_log_barcode (const buddy3_barcode_event_t * p_event);
 static void     robot_barcode_turn (const buddy3_barcode_event_t * p_event);
 static void     robot_junction_turn_step (void);
 static void     robot_turn_abort (const char * p_reason);
+static bool     robot_front_on_line (void);
 static void     robot_check_link_loss (uint32_t now_ms);
 static void     robot_check_lifted (void);
 
@@ -856,7 +864,9 @@ static void robot_barcode_turn (const buddy3_barcode_event_t * p_event)
 
 /* Barcode junction turn: Buddy 3 stops on the junction, then the car drives
  * its sensor-to-axle distance, pivots 90 degrees (180 for a U-turn) and
- * follows the line again.  Runs in the controller task. */
+ * follows the line again.  A U-turn that ends off the line keeps turning
+ * until a front sensor finds it (ROBOT_UTURN_SEEK_DEG).  Runs in the
+ * controller task. */
 static void robot_junction_turn_step (void)
 {
     buddy3_calibration_t  calibration = {0};
@@ -877,6 +887,16 @@ static void robot_junction_turn_step (void)
         {
             robot_turn_abort("move refused");
         }
+    }
+    else if ((ROBOT_MODE_MOTION == robot_ctl_mode()) &&
+             robot_ctl_flag(ROBOT_CTL_RESUME_LINE) &&
+             (ROBOT_TURN_STAGE_SEEK == g_turn_stage) && buddy2_motion_active() &&
+             robot_front_on_line())
+    {
+        /* The U-turn found the line it came in on: follow it back. */
+        g_turn_stage = ROBOT_TURN_STAGE_NONE;
+        tm_printf((UB *) "[junction] U-turn found the line\n");
+        robot_start_line();
     }
     else if ((ROBOT_MODE_MOTION == robot_ctl_mode()) &&
              robot_ctl_flag(ROBOT_CTL_RESUME_LINE) &&
@@ -911,8 +931,23 @@ static void robot_junction_turn_step (void)
                 robot_turn_abort("turn refused");
             }
         }
+        else if ((ROBOT_TURN_STAGE_PIVOT == g_turn_stage) &&
+                 (BUDDY3_TURN_UTURN == g_turn_side) && !robot_front_on_line())
+        {
+            /* Pivot slip left the U-turn short: keep turning (same way,
+             * anticlockwise) until a front sensor finds the line. */
+            g_turn_stage = ROBOT_TURN_STAGE_SEEK;
+            robot_ctl_enter(ROBOT_MODE_MOTION, ROBOT_CTL_RESUME_LINE);
+            if (!buddy2_turn_left_at_speed_limit(ROBOT_UTURN_SEEK_DEG,
+                                                 calibration.base_pwm))
+            {
+                robot_turn_abort("seek refused");
+            }
+        }
         else
         {
+            /* Turn done, or the seek limit reached without finding the line:
+             * line following takes over (and stops if no line is found). */
             g_turn_stage = ROBOT_TURN_STAGE_NONE;
             robot_start_line();
         }
@@ -921,6 +956,18 @@ static void robot_junction_turn_step (void)
     {
         /* No junction turn to run or advance. */
     }
+}
+
+/* True when either front sensor is on the line. */
+static bool robot_front_on_line (void)
+{
+    bool b_left  = false;
+    bool b_right = false;
+    bool b_side  = false;
+
+    buddy3_get_colors(&b_left, &b_right, &b_side);
+
+    return (b_left || b_right);
 }
 
 /* Stop a barcode junction turn that cannot continue. */

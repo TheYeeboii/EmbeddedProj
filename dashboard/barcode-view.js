@@ -51,9 +51,6 @@
     renderLetter(state,label){
       const card=document.getElementById('barcode-letter');if(!card)return;
       const pick=name=>card.querySelector(`[data-letter="${name}"]`);
-      const reader=pick('reader');
-      reader.textContent=state===null?'Reader: offline':state===0?'Reader: off':'Reader: '+label;
-      reader.dataset.tone=state===null?'muted':state===0?'warning':state===2||state===3?'accent':'success';
       const ended=this.history.frames.filter(f=>f.end);
       const latest=ended[ended.length-1],good=[...ended].reverse().find(f=>f.end.reason===1);
       if(latest&&`${latest.boot}:${latest.id}`!==this.letterKey){this.letterKey=`${latest.boot}:${latest.id}`;this.letterAt=Date.now();if(latest.end.reason===1)this.goodAt=this.letterAt;}
@@ -65,7 +62,7 @@
       }else{
         pick('symbol').textContent='–';
         pick('headline').textContent=latest?'No letter decoded yet':'No barcode read yet';
-        pick('detail').textContent=state===0||state===null?
+        pick('detail').textContent=state===0?
           'Reader off. Enable it in IR / barcode → Tools → Reader setup.':
           'Press GP21 to line follow, or drive forward with W, over the whole barcode.';
       }

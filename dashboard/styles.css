@@ -491,7 +491,6 @@ kbd {
 .barcode-letter-card[data-result="scanning"] .barcode-letter-symbol { background: color-mix(in oklch, var(--accent) 18%, transparent); color: var(--accent); }
 .barcode-letter-card[data-result="rejected"] [data-letter="latest"] { color: var(--destructive); }
 @media (max-width: 480px) { .barcode-letter-symbol { width: 72px; height: 72px; font-size: 48px; } }
-.barcode-letter-card [data-letter="reader"] { text-transform: none; }
 
 /* Main column groups: status | steering + serial | IR evidence. */
 .main-group { display: grid; gap: 16px; min-width: 0; align-content: start; }
@@ -781,3 +780,9 @@ kbd {
 .ir-threshold-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 16px; min-width: 0; }
 
 .ir-threshold-editor [hidden], .ir-evidence-panel svg[hidden] { display: none !important; }
+
+/* Columns scroll; a card must never be squeezed below its own content. */
+@media (min-width: 1180px) and (min-height: 600px) {
+  .main-group > .card, .main-group > section { flex-shrink: 0; }
+  .group-ir > #barcode-visual { flex: 1 0 auto; min-height: 300px; }
+}

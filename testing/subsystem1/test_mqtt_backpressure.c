@@ -88,6 +88,8 @@ int ipaddr_aton(const char * text, ip_addr_t * address)
 }
 mqtt_client_t * mqtt_client_new(void) { return &client; }
 int mqtt_client_is_connected(mqtt_client_t * pointer) { return pointer->connected; }
+static unsigned disconnects;
+void mqtt_disconnect(mqtt_client_t * pointer) { pointer->connected = 0; disconnects++; }
 void mqtt_set_inpub_callback(mqtt_client_t * pointer,
  void (*publish)(void *, const char *, u32_t),
  void (*data)(void *, const u8_t *, u16_t, u8_t), void * arg)
@@ -220,9 +222,14 @@ int main(void)
     advance(1000);
     robot_mqtt_poll(&netif);
     assert(g_b_outgoing_pending);
+    /* Wi-Fi loss closes the old session at once; queued data is kept. */
+    assert(disconnects == 1 && !client.connected);
+    robot_mqtt_poll(&netif);
+    assert(disconnects == 1);
     assert(!comms_publish(COMMS_TOPIC_HEARTBEAT, second, sizeof second));
     netif.link = 1;
     publish_result = ERR_OK;
+    client.connected = 1; /* The broker accepts the new session. */
     robot_mqtt_connected(&client, NULL, MQTT_CONNECT_ACCEPTED);
     unsigned before = delivered;
     robot_mqtt_poll(&netif);

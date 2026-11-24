@@ -177,6 +177,8 @@ typedef struct {
     /* Stamped by the reader, not the radio task: how many torn snapshots the
      * seqlock in cyw43_utk_get_status() has had to discard since boot. */
     uint32_t status_retries;
+    /* Joins started again after a failed join or a lost link. */
+    volatile uint32_t join_attempts;
 } T_CYW43_UTK_STATUS;
 
 int32_t cyw43_utk_start(void);

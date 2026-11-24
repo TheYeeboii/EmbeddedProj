@@ -73,12 +73,16 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS <= 255u,
 #define BUDDY3_ALL_BLACK_STOP_MS (3000u)
 /* End of the line: the line is narrower than the sensor gap, so both sensors
  * on white looks the same whether the line is centred or gone.  While
- * following, the rover drifts and touches an edge every few centimetres; if
- * neither front sensor has touched the line for this much wheel travel, the
- * line has ended (or been lost): stop instead of driving off.  If an encoder
- * has failed, travel cannot be measured, so the time limit is used. */
-#define BUDDY3_NO_LINE_STOP_MM (300.0f)
-#define BUDDY3_NO_LINE_STOP_MS (3000u)
+ * following, the rover drifts and touches an edge every few centimetres
+ * (measured on the track 24 Nov: median 59 mm, longest 266 mm on a straight
+ * after a barcode); if neither front sensor has touched the line for this
+ * much wheel travel, the line has ended (or been lost): stop instead of
+ * driving off.  While a barcode movement waits for its junction, the
+ * junction is known to be ahead, so a longer straight is allowed.  If an
+ * encoder has failed, travel cannot be measured, so the time limit is used. */
+#define BUDDY3_NO_LINE_STOP_MM      (600.0f)
+#define BUDDY3_NO_LINE_TURN_STOP_MM (1500.0f)
+#define BUDDY3_NO_LINE_STOP_MS      (3000u)
 /* Our line is 18 mm, narrower than the gap between the front sensors, so
  * "both on floor" is NORMAL (line between them). */
 #define BUDDY3_EDGE_THRESHOLD (500u) /* normalized: sensor is over black */
@@ -1214,9 +1218,14 @@ static bool buddy3_end_of_line_stop (uint32_t now_ms)
 {
     buddy2_motion_state_t motion    = {0};
     float32_t             travelled = 0.0f;
+    float32_t             limit_mm  = BUDDY3_NO_LINE_STOP_MM;
     bool                  b_encoder_fault;
     bool                  b_end     = false;
 
+    if (BUDDY3_TURN_NONE != g_junction_turn)
+    {
+        limit_mm = BUDDY3_NO_LINE_TURN_STOP_MM;
+    }
     buddy2_get_motion_state(&motion);
     travelled       = (motion.left_distance_mm + motion.right_distance_mm) / 2.0f;
     b_encoder_fault = motion.left_encoder_fault || motion.right_encoder_fault;
@@ -1238,15 +1247,16 @@ static bool buddy3_end_of_line_stop (uint32_t now_ms)
     }
     else
     {
-        b_end = ((travelled - g_touch_mm) > BUDDY3_NO_LINE_STOP_MM);
+        b_end = ((travelled - g_touch_mm) > limit_mm);
     }
 
     if (b_end)
     {
         g_trace_phase = TRACE_STOP;
         buddy3_stop_observed(true);
+        /* limit_mm is one of two small positive constants: fits UINT. */
         tm_printf((UB *) "[line] no line for %u mm - end of line, stopped\n",
-                  (UINT) BUDDY3_NO_LINE_STOP_MM);
+                  (UINT) limit_mm);
     }
 
     return b_end;

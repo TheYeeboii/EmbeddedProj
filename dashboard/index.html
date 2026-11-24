@@ -174,7 +174,7 @@
           </section>
 
           <section id="barcode-letter" data-widget="barcode-letter" class="card barcode-letter-card" aria-labelledby="barcode-letter-title" data-result="none">
-            <header class="card-header"><h2 id="barcode-letter-title">Barcode letter</h2><span data-letter="reader" class="badge" data-tone="muted">Reader: waiting…</span></header>
+            <header class="card-header"><h2 id="barcode-letter-title">Barcode letter</h2></header>
             <div class="barcode-letter-body">
               <span data-letter="symbol" class="barcode-letter-symbol num" aria-live="polite">–</span>
               <div class="barcode-letter-info">
@@ -201,26 +201,7 @@
         </div>
 
         <div class="main-group group-ir">
-          <section class="ir-threshold-panels" data-widget="ir-threshold-editor" aria-label="Three sensor IR tuning">
-          <form id="ir-threshold-editor" class="card ir-threshold-editor" aria-labelledby="ir-threshold-title">
-            <header class="card-header"><h2 id="ir-threshold-title">Barcode IR threshold tuning</h2><span data-threshold="live" class="badge">Sensor unavailable</span></header>
-            <p data-threshold="speed" class="small" hidden></p>
-            <p data-threshold="hint" class="muted small">Raw ADC · drag either stop or type a value. Grey retains the previous colour. Apply sends the draft to the rover.</p>
-            <div class="threshold-strip" data-threshold="strip"><span data-threshold="marker" class="threshold-marker" aria-hidden="true"></span></div>
-            <div class="threshold-handles">
-              <input data-threshold="low-range" type="range" min="0" max="4095" step="1" value="700" aria-label="Lower ADC stop">
-              <input data-threshold="high-range" type="range" min="0" max="4095" step="1" value="1000" aria-label="Upper ADC stop">
-            </div>
-            <div class="threshold-fields">
-              <label>Lower stop<input data-threshold="low-number" class="input num" type="number" min="0" max="4095" step="1" value="700" required></label>
-              <label>Upper stop<input data-threshold="high-number" class="input num" type="number" min="0" max="4095" step="1" value="1000" required></label>
-              <label class="threshold-polarity"><input data-threshold="invert" type="checkbox"> Black at low readings</label>
-            </div>
-            <p data-threshold="legend" class="small"></p>
-            <p data-threshold="active" class="small">Waiting for active rover settings.</p>
-            <div class="threshold-actions"><button data-threshold="apply" class="btn btn-sm" type="submit" disabled>Apply raw thresholds</button><button data-threshold="legacy" class="btn btn-outline btn-sm" type="button" disabled>Use existing classifier</button></div>
-            <p data-threshold="status" class="muted small" role="status">Waiting for tuning-capable firmware. Settings reset on reboot. Grey starts as white after applying.</p>
-          </form>
+          <section class="ir-threshold-panels" data-widget="ir-threshold-editor" aria-label="Front sensor IR tuning">
           <form id="ir-threshold-editor-left" class="card ir-threshold-editor" aria-labelledby="ir-threshold-title-left">
             <header class="card-header"><h2 id="ir-threshold-title-left">Front-left IR threshold tuning</h2><span data-threshold="live" class="badge">Sensor unavailable</span></header>
             <p data-threshold="hint" class="muted small">Raw ADC · drag either stop or type a value. Grey retains the previous colour. Apply sends the draft to the rover.</p>

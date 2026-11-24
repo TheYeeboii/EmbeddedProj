@@ -28,6 +28,7 @@ const CM_PER_TICK = (Math.PI * 6.5) / 387;
 /* Buddy 5 avoid_status names (robot_telemetry.c) and the badge tone for each. */
 const AVOID_TONES = {
   idle: 'muted', scanning: 'accent', turning: 'accent', forward: 'accent', recovering: 'accent', reversing: 'accent',
+  passing: 'accent', rejoining: 'accent',
   complete: 'success', cancelled: 'muted',
   blocked: 'warning', imu_unavailable: 'destructive', imu_lost: 'destructive', timeout: 'destructive'
 };
@@ -54,8 +55,10 @@ const barcodeConfiguration = new window.RoverBarcodeConfiguration($('#barcode-co
   send: (command, values) => sendCommand(command, values, { quiet: true })
 });
 
-const irThresholdViews = ['ir-threshold-editor', 'ir-threshold-editor-left',
-  'ir-threshold-editor-right'].map((id, sensor) => new window.RoverIRThresholdView(
+/* Front line sensors only (1 = left, 2 = right).  The barcode sensor (0) is a
+ * digital input: its switch point is set on the sensor module, not here. */
+const irThresholdViews = [['ir-threshold-editor-left', 1],
+  ['ir-threshold-editor-right', 2]].map(([id, sensor]) => new window.RoverIRThresholdView(
     $('#' + id), (command, values) => sendCommand(command, values, { quiet: true }), sensor));
 
 let client = null;
@@ -388,7 +391,7 @@ function showAvoidance(data) {
   const change = typeof data.avoid_heading_change_x10 === 'number' ? data.avoid_heading_change_x10 / 10 : null;
   const target = typeof data.avoid_heading_target_x10 === 'number' && data.avoid_heading_target_x10 > 0
     ? data.avoid_heading_target_x10 / 10 : null;
-  const holding = data.avoid_status === 'forward' || data.avoid_status === 'recovering';
+  const holding = ['forward', 'recovering', 'passing', 'rejoining'].includes(data.avoid_status);
   if (holding) {
     setText('avoid-heading', `${fmt(change)}°`);
     setText('avoid-heading-note', 'heading error');
@@ -446,7 +449,7 @@ function appendSerial(data) {
   }
   if (data.avoid_status && data.avoid_status !== 'idle') {
     parts.push(['k', '  avoid: '], [data.avoid_status === 'turning' ? 'y' : '', data.avoid_status]);
-    if ((data.avoid_status === 'forward' || data.avoid_status === 'recovering') &&
+    if (['forward', 'recovering', 'passing', 'rejoining'].includes(data.avoid_status) &&
         typeof data.avoid_heading_change_x10 === 'number') {
       const error = (Number(data.avoid_heading_change_x10) / 10).toFixed(1);
       parts.push(['k', '  heading error: '], ['', `${error} deg`]);

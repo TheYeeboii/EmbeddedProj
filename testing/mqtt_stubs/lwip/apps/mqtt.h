@@ -20,6 +20,7 @@ struct mqtt_connect_client_info_t {
 };
 mqtt_client_t * mqtt_client_new(void);
 int mqtt_client_is_connected(mqtt_client_t *);
+void mqtt_disconnect(mqtt_client_t *);
 void mqtt_set_inpub_callback(mqtt_client_t *,
  void (*)(void *, const char *, u32_t),
  void (*)(void *, const u8_t *, u16_t, u8_t), void *);

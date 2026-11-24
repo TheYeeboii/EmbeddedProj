@@ -25,7 +25,8 @@
   const SENSOR_STATES = ['online', 'compass_error', 'imu_error'];
   const DECISIONS = ['none', 'left', 'right'];
   const AVOID_STATUS = ['idle', 'scanning', 'turning', 'complete', 'blocked', 'imu_unavailable',
-    'imu_lost', 'timeout', 'cancelled', 'forward', 'recovering', 'reversing'];
+    'imu_lost', 'timeout', 'cancelled', 'forward', 'recovering', 'reversing',
+    'passing', 'rejoining'];
   /* robot_fault.h bit order. */
   const FAULTS = ['wifi_loss', 'mqtt_loss', 'imu', 'no_echo', 'encoder', 'motor_stall'];
 

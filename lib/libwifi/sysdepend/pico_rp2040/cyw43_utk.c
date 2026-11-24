@@ -28,6 +28,10 @@
  * budget returns the last copy and is visible through status_retries. */
 #define CYW43_STATUS_READ_ATTEMPTS 16
 #define CYW43_JOIN_TIMEOUT_US 30000000ULL
+/* Rejoin: wait this long after a failed join before trying again, and treat
+ * the link as lost once it has been down this long after a good join. */
+#define CYW43_REJOIN_DELAY_US 3000000ULL
+#define CYW43_LINK_LOST_US    5000000ULL
 #define CYW43_DHCP_TIMEOUT_US 30000000ULL
 #define CYW43_DNS_TIMEOUT_US  30000000ULL
 
@@ -228,6 +232,30 @@ void cyw43_utk_link_state_changed(int up)
     mp_memory_barrir();
 }
 
+#if TM_WIFI_JOIN
+/* Start one join attempt.  Called with the radio owned by this task. */
+static void start_join(uint64_t *join_started_us)
+{
+    int32_t result;
+
+    radio_status.join_started = 1;
+    radio_status.join_complete = 0;
+    radio_status.link_up = 0;
+    radio_status.link_status = CYW43_LINK_DOWN;
+    *join_started_us = time_us_64();
+    result = cyw43_wifi_join(&cyw43_state,
+                             sizeof(wifi_ssid) - 1, wifi_ssid,
+                             sizeof(wifi_password) - 1, wifi_password,
+                             UTK_WIFI_AUTH, NULL,
+                             CYW43_CHANNEL_NONE);
+    radio_status.join_request_result = result;
+    if(result != 0) {
+        radio_status.join_result = result;
+        radio_status.join_complete = 1;
+    }
+}
+#endif
+
 static int scan_result(void *env, const cyw43_ev_scan_result_t *result)
 {
     T_CYW43_UTK_STATUS *status = env;
@@ -247,6 +275,8 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
     bool was_scanning;
 #if TM_WIFI_JOIN
     uint64_t join_started_us = 0;
+    uint64_t rejoin_at_us = 0;
+    uint64_t link_lost_us = 0;
 #endif
 
     (void)stacd;
@@ -319,21 +349,7 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
             mp_memory_barrir();
             radio_status.scan_complete = 1;
 #if TM_WIFI_JOIN
-            radio_status.join_started = 1;
-            radio_status.join_complete = 0;
-            radio_status.link_up = 0;
-            radio_status.link_status = CYW43_LINK_DOWN;
-            join_started_us = time_us_64();
-            result = cyw43_wifi_join(&cyw43_state,
-                                     sizeof(wifi_ssid) - 1, wifi_ssid,
-                                     sizeof(wifi_password) - 1, wifi_password,
-                                     UTK_WIFI_AUTH, NULL,
-                                     CYW43_CHANNEL_NONE);
-            radio_status.join_request_result = result;
-            if(result != 0) {
-                radio_status.join_result = result;
-                radio_status.join_complete = 1;
-            }
+            start_join(&join_started_us);
 #endif
         }
 #if TM_WIFI_JOIN
@@ -361,6 +377,30 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
                 radio_status.join_result = -CYW43_ETIMEDOUT;
                 mp_memory_barrir();
                 radio_status.join_complete = 1;
+            }
+        }
+        /* Rejoin: a failed join is retried after a short wait, and a link
+         * that stays down after a good join (hotspot off or out of range) is
+         * dropped and joined again.  lwIP restarts DHCP on link up. */
+        if(radio_status.join_started && radio_status.join_complete) {
+            uint64_t now = time_us_64();
+
+            if(radio_status.join_result != 0) {
+                if(rejoin_at_us == 0) rejoin_at_us = now + CYW43_REJOIN_DELAY_US;
+            } else if(cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA)
+                      == CYW43_LINK_JOIN) {
+                link_lost_us = 0;
+            } else if(link_lost_us == 0) {
+                link_lost_us = now;
+            } else if(now - link_lost_us >= CYW43_LINK_LOST_US) {
+                link_lost_us = 0;
+                rejoin_at_us = now;
+            }
+            if(rejoin_at_us != 0 && now >= rejoin_at_us) {
+                rejoin_at_us = 0;
+                radio_status.join_attempts++;
+                (void)cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+                start_join(&join_started_us);
             }
         }
 #endif
