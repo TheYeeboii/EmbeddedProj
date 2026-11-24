@@ -123,7 +123,7 @@ heading alignment or distinguish a junction from a wide line.
 
 ## Limits and next test
 
-The timing values in app_program/buddy3_steering.h are initial test settings,
+The timing values in app_program/subsystem3/buddy3_steering.h are initial test settings,
 not calibrated physical angles. Do not treat a successful software test as a
 successful track test. Cross-junctions now use a straight-through policy; the
 two front sensors still cannot reliably classify cross versus T-junctions.
@@ -139,8 +139,8 @@ test. Try the A/C barcode junction turns only after the steering tests pass.
 From the repository root:
 
 ```sh
-cc -std=c11 -Wall -Wextra -Werror -I firmware/app_program \
-  tests/test_buddy3_steering.c firmware/app_program/buddy3_steering.c \
+cc -std=c11 -Wall -Wextra -Werror -I app_program \
+  testing/subsystem3/test_buddy3_steering.c app_program/subsystem3/buddy3_steering.c \
   -o /tmp/test_buddy3_steering
 /tmp/test_buddy3_steering
 ```

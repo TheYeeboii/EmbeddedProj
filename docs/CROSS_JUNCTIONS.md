@@ -61,10 +61,10 @@ dimensions of this track. Verify equal wheel travel/trim before raising bounds.
 ## Regression checks
 
 ```sh
-cc -std=c11 -Wall -Wextra -Werror -I firmware/app_program tests/test_buddy3_junction.c firmware/app_program/buddy3_junction.c -o /tmp/test_buddy3_junction
+cc -std=c11 -Wall -Wextra -Werror -I app_program testing/subsystem3/test_buddy3_junction.c app_program/subsystem3/buddy3_junction.c -o /tmp/test_buddy3_junction
 /tmp/test_buddy3_junction
 
-cc -std=c11 -Wall -Wextra -Werror -I tests/stubs -I firmware/app_program tests/test_buddy3_ir_junction.c firmware/app_program/buddy3_junction.c firmware/app_program/buddy3_steering.c firmware/app_program/buddy3_barcode.c -o /tmp/test_buddy3_ir_junction
+cc -std=c11 -Wall -Wextra -Werror -I testing/stubs -I app_program testing/subsystem3/test_buddy3_ir_junction.c app_program/subsystem3/buddy3_junction.c app_program/subsystem3/buddy3_steering.c app_program/subsystem3/buddy3_barcode.c -o /tmp/test_buddy3_ir_junction
 /tmp/test_buddy3_ir_junction
 ```
 

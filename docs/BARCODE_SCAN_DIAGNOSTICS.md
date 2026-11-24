@@ -174,26 +174,26 @@ mailbox limit. No broker authentication/configuration changes are included.
 Continuous regressions cover black pulses with stationary encoders and blocked
 or unconfigured decoding, queue pressure/retry/wrap, calibration serialization,
 and actual C-generated packets through the JS history. The browser test
-`tests/test_dashboard_ir_stream_browser.cjs` accepts continuous and barcode
+`testing/subsystem3/test_dashboard_ir_stream_browser.cjs` accepts continuous and barcode
 NDJSON fixture paths; it verifies black without barcode frames, independent
 buffers/tabs, unknown gaps, partial black elements, export/import, disconnect,
 mobile layout and that tab/dropdown keyboard navigation sends no motor command.
-Compile `tests/test_robot_ir_stream.c` and run it with an output path to generate
+Compile `testing/subsystem3/test_robot_ir_stream.c` and run it with an output path to generate
 the continuous fixture. These tests are included in the diagnostics suite except
 for the browser test, which needs the local server and Playwright described below.
 
 
-`sh tests/run_ir_diagnostics_tests.sh` covers firmware capture/serialization,
+`sh testing/run_ir_diagnostics_tests.sh` covers firmware capture/serialization,
 bounded raw storage, aborted evidence, overflow/backpressure/stale ack, real
 C-generated JSON into the dashboard model, reference A–Z, independent F/Y/A/Z
 fixtures at five scales and both orientations, missing rows, conflicting and
-out-of-order data, reboot and export/import. `sh tests/run_barcode_tests.sh`
+out-of-order data, reboot and export/import. `sh testing/run_barcode_tests.sh`
 also verifies the underlying decoder, real IR adapter and GP21/controller.
 
-For browser tests, compile `tests/test_robot_barcode_trace.c` with
+For browser tests, compile `testing/subsystem3/test_robot_barcode_trace.c` with
 `buddy3_barcode.c` and `code39.c`, then run the executable with a temporary
 NDJSON output path. Serve `dashboard/` on localhost:8765 and run
-`node tests/test_dashboard_barcode_browser.cjs /path/to/output.ndjson` with
+`node testing/subsystem3/test_dashboard_barcode_browser.cjs /path/to/output.ndjson` with
 Playwright available. `PLAYWRIGHT_CHROME_PATH` can select installed Chrome.
 The browser consumes the actual C serializer output through mocked MQTT and
 checks growing scans, no premature result, freeze, F in both directions,

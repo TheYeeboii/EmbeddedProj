@@ -397,6 +397,16 @@ function showAvoidance(data) {
     setText('avoid-heading-note', 'turned / target');
   }
 
+  /* Obstacle size from the width sweep; stays until the next obstacle. */
+  if (typeof data.obstacle_width_mm === 'number') {
+    const measured = data.obstacle_width_mm > 0;
+    setText('obstacle-width', measured
+      ? `${data.obstacle_width_partial ? '≥ ' : ''}${(data.obstacle_width_mm / 10).toFixed(1)}` : '--');
+    setText('obstacle-width-note', !measured ? 'from the servo sweep'
+      : (data.obstacle_width_partial ? 'one edge not found: at least' : 'both edges found'));
+    setText('obstacle-distance', data.obstacle_cm > 0 ? fmt(data.obstacle_cm) : '--');
+  }
+
   const goal = data.avoid_forward_target_mm;
   const done = typeof goal === 'number' && goal > 0 && typeof data.avoid_forward_mm === 'number';
   setText('avoid-forward', done ? `${data.avoid_forward_mm} / ${goal} mm` : '--');
@@ -735,6 +745,59 @@ $('#speed-form').addEventListener('submit', (event) => {
   event.preventDefault();
   sendSpeedLimit();
 });
+
+/* ---------- barcode letter -> movement mapping ---------- */
+/* Set just before the demo; nothing is hard-coded on the rover. Kept in this
+ * browser and re-sent whenever the rover comes online (a reboot forgets it). */
+const BARCODE_MAP_KEY = 'buddy1-barcode-map';
+const BARCODE_MAP_FIELDS = ['forward', 'uturn', 'left', 'right'];
+let barcodeMap = null;
+
+function readBarcodeMap() {
+  const letters = BARCODE_MAP_FIELDS.map((name) => $('#map-' + name).value.trim().toUpperCase());
+  const error = $('#barcode-map-error');
+  const bad = letters.find((l) => l !== '' && !/^[A-Z]$/.test(l));
+  const used = letters.filter((l) => l !== '');
+  let message = '';
+  if (bad !== undefined) message = `"${bad}" is not a letter A–Z.`;
+  else if (new Set(used).size !== used.length) message = 'Each movement needs a different letter.';
+  else if (used.length === 0) message = 'Enter at least one letter.';
+  error.textContent = message;
+  error.hidden = message === '';
+  return message === '' ? letters : null;
+}
+
+function sendBarcodeMap(letters, { quiet = false } = {}) {
+  const values = {};
+  BARCODE_MAP_FIELDS.forEach((name, i) => {
+    values[name] = letters[i] === '' ? 31 : letters[i].charCodeAt(0) - 65;
+  });
+  if (!sendCommand('barcode_map', values, { quiet })) return false;
+  const state = $('#barcode-map-state');
+  state.textContent = 'Sent ' + BARCODE_MAP_FIELDS.map((name, i) =>
+    `${name === 'uturn' ? 'U' : name[0].toUpperCase()}=${letters[i] || '-'}`).join(' ');
+  state.dataset.tone = 'success';
+  return true;
+}
+
+$('#barcode-map-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const letters = readBarcodeMap();
+  if (!letters) return;
+  barcodeMap = letters;
+  try { localStorage.setItem(BARCODE_MAP_KEY, JSON.stringify(letters)); } catch {}
+  BARCODE_MAP_FIELDS.forEach((name, i) => { $('#map-' + name).value = letters[i]; });
+  sendBarcodeMap(letters);
+});
+
+try {
+  const saved = JSON.parse(localStorage.getItem(BARCODE_MAP_KEY) || 'null');
+  if (Array.isArray(saved) && saved.length === BARCODE_MAP_FIELDS.length) {
+    barcodeMap = saved;
+    BARCODE_MAP_FIELDS.forEach((name, i) => { $('#map-' + name).value = saved[i] || ''; });
+    $('#barcode-map-state').textContent = 'Saved, sends when the rover is online';
+  }
+} catch {}
 $('#servo-form').addEventListener('submit', (event) => {
   event.preventDefault();
   sendServoAngle();
@@ -744,7 +807,7 @@ document.querySelectorAll('[data-servo-angle]').forEach((button) => {
 });
 /* Reset to the firmware defaults (BUDDY2_TRIM_DEFAULT_LEFT/RIGHT). */
 $('#trim-reset').addEventListener('click', () => {
-  $('#trim-left').value = 83;
+  $('#trim-left').value = 100;
   $('#trim-right').value = 100;
   sendTrim();
 });
@@ -926,7 +989,7 @@ if (!window.mqtt) {
     else if (topic === topics.irStream) {
       if (irStreamView.handle(data)) {
         markSeen();
-        /* 10 ms rows (DIAGNOSTICS=1 builds): faster live value, and the
+        /* 10 ms rows: faster live value, and the
          * levels the robot is using right now. */
         const row = Array.isArray(data.rows) ? data.rows[data.rows.length - 1] : null;
         if (row) {
@@ -942,6 +1005,8 @@ if (!window.mqtt) {
       robotOffline = data.state === 'offline';
       if (!robotOffline) lastSeen = Date.now();
       refreshRobotLink();
+      /* A rebooted rover has no mapping: send the stored one again. */
+      if (!robotOffline && barcodeMap) sendBarcodeMap(barcodeMap, { quiet: true });
     }
   });
 }

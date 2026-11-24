@@ -1,9 +1,9 @@
 # Buddy 5: Ultrasonic Sensor and Obstacle Avoidance Flow
 
 Buddy 5 consists of the HC-SR04+ ultrasonic sensor and its scanning servo.
-The sensor module is implemented in `firmware/app_program/buddy5_ultrasonic.c`.
+The sensor module is implemented in `app_program/subsystem5/buddy5_ultrasonic.c`.
 The higher-level obstacle-avoidance sequence is implemented by
-`buddy5_avoidance_task()` in `firmware/app_program/buddy5_avoidance.c`.
+`buddy5_avoidance_task()` in `app_program/subsystem5/buddy5_avoidance.c`.
 
 ## Normal forward measurement
 

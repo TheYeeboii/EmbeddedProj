@@ -40,7 +40,7 @@
       const r=this.history.readiness;
       this.find('readiness').textContent=r?
         `Side-sensor snapshot: raw ${r[0]}, normalized ${r[1]}/1000, ${r[2]?'black':'white'}. White lead-in observed: ${mm(r[3])} mm. Sensor travel this observation: ${mm(r[4])} mm; allowed ≤${mm(r[5])} mm. Oversized steps rejected: ${r[7]} (last ${mm(r[6])} mm).`:
-        'Pre-scan sensor/encoder readings are unavailable. rover/barcode is a diagnostic stream: build the firmware with DIAGNOSTICS=1 to enable it.';
+        'Pre-scan sensor/encoder readings are unavailable. Waiting for the rover/barcode stream: check the rover is online.';
       const state=this.history.state,blocked=this.history.last?.blocked??0;
       const label=state===null?'Reader state unavailable / buffered history':
         state===6?(blocked&32?'Suspended: sampling too coarse — slow down':blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':

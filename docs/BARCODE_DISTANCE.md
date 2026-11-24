@@ -136,7 +136,7 @@ Physical qualification and real IR traces remain outstanding in #12/#16.
 From the repository root:
 
 ```sh
-sh tests/run_barcode_tests.sh
+sh testing/run_barcode_tests.sh
 ```
 
 Tests cover A–Z, five scales, 2:1/3:1 ratios, bounded width noise, photo-derived

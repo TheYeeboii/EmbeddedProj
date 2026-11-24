@@ -1,8 +1,20 @@
-# BARR-C 3.6.a: C test sources use LF line endings (firmware/ has its own
-# .gitattributes that already does this).
-tests/*.c text eol=lf
-tests/*.h text eol=lf
-tests/data/*.h text eol=lf
+# Firmware sources and build files keep Unix line endings so make and the
+# shell scripts work from WSL on a Windows checkout.
+app_program/** text=auto eol=lf
+build_make/** text=auto eol=lf
+config/** text=auto eol=lf
+device/** text=auto eol=lf
+etc/** text=auto eol=lf
+include/** text=auto eol=lf
+kernel/** text=auto eol=lf
+lib/** text=auto eol=lf
+tools/** text=auto eol=lf
+*.uf2 binary
+*.pdf binary
+*.png binary
+# BARR-C 3.6.a: C test sources use LF line endings.
+testing/**/*.c text eol=lf
+testing/**/*.h text eol=lf
 docs/templates/*.c text eol=lf
 docs/templates/*.h text eol=lf
 # Shell scripts keep LF so they also run from WSL on a Windows checkout.

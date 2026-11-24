@@ -26,10 +26,9 @@
     refresh() {
       if (this.pending && this.clock() - this.pending.at >= 5000) {
         this.pending = null;
-        /* No barcode_state packet has ever arrived: the default firmware
-         * (DIAGNOSTICS=0) accepts the settings but cannot report them. */
+        /* No barcode_state packet has ever arrived from the rover. */
         this.field('status').textContent = this.boot === null ?
-          'Settings sent. This firmware has no diagnostic streams (DIAGNOSTICS=0), so the dashboard cannot confirm them. Check the USB console for "[barcode] configured".' :
+          'Settings sent, but the rover has not reported back. Check it is online, or the USB console for "[barcode] configured".' :
           'No configuration confirmation. Keep the rover stopped; check the USB configuration response and encoder calibration.';
       }
       this.field('apply').disabled = !this.isIdle() || !!this.pending;

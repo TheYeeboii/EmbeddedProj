@@ -307,8 +307,8 @@ Both profiles build with `-Wall -Wextra` and no Buddy 4 warnings: USB (`SMP=0`, 
 flashed or tested on the rover.
 
 The impact checks above describe the code before the requirement change.
-Lifted / overturned detection is covered by `tests/test_buddy4_lift.c`, which
-runs in `sh tests/run_barcode_tests.sh`. It checks that a single upward spike
+Lifted / overturned detection is covered by `testing/subsystem4/test_buddy4_lift.c`, which
+runs in `sh testing/run_barcode_tests.sh`. It checks that a single upward spike
 and normal vibration do not trigger a stop, that two samples above 1.25 g do,
 and that the flag then stays set while the rover is held in the air (all IR
 sensors black) until they see the floor again or a new start clears it; the

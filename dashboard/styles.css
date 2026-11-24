@@ -1,4 +1,8 @@
 /* Tokens follow shadcn/ui naming: each surface pairs with a -foreground. */
+/* Barcode movement mapping: four one-letter boxes. */
+.barcode-map-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.barcode-map-grid .field { display: flex; flex-direction: column; gap: 4px; }
+.barcode-map-input { text-align: center; text-transform: uppercase; font-size: 1.1rem; }
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;

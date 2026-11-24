@@ -11,7 +11,7 @@ them. The old numeric 1/2/3 motor-action path has been removed.
 
 ## Test one stage at a time
 
-1. Run `sh tests/run_barcode_tests.sh`. These tests need no board or network.
+1. Run `sh testing/run_barcode_tests.sh`. These tests need no board or network.
 2. Check both encoders and calibrate the side sensor over black and white at its
    mounted height. Measure its sideways offset from the wheel midpoint.
 3. Configure the minimum resolvable element and offset while stopped, following
@@ -50,12 +50,12 @@ it never restarts a stopped rover.
 
 ## Implementation verification (4 November 2026)
 
-All five suites in `sh tests/run_barcode_tests.sh` pass. The existing Buddy 2
+All five suites in `sh testing/run_barcode_tests.sh` pass. The existing Buddy 2
 action-log, MQTT action-log and dashboard action-log tests also pass. Pico W
 USB CDC firmware compiles and links with SDK 2.3.1:
 
 ```sh
-cd firmware/build_make
+cd build_make
 make CONSOLE=usb_cdc PICO_SDK_PATH=/path/to/pico-sdk/2.3.1 -j4
 ```
 

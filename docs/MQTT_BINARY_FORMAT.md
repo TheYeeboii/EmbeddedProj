@@ -8,12 +8,12 @@ and the dashboard decoder.
 
 | Where | File |
 |---|---|
-| Bit packing helpers (byte by byte, MSB first) | `firmware/app_program/robot_packed.c/.h` |
-| Message layouts, command decoder | `firmware/app_program/robot_wire.c/.h` |
-| Shared fault byte | `firmware/app_program/robot_fault.c/.h` |
-| Binary-safe mailboxes | `firmware/app_program/comms.c/.h`, `robot_mqtt.c` |
+| Bit packing helpers (byte by byte, MSB first) | `app_program/subsystem1/robot_packed.c/.h` |
+| Message layouts, command decoder | `app_program/subsystem1/robot_wire.c/.h` |
+| Shared fault byte | `app_program/robot_fault.c/.h` |
+| Binary-safe mailboxes | `app_program/subsystem1/comms.c/.h`, `mqtt_utk.c` |
 | Dashboard decoder / command packer | `dashboard/rover-wire.js` |
-| Tests | `tests/test_robot_wire.c`, `tests/test_rover_wire.cjs` |
+| Tests | `testing/subsystem1/test_robot_wire.c`, `testing/subsystem1/test_rover_wire.cjs` |
 
 `robot_wire.c` and `rover-wire.js` must change in the same commit. Raise
 `ROBOT_WIRE_VERSION` (and `VERSION` in `rover-wire.js`) whenever a layout
@@ -210,7 +210,7 @@ Binary payloads contain 0x00 bytes, and three places assumed text:
 
 1. `comms_publish()` measured the payload with `comms_strlen`. It is now
    `comms_publish(topic, data, len)`; nothing sends text any more.
-2. `robot_mqtt.c` published with `strlen(g_outgoing)`. It now uses the length
+2. `mqtt_utk.c` published with `strlen(g_outgoing)`. It now uses the length
    the mailbox returns. The Last Will passes its length explicitly
    (`will_msg_len` = 1).
 3. `comms_wait_command()` handed the controller a string. It now returns
@@ -307,17 +307,17 @@ count the kernel's memory pool.
 
 ## Correctness evidence
 
-- `tests/test_robot_wire.c`: round-trips every telemetry and debug field at
+- `testing/subsystem1/test_robot_wire.c`: round-trips every telemetry and debug field at
   its minimum, maximum and edge values (trim 50 and 100, distance 0 and 400,
   negative pitch, tick wrap, -1000 line position, +/-32767 PWM). It also
   checks saturation, overflow and overrun, and accepts or rejects commands
   (unknown opcode, opcode 7, old JSON and text, wrong length, stray padding
   bit, and a valid command containing 0x00).
-- `tests/test_rover_wire.cjs`: decodes the C encoder's golden bytes in the
+- `testing/subsystem1/test_rover_wire.cjs`: decodes the C encoder's golden bytes in the
   dashboard and checks every value. It checks that the dashboard packs the
   exact command bytes the firmware accepts, and that the encoder counts
   unwrap across 0xFFFF in both directions.
-- `tests/test_robot_barcode_controller.c`: the controller's command, button
+- `testing/integration/test_robot_barcode_controller.c`: the controller's command, button
   and barcode tests now run on packed commands. It also checks that the
   packed state byte holds mode + flags, and the Wi-Fi-loss stop. That stop
   must not fire within the 2 s grace and must fire after it. A robot that
@@ -341,8 +341,8 @@ count the kernel's memory pool.
 Run them with:
 
 ```sh
-CC=gcc sh tests/run_barcode_tests.sh
-CC=gcc sh tests/run_ir_diagnostics_tests.sh
+CC=gcc sh testing/run_barcode_tests.sh
+CC=gcc sh testing/run_ir_diagnostics_tests.sh
 ```
 
 Both scripts pass end to end.

@@ -85,13 +85,13 @@ integer values; the C serialization test checks this.
 
 ## Verification
 
-Run `sh tests/run_ir_diagnostics_tests.sh` from the repository root. The suite
+Run `sh testing/run_ir_diagnostics_tests.sh` from the repository root. The suite
 checks actual motor/IR/controller integration, unchanged action logs, short
 pulses, queue overflow/backpressure, stale ack, maximum payload bounds,
 ordering/reboot/wrap, freeze and export/import. Pico USB CDC firmware builds
 with SDK 2.3.1. For real-browser tests, serve `dashboard/` on localhost:8765,
 provide Playwright via Node's module path, and run
-`node tests/test_dashboard_diagnostics_browser.cjs`. Set `PLAYWRIGHT_CHROME_PATH`
+`node testing/subsystem1/test_dashboard_diagnostics_browser.cjs`. Set `PLAYWRIGHT_CHROME_PATH`
 to a local Chrome executable if bundled Chromium is unavailable. Browser
 tests mock MQTT, use no rover, and check desktop/mobile layout and replay.
 

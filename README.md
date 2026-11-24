@@ -8,53 +8,58 @@ telemetry over Wi-Fi (MQTT) to a browser dashboard.
 ## Repository layout
 
 The robot and the dashboard exchange packed binary MQTT messages; the layouts
-are in [MQTT_BINARY_FORMAT.md](docs/MQTT_BINARY_FORMAT.md). Tuning builds
-(`DIAGNOSTICS=1`) add four diagnostic streams for the dashboard's evidence
-views, such as the **Steering actions** log
+are in [MQTT_BINARY_FORMAT.md](docs/MQTT_BINARY_FORMAT.md). Four diagnostic
+streams feed the dashboard's evidence views, such as the **Steering actions** log
 ([MQTT_ACTION_LOG.md](docs/MQTT_ACTION_LOG.md)).
+
+The layout follows the course template
+([sirfonzie/INF2004_ProjectTemplate](https://github.com/sirfonzie/INF2004_ProjectTemplate)):
+the micro T-Kernel project is the repository root, with one folder per
+subsystem (buddy) in `app_program/` and `testing/`.  Owners are in
+[TEAM.md](TEAM.md).
 
 | Folder | What it is |
 |---|---|
-| `firmware/` | The course template ([sirfonzie/mtk3smp-rp2040](https://github.com/sirfonzie/mtk3smp-rp2040)) with our robot code in `firmware/app_program/`. Everything that runs on the Pico. |
-| `firmware/app_program/` | **All of our code.** Every `.c` file here is compiled automatically. |
-| `firmware/config/` | Kernel settings, MQTT broker IP (`mqtt_config.h`), Wi-Fi credentials (`wifi_credentials.h`, not committed). |
-| `firmware/build_make/` | Makefiles. `robot.mk` adds the Pico SDK parts we use. |
-| other `firmware/` folders | The micro T-Kernel itself (kernel, headers, libraries, drivers). Leave alone. |
+| `app_program/` | **All of our code.** Shared files at the top, one folder per subsystem (`subsystem1/` … `subsystem5/`). Every `.c` file here and one folder down is compiled automatically. |
+| `config/` | Kernel settings, MQTT broker IP (`mqtt_config.h`), Wi-Fi credentials (`wifi_credentials.h`, not committed). |
+| `build_make/` | Makefiles. Plain `make` builds the rover's full setup. |
+| `lib/liblwip/sysdepend/pico_rp2040/` | lwIP port and the MQTT bridge (`mqtt_utk.c`), run by the kernel's Wi-Fi task. |
+| `kernel/`, `include/`, `lib/`, `device/`, `etc/` | The micro T-Kernel itself (kernel, headers, libraries, drivers). Leave alone. |
+| `testing/` | Host tests, one folder per subsystem plus `integration/` and `system/`; `run_*.sh` run them on the laptop, no robot needed. |
 | `dashboard/` | Browser dashboard (runs on the laptop). |
-| `docs/` | Per-buddy design, calibration and test notes. |
-| `tests/` | Host tests: they run on the laptop, no robot needed. |
-| `tools/` | Mosquitto (MQTT broker) config for the laptop; BARR-C formatter and checker. |
+| `docs/` | Per-buddy design, calibration and test notes; kernel port notes. |
+| `tools/` | Mosquitto (MQTT broker) config for the laptop; BARR-C formatter and checker; `elf2uf2`. |
 
-## Code in `firmware/app_program/`
+## Code in `app_program/`
 
 All of it follows the BARR-C:2018 embedded C coding standard; see
 [CODING_STANDARD.md](docs/CODING_STANDARD.md) for the formatter, checker and
 the few deliberate deviations.
 
-| File | Buddy | What it does |
+| File | Subsystem | What it does |
 |---|---|---|
-| `app_main.c/.h` | all | `usermain()`: initialises everything and creates the tasks |
-| `robot_controller.c/.h` | all | Vehicle controller: modes, dashboard commands, barcode turns at junctions, GP21 button, safety stops |
-| `comms.c/.h` | 1 | Message buffers between robot tasks and the network |
-| `robot_mqtt.c/.h` | 1 | MQTT client (runs inside the kernel's Wi-Fi task) |
-| `robot_telemetry.c/.h` | 1 | Collects the values the dashboard shows |
-| `robot_wire.c/.h`, `robot_packed.c/.h` | 1 | Binary message layouts and bit packing |
-| `robot_fault.c/.h` | 1 | The shared fault byte |
-| `robot_diagnostics_mqtt.c/.h`, `robot_action_log`, `robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream` | 1 | Diagnostic streams for the dashboard's tuning views (`DIAGNOSTICS=1` builds) |
-| `robot_diagnostics_off.c` | 1 | Empty stand-ins for those five modules in the default `DIAGNOSTICS=0` build |
-| `buddy2_motion.c/.h` | 2 | Motors, encoders, PID, `move_forward` / `turn_left` / ... |
-| `buddy3_ir.c/.h` | 3 | IR sensors, line following and line search; feeds the barcode reader |
-| `buddy3_steering.c/.h`, `buddy3_junction.c/.h` | 3 | Steering state machine; straight across junctions |
-| `buddy3_barcode.c/.h`, `code39.c/.h` | 3 | Barcode reader: black/white and wheel travel to a Code 39 letter |
-| `buddy4_imu.c/.h`, `buddy4_processing.c/.h` | 4 | LSM303 IMU: heading, tilt, filtering, hump detection, lifted/overturned motor stop |
-| `buddy5_ultrasonic.c/.h` | 5 | Ultrasonic distance + scanning servo |
-| `buddy5_avoidance.c/.h` | 5 | Obstacle avoidance and return to the line |
-| `robot_hal.c/.h` | - | **The only file that includes Pico SDK `hardware/*.h`** |
-| `gpio_irq.c/.h` | - | The single shared GPIO interrupt handler |
-| `pin_config.h` | - | All pin numbers |
-| `robot_types.h` | - | `float32_t` (BARR-C fixed-width float type) |
-| `robot_debug.h` | - | `BUDDY3_DEBUG` console filter |
-| `usb_console_compat.h` | - | USB console helper |
+| `app_main.c/.h` | shared | `usermain()`: initialises everything and creates the tasks |
+| `robot_controller.c/.h` | shared | Vehicle controller: modes, dashboard commands, barcode moves at junctions, GP21 button, safety stops |
+| `robot_hal.c/.h` | shared | **The only file that includes Pico SDK `hardware/*.h`** |
+| `gpio_irq.c/.h` | shared | The single shared GPIO interrupt handler |
+| `robot_fault.c/.h` | shared | The shared fault byte |
+| `pin_config.h` | shared | All pin numbers |
+| `robot_types.h`, `usb_console_compat.h` | shared | `float32_t` (BARR-C fixed-width float type); USB console helper |
+| `subsystem1/comms.c/.h` | 1 | Message buffers between robot tasks and the network |
+| `subsystem1/robot_telemetry.c/.h` | 1 | Collects the values the dashboard shows |
+| `subsystem1/robot_wire.c/.h`, `robot_packed.c/.h`, `robot_wire_transport.c` | 1 | Binary message layouts and bit packing |
+| `subsystem1/robot_diagnostics_mqtt.c/.h` | 1 | Diagnostic streams for the dashboard's tuning views |
+| `lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c/.h` | 1 | MQTT client (runs inside the kernel's Wi-Fi task, not in `app_program/`) |
+| `subsystem2/buddy2_motion.c/.h` | 2 | Motors, encoders, PID, `move_forward` / `turn_left` / ... |
+| `subsystem2/robot_action_log.c/.h` | 2 | Motor action log for the dashboard |
+| `subsystem3/buddy3_ir.c/.h` | 3 | IR sensors, line following, end-of-line stop; feeds the barcode reader |
+| `subsystem3/buddy3_steering.c/.h`, `buddy3_junction.c/.h` | 3 | Steering state machine; straight across junctions |
+| `subsystem3/buddy3_barcode.c/.h`, `code39.c/.h` | 3 | Barcode reader: black/white and wheel travel to a Code 39 letter |
+| `subsystem3/barcode_slowdown.c/.h`, `barcode_tuning*.c/.h` | 3 | Barcode slowdown and IR threshold tuning |
+| `subsystem3/robot_steering_trace`, `robot_barcode_trace`, `robot_ir_stream` | 3 | Line/barcode diagnostic streams |
+| `subsystem4/buddy4_imu.c/.h`, `buddy4_processing.c/.h` | 4 | LSM303 IMU: heading, tilt, filtering, hump detection, lifted/overturned motor stop |
+| `subsystem5/buddy5_ultrasonic.c/.h` | 5 | Ultrasonic distance + scanning servo |
+| `subsystem5/buddy5_avoidance.c/.h` | 5 | Obstacle avoidance, width measurement and return to the line |
 
 ### RTOS tasks
 
@@ -78,8 +83,8 @@ the few deliberate deviations.
   ([BARCODE_ACTIONS.md](docs/BARCODE_ACTIONS.md)).
 - Distance/turn moves have no dashboard control; obstacle avoidance and the
   barcode junction turns use them.
-- Host tests (no robot needed): `CC=gcc sh tests/run_barcode_tests.sh` and
-  `CC=gcc sh tests/run_ir_diagnostics_tests.sh`.
+- Host tests (no robot needed): `CC=gcc sh testing/run_barcode_tests.sh` and
+  `CC=gcc sh testing/run_ir_diagnostics_tests.sh`.
 
 ## Getting started (Windows laptop)
 
@@ -126,33 +131,28 @@ git submodule update --init lib/tinyusb lib/cyw43-driver lib/lwip
 **c) On Windows,** install [Mosquitto](https://mosquitto.org/download/)
 (default folder), [Python](https://www.python.org/downloads/) and PuTTY.
 
-**d) Wi-Fi details.** Copy `firmware/config/wifi_credentials.example.h` to
-`firmware/config/wifi_credentials.h`, fill in your laptop hotspot's name and
+**d) Wi-Fi details.** Copy `config/wifi_credentials.example.h` to
+`config/wifi_credentials.h`, fill in your laptop hotspot's name and
 password, and set `UTK_WIFI_CREDENTIALS_SET` to `1`. This file is ignored by
 Git: **never commit it**.
 
 ### 2. Build the `.uf2` (every time the code changes)
 
-Copy `firmware/config/mqtt_config.example.h` to
-`firmware/config/mqtt_config.h` and set `ROBOT_MQTT_BROKER_IP` to your laptop's
+Copy `config/mqtt_config.example.h` to
+`config/mqtt_config.h` and set `ROBOT_MQTT_BROKER_IP` to your laptop's
 IP on the rover's Wi-Fi network. The local MQTT configuration is ignored by Git.
 
 In Ubuntu (change `<you>` to your Windows user name; `/mnt/c/` is your C: drive):
 
 ```sh
-cd "/mnt/c/Users/<you>/Desktop/Git Desktop/EmbeddedProj/firmware/build_make"
-make CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 WIFI_MQTT=1 PICO_SDK_PATH=~/pico/pico-sdk -j8
+cd "/mnt/c/Users/<you>/Desktop/Git Desktop/EmbeddedProj/build_make"
+make PICO_SDK_PATH=~/pico/pico-sdk -j8
 ```
 
 It is done when the prompt comes back with no `Error`. The result is
-`firmware/build_make/mtk3pico_smp0_usb_cdc_wifi_mqtt.uf2`.
-
-(Without Wi-Fi, for bench tests: `make CONSOLE=usb_cdc PICO_SDK_PATH=~/pico/pico-sdk -j8`,
-which gives `mtk3pico_smp0_usb_cdc.uf2`.)
-
-Add `DIAGNOSTICS=1` to get the dashboard's tuning streams (`rover/actions`,
-`rover/steering`, `rover/barcode`, `rover/ir`); the default build sends only
-the main messages.
+`build_make/mtk3pico_smp0_usb_cdc_wifi_mqtt.uf2`. Plain `make` builds
+the rover's full setup: USB console, Wi-Fi + MQTT and the dashboard's
+diagnostic streams.
 
 **Windows without WSL**, in Git Bash, with the toolchain the Raspberry Pi
 Pico VS Code extension installs and MSYS2's `mingw32-make`:
@@ -160,8 +160,8 @@ Pico VS Code extension installs and MSYS2's `mingw32-make`:
 ```sh
 export PATH="$HOME/.pico-sdk/toolchain/15_2_Rel1/bin:/c/msys64/ucrt64/bin:$PATH"
 export TMP="$(cygpath -m "$LOCALAPPDATA/Temp")" TEMP="$(cygpath -m "$LOCALAPPDATA/Temp")"
-cd firmware/build_make
-mingw32-make CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 WIFI_MQTT=1 PICO_SDK_PATH="C:/Users/<you>/.pico-sdk/sdk/2.3.1" -j8
+cd build_make
+mingw32-make PICO_SDK_PATH="C:/Users/<you>/.pico-sdk/sdk/2.3.1" -j8
 ~/.pico-sdk/picotool/2.3.1/picotool/picotool.exe uf2 convert mtk3pico_smp0_usb_cdc_wifi_mqtt.elf mtk3pico_smp0_usb_cdc_wifi_mqtt.uf2 --family rp2040
 ```
 
@@ -180,7 +180,7 @@ Hold **BOOTSEL**, plug the Pico into USB, and drag the `.uf2` file onto the
 1. **Hotspot:** Settings → Network → Mobile hotspot. Set the band to
    **2.4 GHz** (the Pico W cannot use 5 GHz) and turn it on. The laptop is
    then `192.168.137.1`, which the firmware and dashboard expect (broker IP
-   is in `firmware/config/mqtt_config.h`).
+   is in `config/mqtt_config.h`).
 2. **Broker:** PowerShell in the `EmbeddedProj` folder:
    ```powershell
    & "C:\Program Files\Mosquitto\mosquitto.exe" -c "$PWD\tools\mosquitto-local.conf" -v
@@ -215,7 +215,7 @@ Every payload is packed binary; byte 0 tells the dashboard which message it is
 | `rover/debug` | robot → dashboard | Every 1 s: line-sensor detail, barcode letter, avoidance scan and status (25 B) |
 | `rover/heartbeat` | robot → dashboard | 1 byte every 10 s |
 | `rover/status` | robot → dashboard | Retained 1 byte: online, or the "offline" Last Will |
-| `rover/actions`, `rover/steering`, `rover/barcode`, `rover/ir` | robot → dashboard | Diagnostic streams, `DIAGNOSTICS=1` builds only |
+| `rover/actions`, `rover/steering`, `rover/barcode`, `rover/ir` | robot → dashboard | Diagnostic streams for the dashboard's tuning views |
 
 A raw drive command stops the motors if it is not refreshed within one second.
 
@@ -224,7 +224,7 @@ A raw drive command stops the motors if it is not refreshed within one second.
 1. **Never include `hardware/*.h` and `<tk/tkernel.h>` in the same `.c` file.**
    They clash (`GPIO_IN`, `SIO_BASE`, `size_t`, and more). Put SDK calls in
    `robot_hal.c` and expose a small `hal_...()` function in `robot_hal.h`. If
-   the SDK function lives in a `.c` file, add it to `firmware/build_make/robot.mk`.
+   the SDK function lives in a `.c` file, add it to `build_make/robot.mk`.
 2. **GPIO interrupts go through `gpio_irq_register()`.** All pins share one interrupt.
 3. **No `sleep_ms()` or `printf()`.** Use `tk_dly_tsk()` and `tm_printf((UB *)"...")`.
    `tm_printf` has no `%f`, so print tenths as integers (see `robot_telemetry.c`).
@@ -240,12 +240,12 @@ A raw drive command stops the motors if it is not refreshed within one second.
 
 | File | Change | Why |
 |---|---|---|
-| `firmware/config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (left motor, M1). We use the SDK for ADC/I2C instead |
-| `firmware/config/config.h` | `CNF_TIMER_PERIOD 1` (was 10) | 1 ms kernel tick, so the barcode sensor can be read every 2 ms |
-| `firmware/build_make/pico_rp2040.mk` | `include robot.mk`, `WIFI_MQTT` option | Pico SDK libraries; MQTT build profile |
-| `firmware/build_make/makefile` | links `$(LIBS_ROBOT)` (`-lm`) | maths functions for the IMU |
-| `firmware/lib/libnet/lwip/include/lwipopts.h` | TCP on for MQTT, bigger MQTT buffer | MQTT needs TCP |
-| `firmware/lib/libwifi/.../cyw43_utk.c` | calls `robot_mqtt_poll()` | MQTT runs in the radio task |
+| `config/config.h` | `USE_SDEV_DRV 0` | The kernel's sample I2C driver claimed GP8/GP9 (left motor, M1). We use the SDK for ADC/I2C instead |
+| `config/config.h` | `CNF_TIMER_PERIOD 1` (was 10) | 1 ms kernel tick, so the barcode sensor can be read every 2 ms |
+| `build_make/pico_rp2040.mk` | `include robot.mk`, `WIFI_MQTT` option | Pico SDK libraries; MQTT build profile |
+| `build_make/makefile` | links `$(LIBS_ROBOT)` (`-lm`) | maths functions for the IMU |
+| `lib/liblwip/sysdepend/pico_rp2040/include/lwipopts.h` | TCP on for MQTT, bigger MQTT buffer | MQTT needs TCP |
+| `lib/libwifi/.../cyw43_utk.c` | calls `robot_mqtt_poll()` | MQTT runs in the radio task |
 
 ## Documentation
 

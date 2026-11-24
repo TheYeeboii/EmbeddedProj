@@ -79,7 +79,7 @@ robot marks the badge unavailable instead of presenting an old turn as current.
 ## Checks
 
 ```sh
-CC=gcc sh tests/run_ir_diagnostics_tests.sh
+CC=gcc sh testing/run_ir_diagnostics_tests.sh
 ```
 
 Three of its checks cover this log. `test_robot_action_log.c` runs the actual

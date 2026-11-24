@@ -1,15 +1,15 @@
 # Coding standard: BARR-C:2018
 
-Our code in `firmware/app_program/` and the host tests in `tests/` follow the
+Our code in `app_program/` and the host tests in `testing/` follow the
 [Barr Group Embedded C Coding Standard (BARR-C:2018)](https://barrgroup.com/embedded-systems/books/embedded-c-coding-standard).
 The micro T-Kernel, the Pico SDK and the other course-template folders under
-`firmware/` keep their own style and are not covered.
+`the repository root` keep their own style and are not covered.
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
-| `firmware/app_program/.clang-format` | Layout rules: 80 columns, 4-space indent, no tabs, braces on their own lines around every block, aligned declarations, `char * p_x` pointer spacing, `name (args)` in function definitions. |
+| `app_program/.clang-format` | Layout rules: 80 columns, 4-space indent, no tabs, braces on their own lines around every block, aligned declarations, `char * p_x` pointer spacing, `name (args)` in function definitions. |
 | `tools/barr_c_fix.py` | What clang-format cannot do: constant on the left of `==`, `for (;;)`, `f` suffix on float constants, `break` aligned with its `case`, the end-of-file marker. |
 | `tools/barr_c_format.sh` | Runs both of the above. **Use this instead of plain clang-format**, which would undo the `break` alignment and the blank line after the end-of-file marker. |
 | `tools/barr_c_check.py` | Line-based report of rules that need a human: `goto`/`continue`, missing `default`/final `else`, comma declarations, naming prefixes, function length, float suffixes. It is a heuristic and reports some false positives (multi-line parameter lists, enum constants). |
@@ -73,7 +73,7 @@ are worth reading one by one.
 | 6.3.a function-like macros | `ROBOT_ROUTINE_LOG(...)`, `APP_TASK(fn, pri)`, kernel `DI()`/`EI()` | Variadic forwarding to `tm_printf` (no `va_list` variant exists), and static task initialisers a function cannot produce. |
 | 7.1.m `b_` on Boolean members | Members of public structs (e.g. `buddy3_ir_state_t.line_seen`, `buddy4_imu_state_t`) | Public structure members are part of the interface other modules and tests use. Private structs were renamed. |
 | 5.2.a fixed-width types | `UINT`, `INT`, `ID`, `ER`, `TMO` | Required by the micro T-Kernel API they are passed to. |
-| 8.5.b no `setjmp`/`longjmp` | `tests/test_buddy5_avoidance.c` | The test harness has to leave the avoidance task's `for (;;)` loop; it runs on the PC only, never on the robot. |
+| 8.5.b no `setjmp`/`longjmp` | `testing/subsystem5/test_buddy5_avoidance.c` | The test harness has to leave the avoidance task's `for (;;)` loop; it runs on the PC only, never on the robot. |
 | `usb_console_compat.h` | | Course-template file (different copyright holder); only whitespace was changed. |
 
 ## Project documents the standard asks for
@@ -84,10 +84,10 @@ are worth reading one by one.
 
 ## Known test status
 
-- Both test scripts pass completely: `CC=gcc sh tests/run_barcode_tests.sh`
-  and `CC=gcc sh tests/run_ir_diagnostics_tests.sh` (Git Bash on Windows, or
+- Both test scripts pass completely: `CC=gcc sh testing/run_barcode_tests.sh`
+  and `CC=gcc sh testing/run_ir_diagnostics_tests.sh` (Git Bash on Windows, or
   any POSIX shell).
-- `tests/test_buddy5_avoidance.c` is not part of the scripts and fails: it
+- `testing/subsystem5/test_buddy5_avoidance.c` is not part of the scripts and fails: it
   drives the whole avoidance route as it was before the obstacle width sweep.
-  `tests/test_buddy5_line_return.c` covers the return to the line; the full
+  `testing/subsystem5/test_buddy5_line_return.c` covers the return to the line; the full
   route still needs a new test.

@@ -53,6 +53,6 @@ The motion controller currently uses a conservative proportional-plus-integral c
 
 ## micro T-Kernel notes
 
-- Code: `firmware/app_program/buddy2_motion.c`. The dashboard Motion panel and the GP20 motion-test task have both been removed, so there is currently no way to start a single test move: moves only run for barcode actions and obstacle avoidance. Add a test trigger before the 500/1000 mm and 90/360 deg calibration runs.
+- Code: `app_program/subsystem2/buddy2_motion.c`. The dashboard Motion panel and the GP20 motion-test task have both been removed, so there is currently no way to start a single test move: moves only run for barcode actions and obstacle avoidance. Add a test trigger before the 500/1000 mm and 90/360 deg calibration runs.
 - PWM units: `32767` now means **100 % duty**. The PWM counter wrap is set explicitly (10 kHz), so the old "PWM limit = 50 %" note no longer applies.
 - `buddy2_update()` runs every 20 ms in its own task, woken by a kernel cyclic handler.

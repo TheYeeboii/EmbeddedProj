@@ -1,4 +1,4 @@
-/* Binary MQTT format shared with the rover (firmware/app_program/robot_wire.c,
+/* Binary MQTT format shared with the rover (app_program/subsystem1/robot_wire.c,
  * docs/MQTT_BINARY_FORMAT.md). Change both sides together and raise VERSION.
  *
  * Rover -> dashboard: byte 0 = type (high nibble) + version (low nibble), then
@@ -17,7 +17,7 @@
   const JSON_FIRST_BYTE = 0x7b;
   /* Exact lengths; the diagnostic types (8-11) vary and are checked by
    * reading them to the end instead. */
-  const LENGTH = { 1: 28, 2: 25, 3: 1, 4: 1, 5: 1, 6: 14 };
+  const LENGTH = { 1: 28, 2: 28, 3: 1, 4: 1, 5: 1, 6: 14 };
   const DIAGNOSTIC = new Set([8, 9, 10, 11, 12]);
 
   /* Indexed by the firmware's enums. */
@@ -32,7 +32,7 @@
   const OP = {
     stop: 1, drive_preset: 2, drive: 3, line_follow: 4, line_stop: 5, imu_reset: 6,
     ir_thresholds: 0, reset_all: 8, motor_trim: 9, speed_limit: 10, servo_angle: 11, barcode_mode: 12,
-    barcode_config: 13, line_stage: 14, line_speed: 15
+    barcode_config: 13, barcode_map: 14, line_speed: 15
   };
   const PRESETS = { forward: 0, reverse: 1, left: 2, right: 3 };
   const TRIM_OFFSET = 50;
@@ -118,6 +118,10 @@
     data.avoid_motor_right_pwm = r.signed(16);
     data.avoid_forward_mm = r.get(11);
     data.avoid_forward_target_mm = r.get(11);
+    /* Last obstacle from the width sweep: 0 = none measured yet. */
+    data.obstacle_cm = r.get(9);
+    data.obstacle_width_mm = r.get(10);
+    data.obstacle_width_partial = r.flag();
     return data;
   }
 
@@ -139,7 +143,7 @@
   }
 
 
-  /* ---- Diagnostic streams (DIAGNOSTICS=1 builds), robot_diagnostics_mqtt.c.
+  /* ---- Diagnostic streams, robot_diagnostics_mqtt.c.
    * Each returns the same object the old JSON message had, so the tuning
    * views (action-log, steering-view, barcode-model, ir-stream-model) and
    * their saved sessions did not change. */
@@ -331,9 +335,17 @@
         if (!inRange(values.min_element_mm, 0, 1023) || !inRange(values.offset_left_mm, -512, 511)) return null;
         return new Writer(3).put(OP.barcode_config, 4).put(values.min_element_mm, 10)
           .signed(values.offset_left_mm, 10).bytes;
-      case 'line_stage':
-        if (!inRange(values.stage, 0, 3)) return null;
-        return new Writer(1).put(OP.line_stage, 4).put(values.stage, 2).bytes;
+      case 'barcode_map': {
+        /* One letter per movement: forward, U-turn, left, right. Each 0..25
+         * (A..Z), or 31 = not set. A letter may be used only once. */
+        const order = [values.forward, values.uturn, values.left, values.right];
+        const used = order.filter((v) => v !== 31);
+        if (!order.every((v) => v === 31 || inRange(v, 0, 25)) ||
+            new Set(used).size !== used.length) return null;
+        const writer = new Writer(3).put(OP.barcode_map, 4);
+        order.forEach((v) => writer.put(v, 5));
+        return writer.bytes;
+      }
       case 'line_speed':
         if (!inRange(values.base, 0, 127) || !inRange(values.turn, 0, 63)) return null;
         return new Writer(3).put(OP.line_speed, 4).put(values.base, 7).put(values.turn, 6).bytes;

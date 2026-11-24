@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
-  <link rel="stylesheet" href="styles.css?v=38">
+  <link rel="stylesheet" href="styles.css?v=39">
   <script>
     try {
       const saved = localStorage.getItem('buddy1-theme');
@@ -183,6 +183,20 @@
                 <p data-letter="latest" class="muted small"></p>
               </div>
             </div>
+          </section>
+          <section id="barcode-map" data-widget="barcode-map" class="card" aria-labelledby="barcode-map-title">
+            <header class="card-header"><h2 id="barcode-map-title">Barcode movements</h2><span id="barcode-map-state" class="badge" data-tone="muted">Not sent</span></header>
+            <form id="barcode-map-form" class="stack" novalidate>
+              <div class="barcode-map-grid">
+                <label class="field"><span>Forward</span><input id="map-forward" class="input num barcode-map-input" maxlength="1" autocomplete="off" placeholder="-" aria-label="Letter for forward"></label>
+                <label class="field"><span>U-turn</span><input id="map-uturn" class="input num barcode-map-input" maxlength="1" autocomplete="off" placeholder="-" aria-label="Letter for U-turn"></label>
+                <label class="field"><span>Left</span><input id="map-left" class="input num barcode-map-input" maxlength="1" autocomplete="off" placeholder="-" aria-label="Letter for left"></label>
+                <label class="field"><span>Right</span><input id="map-right" class="input num barcode-map-input" maxlength="1" autocomplete="off" placeholder="-" aria-label="Letter for right"></label>
+              </div>
+              <button class="btn btn-primary" type="submit"><i data-lucide="send" aria-hidden="true"></i>Apply mapping</button>
+              <p id="barcode-map-error" class="field-error small" role="alert" hidden></p>
+              <p class="muted small">Letter A–Z for each movement, done at the next cross-junction. Other letters go straight on. Re-sent automatically whenever the rover comes online.</p>
+            </form>
           </section>
         </div>
 
@@ -512,7 +526,7 @@
                   <label for="trim-left">Left (%)</label>
                   <div class="stepper">
                     <button class="btn btn-outline btn-icon" type="button" data-target="trim-left" data-step="-1" aria-label="Decrease left trim by 1%"><i data-lucide="minus" aria-hidden="true"></i></button>
-                    <input id="trim-left" name="trim_left" class="input num" type="number" inputmode="numeric" min="50" max="100" step="1" value="83" autocomplete="off">
+                    <input id="trim-left" name="trim_left" class="input num" type="number" inputmode="numeric" min="50" max="100" step="1" value="100" autocomplete="off">
                     <button class="btn btn-outline btn-icon" type="button" data-target="trim-left" data-step="1" aria-label="Increase left trim by 1%"><i data-lucide="plus" aria-hidden="true"></i></button>
                   </div>
                 </div>
@@ -736,6 +750,16 @@
           </header>
           <div class="metrics buddy-metrics">
             <article class="metric">
+              <div class="metric-head"><span>Obstacle width</span><i data-lucide="ruler" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="obstacle-width" class="num">--</strong><span class="unit">cm</span></div>
+              <span id="obstacle-width-note" class="metric-sub">from the servo sweep</span>
+            </article>
+            <article class="metric">
+              <div class="metric-head"><span>Obstacle distance</span><i data-lucide="move-horizontal" aria-hidden="true"></i></div>
+              <div class="metric-value"><strong id="obstacle-distance" class="num">--</strong><span class="unit">cm</span></div>
+              <span class="metric-sub">sonar to the front face</span>
+            </article>
+            <article class="metric">
               <div class="metric-head"><span>Left scan</span><i data-lucide="arrow-left" aria-hidden="true"></i></div>
               <div class="metric-value"><strong id="avoid-left" class="num">--</strong><span class="unit">cm</span></div>
             </article>
@@ -788,8 +812,8 @@
   <script src="ir-stream-model.js?v=4"></script>
   <script src="ir-stream-view.js?v=6"></script>
   <script src="tabs-view.js?v=1"></script>
-  <script src="rover-wire.js?v=10"></script>
+  <script src="rover-wire.js?v=12"></script>
   <script src="ir-threshold-view.js?v=5"></script>
-  <script src="app.js?v=41"></script>
+  <script src="app.js?v=44"></script>
 </body>
 </html>
