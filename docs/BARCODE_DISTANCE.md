@@ -56,8 +56,7 @@ sensor_delta = (left_delta + right_delta)/2
 
 Measure offset sideways from the midpoint between the wheels to the sensing
 spot. Left is positive; right is negative. This compensates small corrections,
-not diagonal traversal. A net heading change above 10 degrees (20 degrees
-when driving by hand), reverse wheel movement, encoder faults, and while line
+not diagonal traversal. A net heading change above 20 degrees, reverse wheel movement, encoder faults, and while line
 following a junction, corner or recovery phase invalidate an active read. A
 manual scan survives releasing W: bars are measured by distance, so a pause
 only stops progress, up to the 1.5-second stall limit. Flipped prints are supported while driving forward;

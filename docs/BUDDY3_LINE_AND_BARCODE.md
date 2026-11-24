@@ -48,7 +48,7 @@ The reader is configured at boot (3 mm minimum element, 0 mm left offset;
   stopping or starting line following ends it.
 
 Both use the same checks: healthy encoders, forward travel, and less than
-about 10 degrees of heading change across the barcode. Drive straight past
+about 20 degrees of heading change across the barcode. Drive straight past
 the barcode so it passes under the side sensor; speed need not be steady
 because widths are measured in encoder distance. Valid letters and rejected
 frames are logged from the controller task, outside sensor capture.

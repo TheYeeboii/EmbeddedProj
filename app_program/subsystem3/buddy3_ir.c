@@ -121,7 +121,7 @@ _Static_assert(BUDDY3_SAMPLE_PERIOD_MS <= 255u,
  * ir-stream-view.js with them. */
 #define BUDDY3_BARCODE_BLACK_ON    (210u)
 #define BUDDY3_BARCODE_WHITE_ON    (140u)
-#define BUDDY3_BARCODE_MAX_YAW_RAD (0.1745f)
+#define BUDDY3_BARCODE_MAX_YAW_RAD (0.3491f)
 #define BUDDY3_BARCODE_MANUAL_YAW_RAD (0.3491f)
 #define BUDDY3_BARCODE_STEP_FRACTION  (0.25f)
 /* Most encoder travel buddy3_smooth_travel() holds back, in guard steps
