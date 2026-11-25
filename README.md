@@ -33,8 +33,8 @@ subsystem (buddy) in `app_program/` and `testing/`.  Owners are in
 ## Code in `app_program/`
 
 All of it follows the BARR-C:2018 embedded C coding standard; see
-[CODING_STANDARD.md](docs/CODING_STANDARD.md) for the formatter, checker and
-the few deliberate deviations.
+[CODING_STANDARD.md](docs/CODING_STANDARD.md) for what it covers and the few
+deliberate deviations.
 
 | File | Subsystem | What it does |
 |---|---|---|

@@ -15,7 +15,5 @@ tools/** text=auto eol=lf
 # BARR-C 3.6.a: C test sources use LF line endings.
 testing/**/*.c text eol=lf
 testing/**/*.h text eol=lf
-docs/templates/*.c text eol=lf
-docs/templates/*.h text eol=lf
 # Shell scripts keep LF so they also run from WSL on a Windows checkout.
 *.sh text eol=lf

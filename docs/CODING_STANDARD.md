@@ -5,32 +5,6 @@ Our code in `app_program/` and the host tests in `testing/` follow the
 The micro T-Kernel, the Pico SDK and the other course-template folders under
 `the repository root` keep their own style and are not covered.
 
-## Tools
-
-| Tool | What it does |
-|---|---|
-| `app_program/.clang-format` | Layout rules: 80 columns, 4-space indent, no tabs, braces on their own lines around every block, aligned declarations, `char * p_x` pointer spacing, `name (args)` in function definitions. |
-| `tools/barr_c_fix.py` | What clang-format cannot do: constant on the left of `==`, `for (;;)`, `f` suffix on float constants, `break` aligned with its `case`, the end-of-file marker. |
-| `tools/barr_c_format.sh` | Runs both of the above. **Use this instead of plain clang-format**, which would undo the `break` alignment and the blank line after the end-of-file marker. |
-| `tools/barr_c_check.py` | Line-based report of rules that need a human: `goto`/`continue`, missing `default`/final `else`, comma declarations, naming prefixes, function length, float suffixes. It is a heuristic and reports some false positives (multi-line parameter lists, enum constants). |
-
-```sh
-CLANG_FORMAT=clang-format tools/barr_c_format.sh   # format everything
-python3 tools/barr_c_check.py                      # list what is left
-```
-
-A Windows laptop usually has no clang-format on `PATH`, but the VS Code C/C++
-extension ships one:
-
-```sh
-CLANG_FORMAT="$(ls -d ~/.vscode/extensions/ms-vscode.cpptools-*-win32-x64 | tail -1)/LLVM/bin/clang-format.exe" tools/barr_c_format.sh
-```
-
-The checker's naming (7.1) and comma (8.1.a) findings are mostly false
-positives: continuation lines of parameter lists, macro names in
-initialisers, and public struct members (a deviation below). The other rules
-are worth reading one by one.
-
 ## What the code follows
 
 - Layout (1.2, 1.3, 3.1-3.6): 80 columns, Allman braces on every block, one
@@ -78,8 +52,6 @@ are worth reading one by one.
 ## Project documents the standard asks for
 
 - Abbreviations table (1.5.b): [ABBREVIATIONS.md](ABBREVIATIONS.md).
-- File templates (4.4.a): [templates/module.h](templates/module.h) and
-  [templates/module.c](templates/module.c).
 
 ## Known test status
 

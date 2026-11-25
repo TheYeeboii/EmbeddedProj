@@ -26,8 +26,6 @@
 
 #include "buddy3_barcode.h"
 
-/* TODO: Give the structures below names that start with buddy3_. */
-
 /** Snapshot of the sensor calibration and steering settings
  *  (buddy3_get_calibration()); the module keeps them split into
  *  ir_calibration_params_t and line_follow_configs_t. */
