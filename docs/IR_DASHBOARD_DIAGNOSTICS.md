@@ -1,4 +1,4 @@
-# IR dashboard diagnostics — issue #18
+# IR dashboard diagnostics (issue #18)
 
 ## Steering evidence
 

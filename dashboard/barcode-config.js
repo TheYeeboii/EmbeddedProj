@@ -67,7 +67,7 @@
       this.boot = data.boot;
       this.enabled = data.state !== 0;
       this.config = Array.isArray(data.config) && data.config.length === 11 ? data.config : null;
-      this.field('active').textContent = !this.enabled ? 'Reader disabled — apply settings below.' : this.config ?
+      this.field('active').textContent = !this.enabled ? 'Reader disabled. Apply settings below.' : this.config ?
         `Active minimum ${this.config[5] / 100} mm · sensor offset ${this.config[6] / 10} mm (left +)` :
         'Reader enabled; this firmware does not report its active settings.';
       if (this.pending && this.enabled) {

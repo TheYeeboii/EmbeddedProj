@@ -311,7 +311,7 @@
               <label class="btn btn-ghost btn-sm">Import replay<input data-barcode="import" type="file" accept="application/json,.json" class="trace-file"></label>
             </div>
             <form id="barcode-config-form" class="barcode-configuration" novalidate>
-              <strong>Reader setup — configure while stopped</strong>
+              <strong>Reader setup (configure while stopped)</strong>
               <p data-barcode-config="active" class="muted small">Waiting for reader settings…</p>
               <div class="barcode-reference-controls">
                 <label>Minimum supported element (mm)<input data-barcode-config="minimum" class="input num" type="number" min="1" max="1000" step="1" value="3" required></label>
@@ -333,9 +333,9 @@
               <label>Reference orientation <select data-barcode="orientation"><option value="validated">Use validated orientation</option><option value="forward">Forward</option><option value="reverse">Flipped</option></select></label>
               <label>Reference wide:narrow <select data-barcode="ratio"><option value="3">3:1</option><option value="2">2:1</option></select></label>
             </div>
-            <p class="small trace-notice">Measured bars and spaces — select a segment or element below. Orange marks unknown transport data, not a confirmed sensing error.</p>
+            <p class="small trace-notice">Measured bars and spaces. Select a segment or element below. Orange marks unknown transport data, not a confirmed sensing error.</p>
             <svg data-barcode="strip" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Measured barcode widths"></svg>
-            <p class="small trace-notice">Expected reference — selected independently of the decoded letter.</p>
+            <p class="small trace-notice">Expected reference, selected independently of the decoded letter.</p>
             <svg data-barcode="reference" class="barcode-strip" viewBox="0 0 1000 75" preserveAspectRatio="none" role="img" aria-label="Selected expected Code 39 reference"></svg>
             <p data-barcode="scale" class="muted small trace-notice"></p>
             <div data-barcode="elements" class="barcode-elements" aria-label="Measured bar and space details"></div>

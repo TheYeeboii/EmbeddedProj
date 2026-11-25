@@ -22,7 +22,7 @@
       });
       this.find('import').addEventListener('change',async e=>{
         try{const file=e.target.files[0];if(!file)return;if(file.size>4000000)throw new Error('Scan export exceeds 4 MB');
-          this.frozen=BarcodeHistory.read(await file.text());this.selected=null;this.render();this.find('notice').textContent='Imported scan replay — live reader state still describes the connected rover.';
+          this.frozen=BarcodeHistory.read(await file.text());this.selected=null;this.render();this.find('notice').textContent='Imported scan replay. Live reader state still describes the connected rover.';
         }catch(error){this.find('notice').textContent=error.message;}e.target.value='';
       });
       this.timer=setInterval(()=>{if(this.history.state!==null&&Date.now()-this.history.receivedAt>2500)this.unavailable();else this.renderLive();},1000);
@@ -43,8 +43,8 @@
         'Pre-scan sensor/encoder readings are unavailable. Waiting for the rover/barcode stream: check the rover is online.';
       const state=this.history.state,blocked=this.history.last?.blocked??0;
       const label=state===null?'Reader state unavailable / buffered history':
-        state===6?(blocked&32?'Suspended: sampling too coarse — slow down':blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
-          blocked&8?'Suspended: reverse motion':blocked&1?'Configured — press GP21, or drive forward with W, to read':blocked&16?'Suspended: junction or recovery':'Configured — reader suspended'):states[state];
+        state===6?(blocked&32?'Suspended: sampling too coarse, slow down':blocked&2?'Suspended: encoder fault':blocked&4?'Suspended: excessive turn':
+          blocked&8?'Suspended: reverse motion':blocked&1?'Configured. Press GP21, or drive forward with W, to read':blocked&16?'Suspended: junction or recovery':'Configured, reader suspended'):states[state];
       this.find('status').textContent='Decoder: '+label;
       this.renderLetter(state,label);
     }

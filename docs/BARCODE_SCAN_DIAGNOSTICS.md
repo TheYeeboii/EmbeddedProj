@@ -1,4 +1,4 @@
-# Barcode scan evidence — issue #19
+# Barcode scan evidence (issue #19)
 
 ## Two independent evidence views
 

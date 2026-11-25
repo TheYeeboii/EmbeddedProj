@@ -88,7 +88,7 @@
           const file = event.target.files[0]; if (!file) return;
           if (file.size > 2000000) throw new Error('Session exceeds 2 MB');
           this.frozen = SteeringHistory.read(await file.text()); this.selected = null; this.render();
-          this.find('notice').textContent = 'Imported replay — live indicators still show the connected rover.';
+          this.find('notice').textContent = 'Imported replay. Live indicators still show the connected rover.';
         } catch (error) { this.find('notice').textContent = error.message; }
         event.target.value = '';
       });
