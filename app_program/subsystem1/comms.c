@@ -162,14 +162,6 @@ bool comms_take_outgoing_timed (uint32_t * p_topic, uint8_t * p_payload,
     return b_taken;
 }
 
-bool comms_take_outgoing (uint32_t * p_topic, uint8_t * p_payload,
-                          uint32_t buffer_size, uint32_t * p_length)
-{
-    uint32_t age;
-    return comms_take_outgoing_timed(p_topic, p_payload, buffer_size,
-                                      p_length, &age);
-}
-
 void comms_put_incoming (const uint8_t * p_data, uint32_t length)
 {
     if ((g_inbox_id > 0) && (NULL != p_data) && (0u != length) &&

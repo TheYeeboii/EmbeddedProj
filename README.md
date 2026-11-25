@@ -1,3 +1,6 @@
+> **This project's own README is [myREADME.md](myREADME.md).** Below is the
+> course template's README, kept as it was.
+
 # micro T-Kernel 3.0 project for Raspberry Pi Pico W
 
 A starting point for your project: micro T-Kernel 3.0 running on **both cores**

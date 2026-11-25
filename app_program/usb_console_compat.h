@@ -23,11 +23,6 @@
 IMPORT UW          tm_usb_state (void);      /* >= 2 once enumerated */
 IMPORT INT         tm_usb_diag_level (void); /* bring-up level, 0..8 */
 IMPORT UW          tm_usb_pending (void);    /* bytes still queued   */
-IMPORT volatile UW tm_usb_dropped;           /* bytes lost to overrun*/
-Inline UW          tm_usb_dropped_bytes (void)
-{
-    return tm_usb_dropped;
-}
 #else
 /* UART build: tm_printf writes straight to the UART from the calling context.
    There is no ring, so it is always "up", never pending and never drops. */
@@ -40,10 +35,6 @@ Inline INT tm_usb_diag_level (void)
     return 8;
 }
 Inline UW tm_usb_pending (void)
-{
-    return 0;
-}
-Inline UW tm_usb_dropped_bytes (void)
 {
     return 0;
 }

@@ -596,21 +596,6 @@ void buddy2_update (uint32_t now_ms)
     }
 }
 
-void buddy2_set_calibration (const buddy2_calibration_t * p_calibration)
-{
-    if ((NULL != p_calibration) && (p_calibration->wheel_diameter_mm > 0.0f) &&
-        (p_calibration->track_width_mm > 0.0f) &&
-        (p_calibration->left_ticks_per_wheel_rev > 0.0f) &&
-        (p_calibration->right_ticks_per_wheel_rev > 0.0f) &&
-        (p_calibration->pwm_limit > 0u) &&
-        (p_calibration->pwm_limit <= (uint16_t) BUDDY2_PWM_MAX))
-    {
-        buddy2_lock();
-        g_calibration = *p_calibration;
-        buddy2_unlock();
-    }
-}
-
 void buddy2_get_calibration (buddy2_calibration_t * p_calibration)
 {
     if (NULL != p_calibration)

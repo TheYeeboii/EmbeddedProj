@@ -212,9 +212,6 @@ void buddy2_get_barcode_speed (bool * active, uint8_t * effective_pct);
 /** @brief Read the global speed limit in percent. */
 uint8_t buddy2_get_speed_limit (void);
 
-/** @brief Replace the geometry; invalid values are ignored as a whole. */
-void buddy2_set_calibration (const buddy2_calibration_t * p_calibration);
-
 /** @brief Copy the geometry in use. */
 void buddy2_get_calibration (buddy2_calibration_t * p_calibration);
 

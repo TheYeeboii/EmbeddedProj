@@ -82,12 +82,9 @@ uint8_t comms_get_link_state (void);
  * @param p_payload   Receives the payload bytes (not NUL-terminated).
  * @param buffer_size Size of p_payload; at least COMMS_PAYLOAD_MAX.
  * @param p_length    Receives the payload length.
+ * @param p_age_ms    Receives how long it waited in the mailbox.
  * @return True when a message was taken.
  */
-bool comms_take_outgoing (uint32_t * p_topic, uint8_t * p_payload,
-                          uint32_t buffer_size, uint32_t * p_length);
-
-/** Take an outgoing packet and report how long it waited in the mailbox. */
 bool comms_take_outgoing_timed (uint32_t * p_topic, uint8_t * p_payload,
                                 uint32_t buffer_size, uint32_t * p_length,
                                 uint32_t * p_age_ms);
