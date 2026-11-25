@@ -15,9 +15,9 @@ team.
 | # | Subsystem (what it does) | Student ID | GitHub username | Code | Tests |
 |---|---|---|---|---|---|
 | 1 | MQTT, Wi-Fi, telemetry (Yew Wei Song) | 2501134 | TheYeeboii | `app_program/subsystem1/`, `lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c` | `testing/subsystem1/` |
-| 2 | Motion control (Mohamed Faizal Ahmed Fairaj) | 2501208 | | `app_program/subsystem2/` | `testing/subsystem2/` |
-| 3 | Line following and barcode decoder (Noah Wong Nam Suen) | 2502896 | | `app_program/subsystem3/` | `testing/subsystem3/` |
-| 4 | IMU (Chin Chee Yuan) | 2501665 | | `app_program/subsystem4/` | `testing/subsystem4/` |
+| 2 | Motion control (Mohamed Faizal Ahmed Fairaj) | 2501208 | Faiz0909 | `app_program/subsystem2/` | `testing/subsystem2/` |
+| 3 | Line following and barcode decoder (Noah Wong Nam Suen) | 2502896 | DisposableMask | `app_program/subsystem3/` | `testing/subsystem3/` |
+| 4 | IMU (Chin Chee Yuan) | 2501665 | terakaiser | `app_program/subsystem4/` | `testing/subsystem4/` |
 | 5 | Ultrasonic sensor, obstacle avoidance (Tan Jia Yi Charmain) | 2502647 | TanJiaYiCharmain | `app_program/subsystem5/` | `testing/subsystem5/` |
 
 Shared (all): `app_program/app_main.c` (tasks), `robot_controller.c` (modes

@@ -189,8 +189,7 @@ static char drive (const float32_t * widths, unsigned count, float32_t lead,
     return got;
 }
 
-/* Like the friend's reader: no white needed before or after the barcode,
- * and a stray mark in front of it is skipped by sliding the window. */
+
 static void test_no_quiet_and_resync (void)
 {
     float32_t widths[29 + 4];
