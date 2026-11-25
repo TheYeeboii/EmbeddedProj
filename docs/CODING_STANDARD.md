@@ -73,7 +73,6 @@ are worth reading one by one.
 | 6.3.a function-like macros | `ROBOT_ROUTINE_LOG(...)`, `APP_TASK(fn, pri)`, kernel `DI()`/`EI()` | Variadic forwarding to `tm_printf` (no `va_list` variant exists), and static task initialisers a function cannot produce. |
 | 7.1.m `b_` on Boolean members | Members of public structs (e.g. `buddy3_ir_state_t.line_seen`, `buddy4_imu_state_t`) | Public structure members are part of the interface other modules and tests use. Private structs were renamed. |
 | 5.2.a fixed-width types | `UINT`, `INT`, `ID`, `ER`, `TMO` | Required by the micro T-Kernel API they are passed to. |
-| 8.5.b no `setjmp`/`longjmp` | `testing/subsystem5/test_buddy5_avoidance.c` | The test harness has to leave the avoidance task's `for (;;)` loop; it runs on the PC only, never on the robot. |
 | `usb_console_compat.h` | | Course-template file (different copyright holder); only whitespace was changed. |
 
 ## Project documents the standard asks for
@@ -87,7 +86,7 @@ are worth reading one by one.
 - Both test scripts pass completely: `CC=gcc sh testing/run_barcode_tests.sh`
   and `CC=gcc sh testing/run_ir_diagnostics_tests.sh` (Git Bash on Windows, or
   any POSIX shell).
-- `testing/subsystem5/test_buddy5_avoidance.c` is not part of the scripts and fails: it
-  drives the whole avoidance route as it was before the obstacle width sweep.
-  `testing/subsystem5/test_buddy5_line_return.c` covers the return to the line; the full
-  route still needs a new test.
+- The Subsystem 5 tests run in `run_barcode_tests.sh`:
+  `testing/subsystem5/test_buddy5_avoidance.c` drives the whole avoidance
+  route in a simulated world, and `testing/subsystem5/test_buddy5_line_return.c`
+  checks the return to the line rule by rule.

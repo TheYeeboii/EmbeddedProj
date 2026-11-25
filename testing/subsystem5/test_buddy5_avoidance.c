@@ -1,11 +1,13 @@
-/* Buddy 5 obstacle avoidance: the whole route, end to end.
+/* Buddy 5 obstacle avoidance: the whole fixed-distance route, end to end.
  *
  * The real state machine (buddy5_avoidance.c, included below) runs one
  * 100 ms step at a time against a small simulated world: two wheels, a
  * compass, the scanning ultrasonic sensor, the two front IR sensors and
- * rectangular obstacles.  The line the rover follows is the x axis; y grows
- * to the rover's right, and so does the heading (as on the compass).
- * Distances are millimetres.
+ * rectangular obstacles.  Turns are steered by the wheel encoders, and in
+ * the simulation the wheels scrub on pivots by a different amount than the
+ * code assumes, as they would on a mat.  The line the rover follows is the x
+ * axis; y grows to the rover's right, and so does the heading (as on the
+ * compass). Distances are millimetres.
  *
  * The rover's position is its axle centre.  The sonar and the front IR
  * sensors are 100 mm ahead of it, so (as on the track) the sensors reach
@@ -20,19 +22,23 @@
 int tk_dly_tsk (unsigned int delay_ms);
 #include "buddy5_avoidance.c"
 
-#define SIM_STEP_MS        (100u)
-#define SIM_MAX_STEPS      (900u)
-#define SIM_TRACK_MM       (150.0f)
+#define SIM_STEP_MS   (100u)
+#define SIM_SUBSTEPS  (10u)   /* pose and IR checks per step */
+#define SIM_MAX_STEPS (3000u) /* steps are 10 ms while searching */
+#define SIM_TRACK_MM  (150.0f)
 /* 5400 effective PWM (9000 at 60 %) drives a wheel 13 mm per 100 ms, as
  * measured on the rover's straight legs. */
-#define SIM_MM_PER_PWM     (13.0f / 5400.0f)
+#define SIM_MM_PER_PWM (13.0f / 5400.0f)
 /* On the spot the wheels scrub: the rover turns this fraction of what the
- * wheel travel says (the compass sees the real turn). */
-#define SIM_PIVOT_SCRUB    (0.8f)
-#define SIM_APPROACH_MM    (20.0f) /* line following before the obstacle */
-#define SIM_REVERSE_MM     (20.0f) /* a backward move, per step */
-#define SIM_LINE_HALF_MM   (9.0f)  /* 18 mm line */
-#define SIM_SENSOR_FWD_MM  (100.0f)
+ * wheel travel says (the code assumes APP_PIVOT_WHEEL_SLIP). */
+#define SIM_PIVOT_SCRUB   (0.8f)
+#define SIM_APPROACH_MM   (20.0f) /* line following before the obstacle */
+#define SIM_REVERSE_MM    (20.0f) /* a backward move, per step */
+#define SIM_LINE_HALF_MM  (9.0f)  /* 18 mm line */
+#define SIM_SENSOR_FWD_MM (100.0f)
+/* Front IR sensors ahead of the axle: the drive-on after the line
+ * (APP_ALIGN_FORWARD_MM) is tuned to this on the rover. */
+#define SIM_IR_FWD_MM      (APP_ALIGN_FORWARD_MM)
 #define SIM_SENSOR_SIDE_MM (15.0f)
 #define SIM_SONAR_MAX_MM   (4000.0f) /* farther is "no echo" */
 #define SIM_BEAM_HALF_RAD  (0.12f)   /* about 7 degrees */
@@ -64,12 +70,10 @@ typedef struct
 typedef enum
 {
     SIM_INJECT_NONE = 0,
-    SIM_INJECT_IMU_BLIP_ON_PASS,   /* 300 ms drop-out: rides through it  */
-    SIM_INJECT_IMU_LOST_ON_PASS,   /* gone for good: stops               */
+    SIM_INJECT_NO_COMPASS, /* compass never works                */
     SIM_INJECT_ENCODER_ON_SIDESTEP,
     SIM_INJECT_STUCK_ON_PIVOT,
-    SIM_INJECT_SIDE_SONAR_DEAF,    /* never sees the box while passing   */
-    SIM_INJECT_IR_DEAF             /* front IR never sees the line       */
+    SIM_INJECT_IR_DEAF /* front IR never sees the line       */
 } sim_inject_t;
 
 static sim_box_t             g_boxes[SIM_MAX_BOXES];
@@ -96,7 +100,7 @@ static bool                  g_b_decision_left;
 static bool                  g_b_line_seen;
 static bool                  g_b_imu_lost;
 static bool                  g_b_stuck;
-static bool                  g_b_side_deaf;
+static float32_t             g_scrub = SIM_PIVOT_SCRUB;
 
 /* ---------------- Simulated sensors ---------------- */
 
@@ -176,8 +180,8 @@ static float32_t sim_sonar_mm (void)
 }
 
 /* A point of the rover body, given relative to the axle (forward, right). */
-static void sim_body_point (float32_t forward, float32_t right,
-                            float32_t * p_x, float32_t * p_y)
+static void sim_body_point (float32_t forward, float32_t right, float32_t * p_x,
+                            float32_t * p_y)
 {
     *p_x = g_pos_x + (forward * cosf(g_heading_rad)) -
            (right * sinf(g_heading_rad));
@@ -193,20 +197,21 @@ static void sim_assert_clear (void)
     static const float32_t right[3]   = {-SIM_BODY_LEFT_MM, 0.0f,
                                          SIM_BODY_RIGHT_MM};
 
-    for (uint32_t f = 0u; f < 3u; f++)
+    for (uint32_t fwd_idx = 0u; fwd_idx < 3u; fwd_idx++)
     {
-        for (uint32_t r = 0u; r < 3u; r++)
+        for (uint32_t side_idx = 0u; side_idx < 3u; side_idx++)
         {
-            float32_t x = 0.0f;
-            float32_t y = 0.0f;
+            float32_t point_x = 0.0f;
+            float32_t point_y = 0.0f;
 
-            sim_body_point(forward[f], right[r], &x, &y);
+            sim_body_point(forward[fwd_idx], right[side_idx], &point_x,
+                           &point_y);
             for (uint32_t index = 0u; index < g_box_count; index++)
             {
-                assert(!((x > g_boxes[index].x_min) &&
-                         (x < g_boxes[index].x_max) &&
-                         (y > g_boxes[index].y_min) &&
-                         (y < g_boxes[index].y_max)));
+                assert(!((point_x > g_boxes[index].x_min) &&
+                         (point_x < g_boxes[index].x_max) &&
+                         (point_y > g_boxes[index].y_min) &&
+                         (point_y < g_boxes[index].y_max)));
             }
         }
     }
@@ -244,7 +249,11 @@ void buddy4_get_state (buddy4_imu_state_t * p_state)
     }
     *p_state                 = empty;
     p_state->heading_deg_x10 = (int16_t) heading;
-    p_state->mag_ok          = g_b_imu_lost ? 0u : 1u;
+    p_state->mag_ok          = 1u;
+    if (g_b_imu_lost)
+    {
+        p_state->mag_ok = 0u;
+    }
 }
 void buddy2_get_motion_state (buddy2_motion_state_t * p_state)
 {
@@ -305,14 +314,7 @@ uint32_t buddy5_measure_cm (uint32_t now_ms)
 uint32_t buddy5_sample_with_result_cm (buddy5_ping_result_t * p_result)
 {
     uint32_t distance_cm = buddy5_measure_cm(g_now);
-    bool b_side = (APP_ULTRASONIC_ANGLE_DEG != g_servo_deg) &&
-                  ((g_servo_deg < APP_SWEEP_FIRST_DEG) ||
-                   (g_servo_deg > app_sweep_angle(APP_SWEEP_POINTS - 1u)));
 
-    if (g_b_side_deaf && b_side)
-    {
-        distance_cm = BUDDY5_NO_ECHO;
-    }
     *p_result = (BUDDY5_NO_ECHO == distance_cm) ? BUDDY5_PING_TIMEOUT_RISE
                                                 : BUDDY5_PING_VALID;
     return distance_cm;
@@ -348,17 +350,17 @@ void robot_controller_abort_obstacle_avoidance (void)
 void buddy3_get_colors (bool * p_left_black, bool * p_right_black,
                         bool * p_side_black)
 {
-    float32_t x = 0.0f;
-    float32_t y = 0.0f;
+    float32_t point_x = 0.0f;
+    float32_t point_y = 0.0f;
 
-    sim_body_point(SIM_SENSOR_FWD_MM, -SIM_SENSOR_SIDE_MM, &x, &y);
-    *p_left_black = (fabsf(y) < SIM_LINE_HALF_MM) &&
-                    (SIM_INJECT_IR_DEAF != g_inject);
-    sim_body_point(SIM_SENSOR_FWD_MM, SIM_SENSOR_SIDE_MM, &x, &y);
-    *p_right_black = (fabsf(y) < SIM_LINE_HALF_MM) &&
-                     (SIM_INJECT_IR_DEAF != g_inject);
+    sim_body_point(SIM_IR_FWD_MM, -SIM_SENSOR_SIDE_MM, &point_x, &point_y);
+    *p_left_black =
+        (fabsf(point_y) < SIM_LINE_HALF_MM) && (SIM_INJECT_IR_DEAF != g_inject);
+    sim_body_point(SIM_IR_FWD_MM, SIM_SENSOR_SIDE_MM, &point_x, &point_y);
+    *p_right_black =
+        (fabsf(point_y) < SIM_LINE_HALF_MM) && (SIM_INJECT_IR_DEAF != g_inject);
     *p_side_black = false;
-    (void) x;
+    (void) point_x;
 }
 bool buddy3_take_line_seen_event (void)
 {
@@ -421,8 +423,10 @@ void robot_telemetry_set_avoidance_forward_progress (uint16_t progress_mm,
 
 /* Move the rover for one step: a backward move, the motor PWMs, or (before
  * avoidance starts) line following straight ahead. */
-static void sim_move (void)
+/* Move the world on by period_ms (the avoidance task's period). */
+static void sim_move (uint32_t period_ms)
 {
+    float32_t scale    = (float32_t) period_ms / (float32_t) SIM_STEP_MS;
     float32_t left_mm  = 0.0f;
     float32_t right_mm = 0.0f;
     float32_t real_l   = 0.0f;
@@ -432,19 +436,19 @@ static void sim_move (void)
 
     if (g_reverse_left_mm > 0.0f)
     {
-        left_mm  = -SIM_REVERSE_MM;
-        right_mm = -SIM_REVERSE_MM;
-        g_reverse_left_mm -= SIM_REVERSE_MM;
+        left_mm  = -SIM_REVERSE_MM * scale;
+        right_mm = -SIM_REVERSE_MM * scale;
+        g_reverse_left_mm -= SIM_REVERSE_MM * scale;
     }
     else if (g_b_following)
     {
-        left_mm  = SIM_APPROACH_MM;
-        right_mm = SIM_APPROACH_MM;
+        left_mm  = SIM_APPROACH_MM * scale;
+        right_mm = SIM_APPROACH_MM * scale;
     }
     else if (!g_b_stuck)
     {
-        left_mm  = (float32_t) g_left_pwm * SIM_MM_PER_PWM;
-        right_mm = (float32_t) g_right_pwm * SIM_MM_PER_PWM;
+        left_mm  = (float32_t) g_left_pwm * SIM_MM_PER_PWM * scale;
+        right_mm = (float32_t) g_right_pwm * SIM_MM_PER_PWM * scale;
     }
     else
     {
@@ -457,66 +461,58 @@ static void sim_move (void)
     real_r = right_mm;
     if ((left_mm * right_mm) < 0.0f)
     {
-        real_l *= SIM_PIVOT_SCRUB;
-        real_r *= SIM_PIVOT_SCRUB;
+        real_l *= g_scrub;
+        real_r *= g_scrub;
     }
-    /* Right wheel ahead turns left: the compass heading falls. */
-    turn_rad = (real_l - real_r) / SIM_TRACK_MM;
-    middle   = g_heading_rad + (turn_rad * 0.5f);
-    g_pos_x += ((real_l + real_r) * 0.5f) * cosf(middle);
-    g_pos_y += ((real_l + real_r) * 0.5f) * sinf(middle);
-    g_heading_rad += turn_rad;
+    /* Move in small sub-steps: Buddy 3 samples the IR every 2 ms and
+     * latches black, so a pivot sweeping the sensors across the 18 mm line
+     * between two 100 ms steps must still see it. */
+    real_l /= (float32_t) SIM_SUBSTEPS;
+    real_r /= (float32_t) SIM_SUBSTEPS;
+    for (uint32_t sub = 0u; sub < SIM_SUBSTEPS; sub++)
+    {
+        /* Right wheel ahead turns left: the compass heading falls. */
+        turn_rad = (real_l - real_r) / SIM_TRACK_MM;
+        middle   = g_heading_rad + (turn_rad * 0.5f);
+        g_pos_x += ((real_l + real_r) * 0.5f) * cosf(middle);
+        g_pos_y += ((real_l + real_r) * 0.5f) * sinf(middle);
+        g_heading_rad += turn_rad;
+
+        /* Either front sensor over the line latches Buddy 3's event. */
+        for (int32_t side = -1; side <= 1; side += 2)
+        {
+            float32_t point_x = 0.0f;
+            float32_t point_y = 0.0f;
+
+            sim_body_point(SIM_IR_FWD_MM, (float32_t) side * SIM_SENSOR_SIDE_MM,
+                           &point_x, &point_y);
+            (void) point_x;
+            if ((fabsf(point_y) < SIM_LINE_HALF_MM) &&
+                (SIM_INJECT_IR_DEAF != g_inject))
+            {
+                g_b_line_seen = true;
+            }
+        }
+        sim_assert_clear();
+    }
     g_motion.left_distance_mm += left_mm;
     g_motion.right_distance_mm += right_mm;
-
-    /* Either front sensor over the line latches Buddy 3's event. */
-    for (int32_t side = -1; side <= 1; side += 2)
-    {
-        float32_t x = 0.0f;
-        float32_t y = 0.0f;
-
-        sim_body_point(SIM_SENSOR_FWD_MM, (float32_t) side * SIM_SENSOR_SIDE_MM,
-                       &x, &y);
-        (void) x;
-        if ((fabsf(y) < SIM_LINE_HALF_MM) && (SIM_INJECT_IR_DEAF != g_inject))
-        {
-            g_b_line_seen = true;
-        }
-    }
-    sim_assert_clear();
 }
 
 /* Inject the scenario's fault once the route reaches its point. */
 static void sim_inject (const app_avoid_ctx_t * p_ctx)
 {
-    bool b_leg  = (APP_AVOID_WAIT_LEG == p_ctx->state);
-    bool b_pass = b_leg && (APP_LEG_PASS == p_ctx->leg);
-
-    if ((SIM_INJECT_IMU_BLIP_ON_PASS == g_inject) && b_pass &&
-        (0u == g_inject_until_ms))
-    {
-        g_b_imu_lost      = true;
-        g_inject_until_ms = g_now + 300u;
-    }
-    if ((0u != g_inject_until_ms) && (g_now >= g_inject_until_ms))
-    {
-        g_b_imu_lost = false;
-    }
-    if ((SIM_INJECT_IMU_LOST_ON_PASS == g_inject) && b_pass)
-    {
-        g_b_imu_lost = true;
-    }
-    if ((SIM_INJECT_ENCODER_ON_SIDESTEP == g_inject) && b_leg &&
-        (APP_LEG_SIDESTEP == p_ctx->leg))
+    if ((SIM_INJECT_ENCODER_ON_SIDESTEP == g_inject) &&
+        (APP_AVOID_LEG == p_ctx->state) && (APP_LEG_SIDESTEP == p_ctx->leg))
     {
         g_motion.left_encoder_fault = true;
     }
     if ((SIM_INJECT_STUCK_ON_PIVOT == g_inject) &&
-        (APP_AVOID_WAIT_PIVOT == p_ctx->state))
+        (APP_AVOID_PIVOT == p_ctx->state))
     {
         g_b_stuck = true;
     }
-    g_b_side_deaf = (SIM_INJECT_SIDE_SONAR_DEAF == g_inject);
+    g_b_imu_lost = (SIM_INJECT_NO_COMPASS == g_inject);
 }
 
 /* A fresh world with the given obstacles: the rover line follows from the
@@ -551,10 +547,8 @@ static app_avoid_ctx_t sim_start (const sim_box_t * p_boxes, uint32_t count,
     g_b_line_seen     = false;
     g_b_imu_lost      = false;
     g_b_stuck         = false;
-    g_b_side_deaf     = false;
 
     ctx.state = APP_AVOID_WATCH_FORWARD;
-    app_sweep_point_reset(&ctx.sweep_point);
 
     return ctx;
 }
@@ -572,8 +566,12 @@ static void sim_run (app_avoid_ctx_t * p_ctx)
     {
         sim_inject(p_ctx);
         app_step(p_ctx, g_now);
-        sim_move();
-        g_now += SIM_STEP_MS;
+        {
+            uint32_t period = app_period_ms(p_ctx);
+
+            sim_move(period);
+            g_now += period;
+        }
         /* SIM_TRACE=1: print the pose at every change of state or leg. */
         if (b_trace && (((uint32_t) p_ctx->state * 16u + p_ctx->leg) != last))
         {
@@ -590,13 +588,18 @@ static void sim_run (app_avoid_ctx_t * p_ctx)
     {
         printf("  end: x=%.0f y=%.0f hdg=%.1f finished=%d aborted=%d "
                "width=%u face=%u\n",
-               g_pos_x, g_pos_y, g_heading_rad / SIM_RAD_PER_DEG,
-               g_b_finished, g_b_aborted, g_obstacle_width_mm,
-               g_obstacle_face_mm);
+               g_pos_x, g_pos_y, g_heading_rad / SIM_RAD_PER_DEG, g_b_finished,
+               g_b_aborted, g_obstacle_width_mm, g_obstacle_face_mm);
     }
     assert(steps < SIM_MAX_STEPS);
     assert(APP_AVOID_WATCH_FORWARD == p_ctx->state);
     assert(APP_ULTRASONIC_ANGLE_DEG == g_servo_deg);
+}
+
+/* Two distances or angles agree to well under a millimetre or degree. */
+static bool sim_near (float32_t expected, float32_t actual)
+{
+    return fabsf(expected - actual) < 0.01f;
 }
 
 static bool status_seen (uint8_t status)
@@ -614,8 +617,8 @@ static float32_t sim_heading_off_deg (void)
  * it, and line following has taken over. */
 static void assert_rejoined (const sim_box_t * p_box)
 {
-    float32_t x = 0.0f;
-    float32_t y = 0.0f;
+    float32_t point_x = 0.0f;
+    float32_t point_y = 0.0f;
 
     assert(g_b_finished && !g_b_aborted && g_b_following);
     assert(status_seen(ROBOT_AVOID_STATUS_SCANNING) &&
@@ -626,20 +629,20 @@ static void assert_rejoined (const sim_box_t * p_box)
            status_seen(ROBOT_AVOID_STATUS_COMPLETE));
     /* The rear of the rover is past the obstacle. */
     assert((g_pos_x - SIM_BODY_REAR_MM) > p_box->x_max);
-    /* Axle within 25 mm of the line, heading within 10 degrees of it, and
-     * the front sensors straddle it for line following. */
+    /* Axle within 25 mm of the line, heading within 10 degrees of it (the
+     * line search runs every 10 ms, so it stops on the line), and the front
+     * sensors near it for line following. */
     assert(fabsf(g_pos_y) < 25.0f);
     assert(sim_heading_off_deg() < 10.0f);
-    sim_body_point(SIM_SENSOR_FWD_MM, 0.0f, &x, &y);
-    assert(fabsf(y) < 40.0f);
+    sim_body_point(SIM_IR_FWD_MM, 0.0f, &point_x, &point_y);
+    assert(fabsf(point_y) < 40.0f);
 }
 
 /* ---------------- Scenarios ---------------- */
 
 /* A 200 x 150 mm box on the line, reaching 40 mm further right than left:
- * back away 80 mm, sweep, go round on the left (the narrower way), pass it
- * watching it with the side sonar, and come back onto the line beyond it.
- * Black right beside the box (the line itself) does not end the run. */
+ * back away 80 mm, sweep, go round on the left (the nearer edge), pass it
+ * by the fixed distance and come back onto the line beyond it. */
 static void test_left_route (void)
 {
     static const sim_box_t box = {500.0f, 650.0f, -80.0f, 120.0f};
@@ -648,8 +651,10 @@ static void test_left_route (void)
     sim_run(&ctx);
     assert_rejoined(&box);
     assert(g_b_decision_left);
+    assert(0u == ctx.pass_retries); /* the fixed pass was long enough */
     assert((1u == g_reverse_count) &&
-           (APP_AVOID_REVERSE_DISTANCE_MM == g_reverses_mm[0]));
+           sim_near(APP_BACKUP_MM, g_reverses_mm[0]));
+    assert(sim_near(APP_SIDESTEP_MM, ctx.sidestep_mm));
     /* The width (200 mm) is reported with both edges, within 30 mm. */
     assert((g_obstacle_face_mm > 0u) && !g_b_obstacle_partial);
     assert((g_obstacle_width_mm > 170u) && (g_obstacle_width_mm < 230u));
@@ -665,12 +670,15 @@ static void test_right_route (void)
     sim_run(&ctx);
     assert_rejoined(&box);
     assert(!g_b_decision_left);
+    assert(0u == ctx.pass_retries);
     assert((2u == g_reverse_count) &&
-           (APP_AVOID_REVERSE_DISTANCE_MM == g_reverses_mm[0]) &&
-           (APP_AVOID_ARM_SIDE_EXTRA_REVERSE_MM == g_reverses_mm[1]));
+           sim_near(APP_BACKUP_MM, g_reverses_mm[0]) &&
+           sim_near(APP_ARM_EXTRA_BACKUP_MM, g_reverses_mm[1]));
 }
 
-/* Other sizes: a narrow deep box, a wide shallow one, a long one. */
+/* Other sizes: a narrow deep box, a wide shallow one (the sidestep is at
+ * least the default, more if its far edge needs it), and a 400 mm long one
+ * (longer than the box depth assumed, still inside the tail allowance). */
 static void test_box_sizes (void)
 {
     static const sim_box_t boxes[3] = {{500.0f, 750.0f, -50.0f, 60.0f},
@@ -683,15 +691,17 @@ static void test_box_sizes (void)
         ctx = sim_start(&boxes[index], 1u, SIM_INJECT_NONE);
         sim_run(&ctx);
         assert_rejoined(&boxes[index]);
+        if (1u == index)
+        {
+            assert(ctx.sidestep_mm >= APP_SIDESTEP_MM);
+            assert((g_obstacle_width_mm > 250u) &&
+                   (g_obstacle_width_mm < 330u));
+        }
     }
-    /* The 290 mm wide box is measured within 40 mm. */
-    ctx = sim_start(&boxes[1], 1u, SIM_INJECT_NONE);
-    sim_run(&ctx);
-    assert((g_obstacle_width_mm > 250u) && (g_obstacle_width_mm < 330u));
 }
 
-/* Walls close on both sides of a wide obstacle: no edge is found and the
- * fixed fallback route has under 20 cm each side, so the rover stays put. */
+/* Walls close on both sides of a wide obstacle: no edge is found and each
+ * side has under 20 cm, so the rover stays put. */
 static void test_blocked (void)
 {
     static const sim_box_t boxes[3] = {{500.0f, 600.0f, -2000.0f, 2000.0f},
@@ -706,52 +716,67 @@ static void test_blocked (void)
     assert(fabsf(g_heading_rad) < SIM_TINY); /* It never turned. */
 }
 
-/* Compass drop-outs, a side sonar that never sees the box, and faults. */
+/* Pivots that scrub more or less than APP_PIVOT_WHEEL_SLIP assumes: each
+ * 90-degree turn is off, but the turns back cancel it and it still gets
+ * round and back onto the line. */
+static void test_slip_mismatch (void)
+{
+    static const sim_box_t box      = {500.0f, 650.0f, -80.0f, 120.0f};
+    static const float32_t scrub[2] = {0.72f, 0.95f};
+    app_avoid_ctx_t        ctx      = {0};
+
+    for (uint32_t index = 0u; index < 2u; index++)
+    {
+        g_scrub = scrub[index];
+        ctx     = sim_start(&box, 1u, SIM_INJECT_NONE);
+        sim_run(&ctx);
+        assert_rejoined(&box);
+    }
+    g_scrub = SIM_PIVOT_SCRUB;
+}
+
+/* No compass, a deep box, IR missing the line, and faults. */
 static void test_faults (void)
 {
     static const sim_box_t box = {500.0f, 650.0f, -80.0f, 120.0f};
     app_avoid_ctx_t        ctx = {0};
 
-    /* A 300 ms compass drop-out while passing: rides through it. */
-    ctx = sim_start(&box, 1u, SIM_INJECT_IMU_BLIP_ON_PASS);
+    /* The compass never works: turns use the encoders anyway. */
+    ctx = sim_start(&box, 1u, SIM_INJECT_NO_COMPASS);
     sim_run(&ctx);
     assert_rejoined(&box);
 
-    /* The side sonar never sees the box: it assumes a 200 mm deep obstacle
-     * (this one is 150 mm) and still gets round. */
-    ctx = sim_start(&box, 1u, SIM_INJECT_SIDE_SONAR_DEAF);
-    sim_run(&ctx);
-    assert_rejoined(&box);
-
-    /* A box much deeper than the 350 mm assumed, and the side sonar never
-     * sees it: turning back, the front sonar finds it still there, so the
-     * rover drives further along and tries again until it is past. */
+    /* A box 750 mm deep: turning back, the sonar sees it still there, and
+     * driving further gets past it.  (Limit of the fixed route: a box whose
+     * far end lies just behind where the pass leg ends - within the rover's
+     * tail swing - is NOT seen by the front sonar, and the last pivot can
+     * clip it.  Keep APP_BOX_DEPTH_MM at least the real box's length.) */
     {
-        static const sim_box_t deep = {500.0f, 1150.0f, -80.0f, 120.0f};
+        static const sim_box_t deep = {500.0f, 1250.0f, -80.0f, 120.0f};
 
-        ctx = sim_start(&deep, 1u, SIM_INJECT_SIDE_SONAR_DEAF);
+        ctx = sim_start(&deep, 1u, SIM_INJECT_NONE);
         sim_run(&ctx);
         assert_rejoined(&deep);
         assert(ctx.pass_retries >= 1u);
     }
 
-    /* The front IR misses the line on the way back: after at least
-     * APP_RETURN_MIN_MM the tracked position (encoders + compass) is
-     * trusted and it hands back past the box, pointing along the line
-     * (beyond it by up to the minimum less the sidestep). */
+    /* Deeper than the retries reach: stops beside it. */
+    {
+        static const sim_box_t wall = {500.0f, 2500.0f, -80.0f, 120.0f};
+
+        ctx = sim_start(&wall, 1u, SIM_INJECT_NONE);
+        sim_run(&ctx);
+        assert(g_b_aborted && !g_b_finished);
+        assert(APP_PASS_MAX_RETRIES == ctx.pass_retries);
+    }
+
+    /* The front IR never sees the line: it stops past the box rather than
+     * drive off. */
     ctx = sim_start(&box, 1u, SIM_INJECT_IR_DEAF);
     sim_run(&ctx);
-    /* ... but it never sees the line, so after searching both ways it
-     * stops instead of driving off. */
     assert(g_b_aborted && !g_b_finished);
     assert(status_seen(ROBOT_AVOID_STATUS_TIMEOUT));
     assert((g_pos_x - SIM_BODY_REAR_MM) > box.x_max);
-
-    /* Compass gone for good from the pass on: the encoders carry the
-     * heading through the last pivots and it still rejoins the line. */
-    ctx = sim_start(&box, 1u, SIM_INJECT_IMU_LOST_ON_PASS);
-    sim_run(&ctx);
-    assert_rejoined(&box);
 
     /* An encoder fault on the sidestep (after its first second). */
     ctx = sim_start(&box, 1u, SIM_INJECT_ENCODER_ON_SIDESTEP);
@@ -766,21 +791,36 @@ static void test_faults (void)
     assert(status_seen(ROBOT_AVOID_STATUS_BLOCKED));
 }
 
-/* Heading helpers: shortest change through the 0/360 wrap, and which way
- * each scan angle looks. */
+/* A dashboard command cancels a run part-way: the motors stop. */
+static void test_cancel (void)
+{
+    static const sim_box_t box = {500.0f, 650.0f, -80.0f, 120.0f};
+    app_avoid_ctx_t        ctx = sim_start(&box, 1u, SIM_INJECT_NONE);
+
+    for (uint32_t steps = 0u;
+         (steps < SIM_MAX_STEPS) && (APP_AVOID_LEG != ctx.state); steps++)
+    {
+        app_step(&ctx, g_now);
+        sim_move(SIM_STEP_MS);
+        g_now += SIM_STEP_MS;
+    }
+    app_step(&ctx, g_now); /* the sidestep's first drive step */
+    assert((APP_AVOID_LEG == ctx.state) && (0 != g_left_pwm));
+    g_b_active = false;
+    app_step(&ctx, g_now);
+    assert(APP_AVOID_WATCH_FORWARD == ctx.state);
+    assert((0 == g_left_pwm) && (0 == g_right_pwm));
+    assert(status_seen(ROBOT_AVOID_STATUS_CANCELLED));
+    assert(APP_ULTRASONIC_ANGLE_DEG == g_servo_deg);
+}
+
 static void test_helpers (void)
 {
-    assert(20 == app_heading_change_x10(3590, 10));
-    assert(-20 == app_heading_change_x10(10, 3590));
-    assert(0 == app_heading_change_x10(3600, 0));
-    assert(900 == app_heading_offset_x10(0, 900));
-    assert(2700 == app_heading_offset_x10(0, -900));
-    assert(!app_scan_angle_is_left(45));
-    assert(app_scan_angle_is_left(135));
     assert(45 == app_sweep_angle(APP_SWEEP_45_INDEX));
     assert(90 == app_sweep_angle(APP_SWEEP_CENTRE_INDEX));
     assert(135 == app_sweep_angle(APP_SWEEP_135_INDEX));
     assert(150 == app_sweep_angle(APP_SWEEP_POINTS - 1u));
+    assert(!app_low_is_left());
 }
 
 int main (void)
@@ -790,15 +830,17 @@ int main (void)
     test_right_route();
     test_box_sizes();
     test_blocked();
+    test_slip_mismatch();
     test_faults();
-    puts("PASS: avoidance round a box on the line in a simulated world: "
-         "5-degree sweep measures the width, pivot out, sidestep, pass it "
-         "with the side sonar, back onto the line beyond it (ignoring the "
-         "line beside it) and aligned; left/right, three box sizes, "
-         "blocked, compass drop-out, deaf side sonar (deep box: turn back finds it, drives further), IR missing the line "
-         "(tracked position), compass lost (encoders), encoder "
-         "fault and stuck stop");
+    test_cancel();
+    puts("PASS: fixed-distance avoidance round a box in a simulated world: "
+         "sweep picks the nearer edge and measures the width, encoder-steered "
+         "pivots, fixed sidestep and pass, back onto the line and aligned; "
+         "left/right, three box sizes, blocked, pivot slip mismatch, no "
+         "compass, deep box (drive further), wall (stops), IR missing the "
+         "line, encoder fault, stuck stop and cancel");
     return 0;
 }
 
 /*** end of file ***/
+

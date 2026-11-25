@@ -63,12 +63,18 @@
 #define BUDDY2_KD                 (0.005f)
 #define BUDDY2_PID_INTEGRAL_LIMIT (1000.0f)
 
-/* Encoder check: a wheel driven at >= BUDDY2_ENCODER_CHECK_MIN_PWM (API
- * units, after trim and speed limit) that gives no tick for
- * BUDDY2_ENCODER_FAULT_MS is flagged as faulty.  Below that PWM the wheel
- * may legitimately not turn, so it is not checked. */
-#define BUDDY2_ENCODER_CHECK_MIN_PWM (3000)
-#define BUDDY2_ENCODER_FAULT_MS      (800u)
+/* Encoder check: a wheel driven at >= the check PWM (API units, after trim
+ * and speed limit) that gives no tick for BUDDY2_ENCODER_FAULT_MS is flagged
+ * as faulty.  Below that PWM the wheel may legitimately not turn, so it is
+ * not checked.  A distance/turn move's PID raises the power on a wheel that
+ * does not turn, so there 3000 is enough.  Open-loop drive (line following,
+ * raw PWM, avoidance) keeps its power: the motors need about 5400 to keep
+ * turning (the right one more), and at 3000 a wheel that simply stalled at
+ * low power, e.g. line following at the 40 % limit (~4600), was reported as
+ * an encoder fault (25 Nov). */
+#define BUDDY2_ENCODER_CHECK_MIN_PWM      (3000)
+#define BUDDY2_ENCODER_CHECK_OPEN_MIN_PWM (6500)
+#define BUDDY2_ENCODER_FAULT_MS           (800u)
 
 /* Trace values are tenths and saturate just inside the integer ranges. */
 #define BUDDY2_TRACE_LIMIT     (2147480000.0f)
@@ -80,8 +86,8 @@
 #define BUDDY2_SPEED_USE_LIMIT (0u)
 /* Use the global speed limit but do not apply temporary barcode slowing. */
 #define BUDDY2_SPEED_USE_LIMIT_IGNORE_BARCODE (255u)
-#define BUDDY2_DEG_PER_TURN    (360.0f)
-#define BUDDY2_MS_PER_S        (1000.0f)
+#define BUDDY2_DEG_PER_TURN                   (360.0f)
+#define BUDDY2_MS_PER_S                       (1000.0f)
 /* Shortest time between two control steps.  The cyclic handler wakes the
  * motion task every BUDDY2_CONTROL_PERIOD_MS, but a higher-priority task
  * (USB, Wi-Fi) can hold one wake-up back by a millisecond or two, so the
@@ -128,14 +134,14 @@ static uint8_t g_left_trim_pct  = BUDDY2_TRIM_DEFAULT_LEFT;
 static uint8_t g_right_trim_pct = BUDDY2_TRIM_DEFAULT_RIGHT;
 /* Global speed limit in percent: scales open-loop PWM and the max_pwm of
  * distance/turn moves. */
-static uint8_t  g_speed_pct       = BUDDY2_SPEED_DEFAULT;
-static bool g_barcode_slowdown;
-static int16_t g_open_left_request;
-static int16_t g_open_right_request;
-static uint8_t g_open_speed_request = BUDDY2_SPEED_USE_LIMIT;
-static uint32_t g_last_update_ms  = 0u;
-static int8_t   g_left_direction  = 1;
-static int8_t   g_right_direction = 1;
+static uint8_t  g_speed_pct = BUDDY2_SPEED_DEFAULT;
+static bool     g_barcode_slowdown;
+static int16_t  g_open_left_request;
+static int16_t  g_open_right_request;
+static uint8_t  g_open_speed_request = BUDDY2_SPEED_USE_LIMIT;
+static uint32_t g_last_update_ms     = 0u;
+static int8_t   g_left_direction     = 1;
+static int8_t   g_right_direction    = 1;
 /* PWM actually sent to each motor (API units), for the encoder check. */
 static int16_t g_left_applied_pwm  = 0;
 static int16_t g_right_applied_pwm = 0;
@@ -169,9 +175,9 @@ static void    buddy2_encoder_pin_init (uint32_t pin);
 static bool buddy2_start_motion (float32_t left_distance_mm,
                                  float32_t right_distance_mm, int16_t max_pwm,
                                  uint8_t speed_pct);
-static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
-                                  uint32_t elapsed_ms, uint32_t * p_no_tick_ms,
-                                  bool * p_fault);
+static bool buddy2_check_encoder (int16_t applied_pwm, int32_t min_pwm,
+                                  int32_t tick_delta, uint32_t elapsed_ms,
+                                  uint32_t * p_no_tick_ms, bool * p_fault);
 static void buddy2_report_faults (bool b_left_fault, bool b_right_fault);
 static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
                                     float32_t dt_s);
@@ -289,8 +295,10 @@ static uint8_t buddy2_effective_speed (uint8_t requested)
 {
     bool b_ignore_barcode =
         (BUDDY2_SPEED_USE_LIMIT_IGNORE_BARCODE == requested);
-    uint8_t percent = ((BUDDY2_SPEED_USE_LIMIT == requested) ||
-                       b_ignore_barcode) ? g_speed_pct : requested;
+    uint8_t percent =
+        ((BUDDY2_SPEED_USE_LIMIT == requested) || b_ignore_barcode)
+            ? g_speed_pct
+            : requested;
     if (!b_ignore_barcode && g_barcode_slowdown &&
         (percent > BUDDY2_BARCODE_SPEED_PCT))
     {
@@ -302,7 +310,7 @@ static uint8_t buddy2_effective_speed (uint8_t requested)
 void buddy2_get_barcode_speed (bool * active, uint8_t * effective_pct)
 {
     buddy2_lock();
-    *active = g_barcode_slowdown;
+    *active        = g_barcode_slowdown;
     *effective_pct = buddy2_effective_speed(BUDDY2_SPEED_USE_LIMIT);
     buddy2_unlock();
 }
@@ -320,24 +328,32 @@ void buddy2_set_barcode_slowdown (bool active)
         if (g_motion.b_active)
         {
             int16_t previous_max = g_motion.max_pwm;
-            uint8_t percent = buddy2_effective_speed(g_motion.requested_speed_pct);
+            uint8_t percent =
+                buddy2_effective_speed(g_motion.requested_speed_pct);
             float32_t target_speed;
-            g_motion.max_pwm = buddy2_clamp_pwm(
-                (float32_t) g_motion.requested_max_pwm * percent / BUDDY2_PERCENT);
-            target_speed = BUDDY2_MAX_SPEED_MM_S *
+            g_motion.max_pwm =
+                buddy2_clamp_pwm((float32_t) g_motion.requested_max_pwm *
+                                 percent / BUDDY2_PERCENT);
+            target_speed =
+                BUDDY2_MAX_SPEED_MM_S *
                 ((float32_t) g_motion.max_pwm / g_calibration.pwm_limit);
-            /* Avoid derivative kick and integral carry-over on speed changes. */
-            g_motion.left_integral = 0.0f;
+            /* Avoid derivative kick and integral carry-over on speed changes.
+             */
+            g_motion.left_integral  = 0.0f;
             g_motion.right_integral = 0.0f;
             g_motion.left_previous_error =
-                target_speed * g_motion.left_direction - g_state.left_speed_mm_s;
+                target_speed * g_motion.left_direction -
+                g_state.left_speed_mm_s;
             g_motion.right_previous_error =
-                target_speed * g_motion.right_direction - g_state.right_speed_mm_s;
+                target_speed * g_motion.right_direction -
+                g_state.right_speed_mm_s;
             if (previous_max > 0)
             {
                 buddy2_set_motor_pwm_locked(
-                    buddy2_clamp_pwm((float32_t) g_left_applied_pwm * g_motion.max_pwm / previous_max),
-                    buddy2_clamp_pwm((float32_t) g_right_applied_pwm * g_motion.max_pwm / previous_max));
+                    buddy2_clamp_pwm((float32_t) g_left_applied_pwm *
+                                     g_motion.max_pwm / previous_max),
+                    buddy2_clamp_pwm((float32_t) g_right_applied_pwm *
+                                     g_motion.max_pwm / previous_max));
             }
             else
             {
@@ -349,8 +365,8 @@ void buddy2_set_barcode_slowdown (bool active)
         }
         else if ((g_open_left_request != 0) || (g_open_right_request != 0))
         {
-            buddy2_drive_locked(g_open_left_request, g_open_right_request,
-                                  NULL, g_open_speed_request);
+            buddy2_drive_locked(g_open_left_request, g_open_right_request, NULL,
+                                g_open_speed_request);
         }
     }
     buddy2_unlock();
@@ -753,7 +769,7 @@ static void buddy2_drive_locked (int16_t left_pwm, int16_t right_pwm,
 {
     uint8_t percent = buddy2_effective_speed(speed_pct);
 
-    g_open_left_request = left_pwm;
+    g_open_left_request  = left_pwm;
     g_open_right_request = right_pwm;
     g_open_speed_request = speed_pct;
 
@@ -860,11 +876,11 @@ static void buddy2_trace (int16_t left, int16_t right,
 /* Caller must hold the mutex. */
 static void buddy2_stop_locked (const robot_steering_input_t * p_input)
 {
-    g_motion.b_active   = false;
-    g_open_left_request = 0;
+    g_motion.b_active    = false;
+    g_open_left_request  = 0;
     g_open_right_request = 0;
-    g_left_applied_pwm  = 0;
-    g_right_applied_pwm = 0;
+    g_left_applied_pwm   = 0;
+    g_right_applied_pwm  = 0;
     buddy2_apply_one(MOTOR_LEFT_PWM_A, MOTOR_LEFT_PWM_B, 0);
     buddy2_apply_one(MOTOR_RIGHT_PWM_A, MOTOR_RIGHT_PWM_B, 0);
     /* The millisecond clock wraps; consumers use differences. */
@@ -910,10 +926,10 @@ static bool buddy2_start_motion (float32_t left_distance_mm,
         }
 
         buddy2_lock();
-        g_motion.requested_max_pwm = max_pwm;
+        g_motion.requested_max_pwm   = max_pwm;
         g_motion.requested_speed_pct = speed_pct;
-        percent = buddy2_effective_speed(speed_pct);
-        g_motion.b_active = true;
+        percent                      = buddy2_effective_speed(speed_pct);
+        g_motion.b_active            = true;
         g_motion.target_distance_mm =
             (left_abs > right_abs) ? left_abs : right_abs;
         g_motion.start_left_distance_mm  = g_state.left_distance_mm;
@@ -949,9 +965,9 @@ static bool buddy2_start_motion (float32_t left_distance_mm,
  * Encoder check for one wheel.  Caller must hold the mutex.
  * Returns true if the wheel has JUST become faulty (this call).
  */
-static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
-                                  uint32_t elapsed_ms, uint32_t * p_no_tick_ms,
-                                  bool * p_fault)
+static bool buddy2_check_encoder (int16_t applied_pwm, int32_t min_pwm,
+                                  int32_t tick_delta, uint32_t elapsed_ms,
+                                  uint32_t * p_no_tick_ms, bool * p_fault)
 {
     int32_t magnitude =
         (applied_pwm < 0) ? -(int32_t) applied_pwm : (int32_t) applied_pwm;
@@ -962,7 +978,7 @@ static bool buddy2_check_encoder (int16_t applied_pwm, int32_t tick_delta,
         *p_no_tick_ms = 0u;
         *p_fault      = false;
     }
-    else if (magnitude < BUDDY2_ENCODER_CHECK_MIN_PWM)
+    else if (magnitude < min_pwm)
     {
         /* Too little power to expect movement: restart the timer, keep the
          * last verdict. */
@@ -1035,6 +1051,10 @@ static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
         (float32_t) right_delta * right_mm_tick * (float32_t) g_right_direction;
     bool b_left_new  = false;
     bool b_right_new = false;
+    /* A PID move raises the power on a silent wheel; open-loop drive does
+     * not, so it is only checked where the wheel must turn. */
+    int32_t min_pwm = g_motion.b_active ? BUDDY2_ENCODER_CHECK_MIN_PWM
+                                        : BUDDY2_ENCODER_CHECK_OPEN_MIN_PWM;
 
     g_state.left_speed_mm_s  = left_distance / dt_s;
     g_state.right_speed_mm_s = right_distance / dt_s;
@@ -1044,12 +1064,12 @@ static void buddy2_update_odometry (uint32_t now_ms, uint32_t elapsed_ms,
     g_state.right_ticks  = right_ticks;
     g_state.timestamp_ms = now_ms;
 
-    b_left_new =
-        buddy2_check_encoder(g_left_applied_pwm, left_delta, elapsed_ms,
-                             &g_left_no_tick_ms, &g_state.left_encoder_fault);
-    b_right_new =
-        buddy2_check_encoder(g_right_applied_pwm, right_delta, elapsed_ms,
-                             &g_right_no_tick_ms, &g_state.right_encoder_fault);
+    b_left_new  = buddy2_check_encoder(g_left_applied_pwm, min_pwm, left_delta,
+                                       elapsed_ms, &g_left_no_tick_ms,
+                                       &g_state.left_encoder_fault);
+    b_right_new = buddy2_check_encoder(
+        g_right_applied_pwm, min_pwm, right_delta, elapsed_ms,
+        &g_right_no_tick_ms, &g_state.right_encoder_fault);
     buddy2_report_faults(g_state.left_encoder_fault,
                          g_state.right_encoder_fault);
 

@@ -214,8 +214,10 @@ function showTelemetry(data) {
   // Buddy 4 reports independently; preserve the other sensor tiles.
   if (Object.prototype.hasOwnProperty.call(data, 'hump_state')) {
     if (data.imu_fault) setBadge('imu-health', 'Reading unavailable', 'destructive');
+    // Nothing in the firmware loads a stored calibration (buddy4_set_calibration
+    // is never called), so the flag stays off; the IMU works on its defaults.
     else if (data.imu_calibrated) setBadge('imu-health', 'Calibrated', 'success');
-    else setBadge('imu-health', 'Needs calibration', 'warning');
+    else setBadge('imu-health', 'Working', 'success');
     setText('imu-interval', `${data.imu_interval_ms} ms`);
     setText('imu-roll', fmt(data.roll_x10 / 10));
     setText('hump-state', ['Flat', 'Climbing', 'Top', 'Descending'][data.hump_state] ?? 'Unknown');
