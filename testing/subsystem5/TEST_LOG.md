@@ -5,6 +5,11 @@
 See `testing/README.md` for how to run tests and record results.
 
 ## Test cases
+
+Test IDs never change.
+
+| ID | What is tested | Requirement / interface | Method | Steps / how | Expected result |
+|---|---|---|---|---|---|
 | S5-U01 | Forward ultrasonic distance is published to the dashboard while the rover approaches an object | FR17; FR5; FR6. Buddy 5 forward measurement -> telemetry -> dashboard interface. | manual | Place an object at measured distances in front of the ultrasonic sensor while the dashboard is connected. Record the displayed distance for each position. | The dashboard updates the forward ultrasonic value to reflect the object distance. This case does not cover no-echo/timeout behaviour. |
 | S5-U02 | A close forward obstacle stops normal movement and hands motor control to avoidance | FR19. Buddy 5 ultrasonic -> controller -> Buddy 2 motor interface. | manual | While line following or driving forward, place an obstacle at the configured stop distance (15 cm in commit `8ea9980`). Record the rover movement and controller status. | The rover stops before contact, enters avoidance control, and only resumes line following after a safe completed route. |
 | S5-U18 | Insufficient obstacle-side clearance extends the bypass route | FR19 collision-free bypass and clearance selection. | manual | During an avoidance run, place the obstacle close enough to the rover's outward side that the clearance monitor remains below its configured safe distance. Record the route and console/dashboard evidence. | The rover extends the turn/forward bypass path to increase clearance and avoids contact with the obstacle. |
@@ -37,7 +42,6 @@ See `testing/README.md` for how to run tests and record results.
 final `PASS:` line only after every listed assertion succeeds.
 `run_ir_diagnostics_tests.sh` does not run the Subsystem 5 tests. **manual**
 = a person observes the result on the rover or the dashboard.
-
 
 ## Results
 
@@ -132,3 +136,5 @@ Add a new row for every run. Never edit or delete old rows.
 | 2026-11-25 | S5-U11 | `c536f54` | TanJiaYiCharmain | Tan Jia Yi Charmain | Pass | Upon going back towards the black line, the rover managed to follow the line | Final fix Buddy 5 ultrasonic - Trying to follow back to the line, Test 2, at left side (Fixed-distance avoidance route - Last test before demo,test 3) |
 | 2026-11-25 | S5-U01 | `cd3fc18` | TheYeeboii | PASS | `logs/2026-11-25_host.txt` | host, Windows 11 |
 | 2026-11-25 | S5-U02 | `cd3fc18` | TheYeeboii | PASS | `logs/2026-11-25_host.txt` | host, Windows 11 |
+| 2026-11-26 | S5-U03 to S5-U10, S5-U022 | `8aeafb2` | TanJiaYiCharmain | TanJiaYiCharmain | PASS | `test_buddy5_avoidance.c` printed its `PASS:` line and exited with code 0 | host, Windows 11, gcc 15.2.0 |
+| 2026-11-26 | S5-U11 to S5-U17, S5-U023 | `8aeafb2` | TanJiaYiCharmain | TanJiaYiCharmain | PASS | `test_buddy5_line_return.c` printed its `PASS:` line and exited with code 0 | host, Windows 11, gcc 15.2.0 |
