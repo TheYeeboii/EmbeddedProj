@@ -9,7 +9,7 @@ Stages 1..3 now include straight cross-junction traversal; see
 
 ## Build and flash
 
-Build and flash the Wi-Fi firmware as in the [README](../README.md): the stage
+Build and flash the Wi-Fi firmware as in [myREADME](../myREADME.md): the stage
 and speed commands below come from the dashboard. A USB-only build
 (`make CONSOLE=usb_cdc PICO_SDK_PATH=... -j4`, `mtk3pico_smp0_usb_cdc.uf2`)
 still runs stage 3 from GP21 but cannot take commands. Use a space-free SDK
