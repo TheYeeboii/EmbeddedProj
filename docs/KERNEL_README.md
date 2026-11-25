@@ -18,13 +18,13 @@ make SMP=1    # dual-core SMP
 - **CYW43439 radio bring-up** - firmware boot, station enable, OTP MAC and active scan pass a 72/72 hardware gate as a development profile
 - **Working IP networking** - DHCP, DNS and a repeating 64-packet UDP echo exchange, confirmed end to end against a Linux host on both one core and two
 
-See [docs/PORT_RP2040.md](docs/PORT_RP2040.md) for exactly what is validated on hardware, what is ported but not yet validated, and what is not ported.
+See [docs/PORT_RP2040.md](PORT_RP2040.md) for exactly what is validated on hardware, what is ported but not yet validated, and what is not ported.
 
 > [!IMPORTANT]
 > The qualified release boundary is **SMP + UART**, plus the optional SMP
 > USB-CDC console. IP networking and arbitrary concurrent peripheral access
 > are development profiles, not part of that boundary.
-> [docs/PORT_RP2040.md](docs/PORT_RP2040.md) states the supported scope and
+> [docs/PORT_RP2040.md](PORT_RP2040.md) states the supported scope and
 > the RP2040 safety rules.
 
 ---
@@ -59,7 +59,7 @@ Requires `arm-none-eabi-gcc` (baseline: 13.2.1) and a host `g++`. The build
 compiles the ELF-to-UF2 converter itself on first run - the RP2040 bootloader
 accepts UF2, not ELF, and unlike a Pico SDK/CMake project nothing else
 provides that helper here. See
-[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for a full step-by-step
+[docs/GETTING_STARTED.md](GETTING_STARTED.md) for a full step-by-step
 walkthrough.
 
 ---
@@ -68,8 +68,8 @@ walkthrough.
 
 | Doc | Covers |
 |---|---|
-| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Step-by-step toolchain setup, build, flash, console, troubleshooting |
-| [docs/PORT_RP2040.md](docs/PORT_RP2040.md) | Feature status: what is validated on hardware, what is ported but not validated, and what is not ported. Also carries the RP2040 safety rules, the driver-ownership matrix, and the idle/exception model |
+| [docs/GETTING_STARTED.md](GETTING_STARTED.md) | Step-by-step toolchain setup, build, flash, console, troubleshooting |
+| [docs/PORT_RP2040.md](PORT_RP2040.md) | Feature status: what is validated on hardware, what is ported but not validated, and what is not ported. Also carries the RP2040 safety rules, the driver-ownership matrix, and the idle/exception model |
 
 ---
 
@@ -185,7 +185,7 @@ freezes, the kernel is.
 It is one file with the tunables at the top - meant to be read, changed and
 reflashed. **Full walkthrough**, including which call demonstrates which
 object and what to try changing:
-[docs/GETTING_STARTED.md § 6b](docs/GETTING_STARTED.md#6b-what-the-demo-does-and-what-you-should-see).
+[docs/GETTING_STARTED.md § 6b](GETTING_STARTED.md#6b-what-the-demo-does-and-what-you-should-see).
 
 ---
 
@@ -194,7 +194,7 @@ object and what to try changing:
 The measured qualification results - wake/dispatch latency, cross-core wake,
 lock contention and hold times, idle stack high water, and the Phase 13
 scaling benchmark - are recorded in
-[docs/PORT_RP2040.md](docs/PORT_RP2040.md), with the date and profile of each
+[docs/PORT_RP2040.md](PORT_RP2040.md), with the date and profile of each
 run.
 
 **The phase harnesses that produced them, and the per-phase hardware captures,
@@ -245,7 +245,7 @@ behaviour, a crash, or a reproducible failure, please open an issue with what
 happened, how to reproduce it, the console output at the point of failure,
 your `arm-none-eabi-gcc` version, and your board.
 
-**Where help is most useful:** [docs/PORT_RP2040.md](docs/PORT_RP2040.md)
+**Where help is most useful:** [docs/PORT_RP2040.md](PORT_RP2040.md)
 lists what is validated and what is not. The "Ported, not validated" entries -
 IP networking over CYW43439, the inherited peripheral drivers
 under concurrent cross-core use, and anything long-running - are where an
@@ -337,13 +337,13 @@ Muhamed Fauzi Bin Abbas, with AI Assistants.
 This repository combines upstream µT-Kernel 3.0 source with port work written
 for the RP2040. Nothing here is relicensed: upstream copyright headers are
 left intact in every file, and where this section and a file header disagree,
-**the file header governs**. Full licence texts are in [`LICENSES/`](LICENSES/).
+**the file header governs**. Full licence texts are in [`LICENSES/`](../LICENSES/).
 
 | Part of the repository | Copyright | Licence |
 |---|---|---|
-| `kernel/`, `include/`, `lib/libtk/`, `lib/libtm/` (core), `device/`, `config/` - µT-Kernel 3.0 and this port's SMP additions to it: per-core kernel state, the global ready queue, the recursive big kernel lock, cross-core dispatch, and the RP2040 SMP backend | µT-Kernel 3.0, © 2006-2023 Ken Sakamura, released by TRON Forum | T-License 2.2 - [`T-License-2.2_TEF000-219-200401.pdf`](LICENSES/T-License-2.2_TEF000-219-200401.pdf) |
-| `lib/liblwip/sysdepend/pico_rp2040/`, `lib/libwifi/`, `lib/libtm/sysdepend/pico_rp2040/usb/`, `app_program/` - the lwIP raw-API driver, the CYW43439 polling service, the TinyUSB console glue, and the demo application. Built against third-party libraries, but not derived from them | © 2026 Muhamed Fauzi Bin Abbas | Apache-2.0 - [`Apache-2.0.txt`](LICENSES/Apache-2.0.txt) |
-| `lib/libwifi/sysdepend/pico_rp2040/cyw43_bus_pio_spi.pio.h`, `tools/elf2uf2/` - generated from, or copied from, Pico SDK sources | © 2020 Raspberry Pi (Trading) Ltd. | BSD-3-Clause - [`BSD-3-Clause_Raspberry-Pi.txt`](LICENSES/BSD-3-Clause_Raspberry-Pi.txt) |
+| `kernel/`, `include/`, `lib/libtk/`, `lib/libtm/` (core), `device/`, `config/` - µT-Kernel 3.0 and this port's SMP additions to it: per-core kernel state, the global ready queue, the recursive big kernel lock, cross-core dispatch, and the RP2040 SMP backend | µT-Kernel 3.0, © 2006-2023 Ken Sakamura, released by TRON Forum | T-License 2.2 - [`T-License-2.2_TEF000-219-200401.pdf`](../LICENSES/T-License-2.2_TEF000-219-200401.pdf) |
+| `lib/liblwip/sysdepend/pico_rp2040/`, `lib/libwifi/`, `lib/libtm/sysdepend/pico_rp2040/usb/`, `app_program/` - the lwIP raw-API driver, the CYW43439 polling service, the TinyUSB console glue, and the demo application. Built against third-party libraries, but not derived from them | © 2026 Muhamed Fauzi Bin Abbas | Apache-2.0 - [`Apache-2.0.txt`](../LICENSES/Apache-2.0.txt) |
+| `lib/libwifi/sysdepend/pico_rp2040/cyw43_bus_pio_spi.pio.h`, `tools/elf2uf2/` - generated from, or copied from, Pico SDK sources | © 2020 Raspberry Pi (Trading) Ltd. | BSD-3-Clause - [`BSD-3-Clause_Raspberry-Pi.txt`](../LICENSES/BSD-3-Clause_Raspberry-Pi.txt) |
 
 ### A note on T-License 2.1
 
@@ -354,7 +354,7 @@ upstream repository names `TEF000-219-200401.pdf` as the governing document.
 - 36 of them in `kernel/tkernel/`, the rest spread across `kernel/knlinc/`,
 `kernel/tstdlib/`, `kernel/usermain/`, `kernel/sysdepend/`, `include/sys/`,
 `include/tk/`, `include/tm/` and `lib/libtk/`. T-License 2.1
-([`T-License-2.1_TEF000-218-150401.pdf`](LICENSES/T-License-2.1_TEF000-218-150401.pdf))
+([`T-License-2.1_TEF000-218-150401.pdf`](../LICENSES/T-License-2.1_TEF000-218-150401.pdf))
 is included in `LICENSES/` so those headers resolve to a text present in this
 repository. This is a record of what the files say, not a claim that any part
 of µT-Kernel 3.0 is offered under 2.1 rather than 2.2.

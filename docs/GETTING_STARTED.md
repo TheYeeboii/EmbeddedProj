@@ -555,7 +555,8 @@ host side is a plain echo server - nothing parses the payload.
 | `WIFI_UDP=1` | UDP | 7007 | 64 packets x 48 bytes, stop-and-wait, 250 ms reply timeout |
 | `WIFI_TCP=1` | TCP | 7008 | connect, echo, close |
 
-[`tools/linux_echo.py`](../tools/linux_echo.py) serves both. It needs only
+`tools/linux_echo.py` from the original kernel template (not included in
+this repository) serves both. It needs only
 Python 3 - no dependencies - so a Raspberry Pi Zero 2 W, or any Linux box on
 the same network, is enough:
 

@@ -64,7 +64,7 @@ void buddy5_set_servo_angle (uint8_t angle_deg);
 uint32_t buddy5_measure_cm (uint32_t now_ms);
 
 /**
- * @brief Take a temporary scan measurement (width sweep, side monitor).
+ * @brief Take a temporary scan measurement (the avoidance width sweep).
  * @param p_result Receives how the ping ended; NULL is ignored.
  * @return Distance in centimetres, or BUDDY5_NO_ECHO on timeout.
  *

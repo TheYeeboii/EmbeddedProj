@@ -27,11 +27,16 @@ The higher-level obstacle-avoidance sequence is implemented by
    avoidance.
 3. The controller stops the motors and line following, and remembers that
    the run came from line following so it can hand control back at the end.
-4. The rover backs away 80 mm (`APP_AVOID_REVERSE_DISTANCE_MM`) to make room
-   for the sweep and the turn.
+4. The rover backs away 80 mm (`APP_BACKUP_MM`) to make room for the sweep
+   and the turn.
 
 Every avoidance move runs at a fixed 60 % (`APP_AVOID_SPEED_PCT`), not the
 dashboard speed limit.  A dashboard command (stop included) cancels the run.
+
+The route is a **fixed sequence of moves** whose lengths are set by the
+constants at the top of `buddy5_avoidance.c` (the obstacle is a known box).
+The sweep only decides which way round to go, how far away the box is and,
+if its edge is further out than expected, how far to step sideways.
 
 ## Obstacle width sweep and side choice
 
@@ -42,145 +47,126 @@ dashboard speed limit.  A dashboard command (stop included) cancels the run.
    The sweep takes about 5 seconds.
 2. Each reading is split into a forward part (`d * cos(off-axis angle)`) and
    a sideways part (`d * sin(off-axis angle)`).
-3. The obstacle's front face is the nearest forward part of the readings
-   within 10 degrees of straight ahead.  With no echo there, the fixed route
-   of step 7 is used.
+3. The obstacle's **front face** is the nearest forward part of the readings
+   within 10 degrees of straight ahead.  With no echo there, the box is
+   assumed to be 250 mm away (`APP_FALLBACK_FACE_MM`).
 4. Walking outward on each side, a reading stays on the obstacle while it
-   has an echo and its forward part is within 50 mm of the face, nearer or
-   farther.  A reading much **nearer** than the face is something else
-   beside the obstacle (on the track: things 23-30 cm away at 45 degrees
-   made a 15 cm box read up to 34 cm): it ends the face for the width, but
-   that side is not used for the route.  The
-   HC-SR04 beam still echoes off the corner while it points one step past it
+   has an echo and its forward part is within 50 mm of the face
+   (`APP_FACE_TOLERANCE_MM`).  A reading much **nearer** than the face is
+   something else beside the obstacle: that side is not used.  The HC-SR04
+   beam still echoes off the corner one step past it
    (`APP_SWEEP_BEAM_STEPS`), so the edge is taken one step inside the last
-   echo on the face.  If the obstacle has not ended by 30 or 150 degrees,
-   that side is unusable.
+   echo on the face.
 5. **Width** = left edge + right edge, shown on the dashboard (Buddy 5 tab),
-   with "≥" if one edge was not found.  To calibrate it, measure a box of
-   known width: if the dashboard reads too wide, raise
-   `APP_SWEEP_BEAM_STEPS`; too narrow, lower it.
-6. **Side choice:** each side's sidestep is
-   `edge + rover reach on the passing side + 120 mm margin` (at least 120 mm).
-   The rover goes round the side with the **smaller** sidestep, i.e. the
-   narrower way round.  A side needing more than 560 mm is unusable.  The
-   barcode arm makes the rover's left reach (75 mm) bigger than its right
-   (55 mm), which counts in that comparison.
-7. If there is no echo ahead, or neither side is usable, it falls back to a
-   fixed 300 mm sidestep toward the side with the larger 45/135-degree
-   reading.  It stays stopped if one of those has no echo or both are under
-   20 cm.
+   with "≥" if one edge was not found.  If the dashboard reads too wide for a
+   box of known width, raise `APP_SWEEP_BEAM_STEPS`; too narrow, lower it.
+6. **Side choice:** a side is usable if its edge was found, nothing is
+   nearer than the box there, and
+   `edge + rover reach on the passing side + 120 mm gap` is at most 560 mm.
+   Both usable: the side with the **nearer edge**; a tie goes left, which
+   keeps the barcode arm (left side, 75 mm reach against 55 mm on the
+   right) away from the box.
+7. **Neither side usable:** the side with more room at 45/135 degrees.  If
+   both of those read under 20 cm (`APP_MIN_CLEARANCE_CM`), the rover stays
+   stopped ("both sides under 20 cm").
+8. **Sidestep:** `APP_SIDESTEP_MM` (400 mm), or more if the chosen edge
+   needs it (edge + reach + gap).
 
 ## Route round the obstacle and back onto the line
 
-All turns are pivots on the spot measured with the Buddy 4 compass against
-the heading the rover had on the line; the straight legs hold their heading
-(a small PWM difference per tenth of a degree of error).
+**Heading.**  Every turn is measured by the **wheel encoders**, relative to
+the heading the rover had on the line: the turn is the two wheels'
+difference over the track width.  On the spot the wheels scrub, so a pivot
+counts only 85 % of that (`APP_PIVOT_WHEEL_SLIP`).  Each turn out is
+matched by a turn back, so an error in that factor largely cancels.  The
+compass is not used for control (on the track it dropped out and the motor
+current upset it during pivots); its change over the route is only printed
+at the end, next to the encoder heading, for comparison.
 
-**Heading.**  The compass is the heading, but on the track it drops out and
-the motors upset it during pivots.  Between readings the heading is carried
-on from the wheel encoders (the wheels' difference over the track width;
-on the spot only 85 % of that, `APP_PIVOT_WHEEL_SLIP`, as the wheels
-scrub).  A compass reading more than 25 degrees from that estimate is a
-glitch and is ignored, unless five in a row agree.  So a compass drop-out
-no longer stops the run, and with no compass at all the turns are made on
-the encoders alone.
+**Pivots** turn on the spot at `APP_PIVOT_FAST_PWM`, then
+`APP_PIVOT_SLOW_PWM` for the last 20 degrees, and stop within 4 degrees of
+the target or as soon as they overshoot it.
 
-**Position tracking.**  From the first pivot on, every 100 ms the rover adds
-its centre travel (average of the two encoders) to its position, split by
-the compass heading relative to the line: `x += d cos θ` along the line,
-`y += d sin θ` sideways.  So it always knows how far it is from the line,
-even when a leg's heading was a little off.  In pivots the wheels slip, but
-pivots barely move the centre, and the direction always comes from the
-compass.
+**Straight legs** hold their heading by **speeding up the wheel that lags**
+(never slowing the other), so both wheels get at least
+`APP_FORWARD_BASE_PWM`.  Slowing one wheel took the weaker right motor low
+enough to stall, which Buddy 2 then reported as an encoder fault.
 
 1. **Extra reverse (right side only).**  Pivoting right swings the
    left-front barcode IR arm toward the obstacle, so the rover backs away
-   another 100 mm first.
-2. **Pivot out** 90 degrees away from the obstacle.  Pivots run fast, then
-   slow for the last 20 degrees, and stop within 5 degrees of the target or
-   as soon as they overshoot it (the next leg's heading hold removes the
-   rest).
-3. **Sidestep** until the tracked position is the planned distance from the
-   line.  The front sonar watches this leg; 15 cm or less stops the run.
-4. **Pivot back** to the line's heading.  The servo turns to look 70 degrees
-   toward the obstacle (20 or 160 degrees) during this pivot.
-5. **Pass.**  Drive along the line's heading, pinging the obstacle side
-   every 100 ms.  A reading nearer than the original line + 100 mm is the
-   obstacle.  Two such readings mean it is alongside; then five clear
-   readings, at least 100 mm past its front face, mean it has ended (on the
-   track a few missed echoes once ended a pass too early and the turn back
-   pushed into the box); then the rover drives 400 mm more
-   (`APP_PASS_TAIL_MM`) so the whole rover is past it.  **While the obstacle
-   is alongside the rover keeps its planned gap from it:** nearer than
-   planned steers away, farther steers back in (0.3 degrees per mm of
-   error, at most 25 degrees), so the rover holds a set distance from it.
-   The sideways distance allows for the rover's angle to the obstacle
-   (from the heading): assuming it was parallel made a turned-away rover
-   read the obstacle nearer and turn away further, and on the track it ran
-   off 25 degrees.  If the side sonar never
-   sees the obstacle within 300 mm of its face, the rover assumes it is
-   350 mm deep.  The side reading shows on the dashboard as the scan
-   left/right value while passing.  Still alongside after 1200 mm means a wall: it stops.
-6. **Pivot in** 90 degrees toward the line; the servo faces forward again.
-   **The front sonar keeps watching** while turning back and on the way
-   back: the obstacle within 25 cm (turning) or 20 cm (driving back) means
-   the rover is not past it yet.  It turns back along the line, drives
-   200 mm further and tries again (at most 3 times, then it stops).
-7. **Return** toward the line.  **Black is ignored until this leg:** the
-   line continues right next to an obstacle that sits on it, and the rover
-   starts on it, so only black seen on the way back counts.
-   - The rover drives **across** the original line, so its black ends
-     within 50 mm: that is the line, if the tracked position puts the front
-     sensors within 150 mm of it.  A crossing farther out is another line
-     on the mat, and the rover keeps going.  The axle is then 100 mm minus the
-     black's length from it, which also corrects the tracked position.
-   - Black that lasts longer is a line running the rover's way, such as a
-     junction's branch beside the box (on the track the rover once took one
-     for the line and followed it off the mat): it is ignored until the
-     sensors are on white again.
-   - The tracked position says the sensors are over the line but the IR saw
-     nothing: drive 60 mm more for the IR to confirm it, and at least
-     300 mm back in all, then trust the position.
-   - No line and no position to trust within the sidestep + 250 mm stops
-     the run.
-8. **Align.**  Drive on until the axle is on the line (100 mm after the IR
-   found it, or what the tracked position says is left), pivot back to the
-   line's heading, and hand back to line following.
-9. **Line search.**  If no front sensor touched the line during that last
-   pivot, the rover may be beside it rather than on it (line following
-   would then see white on both sides and drive straight off).  It sweeps
-   35 degrees toward where the line should be, then 35 degrees the other
-   way, and hands back the moment a sensor touches black.  Not found: it
-   stops ("line not found after searching both ways").
+   another 100 mm first (`APP_ARM_EXTRA_BACKUP_MM`).
+2. **Pivot out** 90 degrees away from the line.
+3. **Sidestep** the planned distance.  The front sonar watches this leg;
+   15 cm or less stops the run.
+4. **Pivot back** to the line's heading.
+5. **Pass** a fixed distance:
+   `sonar ahead of the axle (100 mm) + distance to the box + APP_BOX_DEPTH_MM
+   (250 mm) + APP_PASS_TAIL_MM (400 mm)`, plus 100 mm going right (the extra
+   reverse).  The axle then ends well past the box's far side, so the tail
+   and cable clear it in the next pivot.  The front sonar watches this leg.
+6. **Pivot in** 90 degrees toward the line.  **The front sonar keeps
+   watching** while turning back and on the way back: the box within 25 cm
+   (turning) or 20 cm (driving back) means the rover is not past it yet.
+   It turns back along the line, drives 200 mm further
+   (`APP_PASS_RETRY_MM`) and tries again, at most 3 times, then stops.
+7. **Return** toward the line until a front IR sensor crosses it.
+   - Black only counts once the leg has come within 150 mm of the sidestep
+     distance (`APP_RETURN_EARLY_MM`); black earlier is another line on the
+     mat.
+   - Crossing the line, black ends within 50 mm.  Black that lasts longer
+     is a line running the rover's way, such as a junction's branch: it is
+     ignored until the sensors are on white again.
+   - No line within the sidestep + 250 mm (`APP_RETURN_EXTRA_MM`) stops the
+     run ("line not found on the way back").
+8. **Align.**  Drive on `APP_ALIGN_FORWARD_MM` (150 mm, the front sensors'
+   distance ahead of the axle) less the black already crossed, so the axle
+   is on the line, then pivot back to the line's heading.
+9. **Hand back or search.**  If a front sensor is on the line when that
+   pivot ends, line following takes over.  Otherwise the rover searches at
+   once: 35 degrees toward where it came from, then 35 degrees the other
+   way (`APP_SEARCH_SWEEP_DEG`), handing back the moment a sensor sees
+   black.  While searching the task runs every 10 ms instead of 100 ms
+   (`APP_SEARCH_PERIOD_MS`), so it stops on the line rather than a whole
+   step past it.  Not found: it stops ("line not found after searching both
+   ways").
 
 The dashboard shows the steps as *reversing*, *scanning*, *turning*,
 *forward* (sidestep), *passing* and *rejoining*.
+
+**Limit of the fixed route.**  The rover assumes the box is no longer than
+`APP_BOX_DEPTH_MM`.  A longer box whose far end lies just behind where the
+pass ends is not in the front sonar's view when the rover turns back, and
+the last pivot on the line can swing the tail into it.  Keep
+`APP_BOX_DEPTH_MM` at least the real box's length.
 
 ### Safety stops
 
 The run stops (motors off, no line following) and reports why on the USB
 console and in the avoidance status when:
 
-- an encoder faults, or the wheels move under 15 mm in a second while
-  driving (stuck),
+- an encoder faults (after a leg's first second), or the wheels move under
+  15 mm in a second while driving or turning (stuck),
 - a pivot takes over 6 s or a leg over 15 s,
-- the sidestep is blocked, the obstacle is too long, or the line is not
-  found on the way back.
+- the sidestep or the pass is blocked, the box is still there after three
+  retries, or the line is not found.
 
 ## Tuning on the floor
 
-| Constant | Meaning |
-|---|---|
-| `APP_ROVER_LEFT_EXTENT_MM` / `_RIGHT_EXTENT_MM` | Sonar centre to the outermost part on each side. |
-| `APP_AVOID_SIDE_MARGIN_MM` | Gap kept between the body and the edge. |
-| `APP_SWEEP_BEAM_STEPS` | Beam correction for the width (see above). |
-| `APP_PASS_TAIL_MM` | How far past the obstacle's end before turning back. |
-| `APP_PIVOT_FAST_PWM` / `_SLOW_PWM` | Pivot drive; raise if a pivot stalls. |
-| `APP_ALIGN_FORWARD_MM` | Front sensors to axle. |
+| Constant | Now | Meaning |
+|---|---|---|
+| `APP_SIDESTEP_MM` | 400 mm | Sideways leg (grows if the measured edge needs more). |
+| `APP_BOX_DEPTH_MM` | 250 mm | Box length along the line; at least the real box. |
+| `APP_PASS_TAIL_MM` | 400 mm | How far past the box's far side the axle goes before turning back. |
+| `APP_ALIGN_FORWARD_MM` | 150 mm | Front IR sensors to axle: drive-on after crossing the line. |
+| `APP_PIVOT_WHEEL_SLIP` | 0.85 | Raise if 90-degree pivots come out short, lower if long. |
+| `APP_ROVER_LEFT_REACH_MM` / `_RIGHT_REACH_MM` | 75 / 55 mm | Centreline to the outermost part on each side. |
+| `APP_SIDE_GAP_MM` | 120 mm | Gap kept from the box edge when the sidestep grows. |
+| `APP_SWEEP_BEAM_STEPS` | 1 | Beam correction for the width (see above). |
+| `APP_PIVOT_FAST_PWM` / `_SLOW_PWM` | 14000 / 11000 | Pivot drive; raise if a pivot stalls. |
 
 ## Telemetry rule
 
 Only `buddy5_measure_cm()` updates telemetry.  It represents the last normal
 front measurement.  `buddy5_sample_with_result_cm()` is used only for
-avoidance pings (width sweep, side watch) and never replaces the telemetry
+avoidance pings (the width sweep) and never replaces the telemetry
 ultrasonic-distance value.
